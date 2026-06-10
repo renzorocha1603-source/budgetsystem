@@ -1,3 +1,2 @@
 [runner]
-# Force Python 3.11 which has better compatibility
 python_version = "3.11"
