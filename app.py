@@ -5,699 +5,726 @@ import io
 import re
 import os
 import json
+import requests
 from datetime import datetime
 
-# ─────────────────────────────────────────────
-#  PAGE CONFIG
-# ─────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────────
+# PAGE CONFIG
+# ─────────────────────────────────────────────────────────────────
 st.set_page_config(
     page_title="Budget System · Only Solutions",
     page_icon="▸",
     layout="wide",
-    initial_sidebar_state="collapsed"
+    initial_sidebar_state="expanded",
 )
 
-# ─────────────────────────────────────────────
-#  TRANSLATIONS
-# ─────────────────────────────────────────────
-TEXTS = {
+# ─────────────────────────────────────────────────────────────────
+# MISTRAL — raw HTTP (no SDK needed, errors surface correctly)
+# ─────────────────────────────────────────────────────────────────
+MISTRAL_API_KEY = "em5oqjSdA1Nus9iUpa1MNAJtQA4YfCtK"  # ← your key
+MISTRAL_URL = "https://api.mistral.ai/v1/chat/completions"
+MISTRAL_MODEL = "mistral-small-latest"
+
+def ask_mistral(history: list) -> str:
+    """
+    history: [{"role": "user"|"assistant", "content": str}, ...]
+    Returns the reply string, or a human-readable error.
+    """
+    system = {
+        "role": "system",
+        "content": (
+           "You are a professional budget analyst for parking operations, you're also an expert in traffic data and parking data your expertise is concentrated in the province of Quebec with a special knowledge of the metropolitan area of Montreal, at Only Solutions Inc. "
+            "Be precise and concise but not cold, you're warm and resourceful, you're a co-worker act like it. When revenue figures are available in the conversation, "
+            "reference them directly in your analysis."  
+        ),
+    }
+    try:
+        resp = requests.post(
+            MISTRAL_URL,
+            headers={
+                "Authorization": f"Bearer {MISTRAL_API_KEY}",
+                "Content-Type": "application/json",
+            },
+            json={
+                "model": MISTRAL_MODEL,
+                "messages": [system] + history,
+            },
+            timeout=30,
+        )
+        if resp.status_code == 200:
+            return resp.json()["choices"][0]["message"]["content"]
+        elif resp.status_code == 401:
+            return (
+                "⚠️ **API key rejected (401).** "
+                "Open [console.mistral.ai](https://console.mistral.ai) → API Keys → verify the key is active."
+            )
+        elif resp.status_code == 403:
+            return (
+                "⚠️ **IP not allowed (403).** "
+                "Your Mistral key has an IP allowlist restriction. "
+                "Go to **console.mistral.ai → API Keys → edit your key → remove the IP restriction** "
+                "(or add the server IP). Then reload this page."
+            )
+        elif resp.status_code == 429:
+            return "⚠️ **Rate limit hit.** Wait a few seconds and try again."
+        else:
+            return f"⚠️ Mistral error {resp.status_code}: {resp.text[:300]}"
+    except requests.exceptions.Timeout:
+        return "⚠️ Request timed out. Check your internet connection."
+    except Exception as e:
+        return f"⚠️ Unexpected error: {e}"
+
+# ─────────────────────────────────────────────────────────────────
+# TRANSLATIONS
+# ─────────────────────────────────────────────────────────────────
+T_DATA = {
     "en": {
-        "brand":           "BUDGET SYSTEM",
-        "brand_sub":       "Only Solutions Inc.",
-        "email_lbl":       "Email address",
-        "pass_lbl":        "Password",
-        "login_btn":       "Sign in",
-        "logout_btn":      "Sign out",
-        "wrong_creds":     "Incorrect email or password.",
-        "dashboard_title": "Dashboard",
-        "ai_title":        "AI Assistant",
-        "clear_chat":      "Clear",
-        "chat_hint":       "Ask about budget, forecasts, or calculations…",
-        "no_msgs":         "No messages yet.",
-        "files_title":     "File Upload",
-        "excel_lbl":       "Excel Template (.xlsx)",
-        "pdf_lbl":         "PDF Report (.pdf)",
-        "processing":      "Processing files…",
-        "files_ok":        "Files extracted — review metrics below.",
-        "metrics_title":   "Extracted Metrics",
-        "transient":       "Transient",
-        "monthly":         "Monthly",
-        "total":           "Total",
-        "config_title":    "Workflow Configuration",
-        "parking_lbl":     "Parking location",
-        "type_lbl":        "Parking type",
-        "hours_lbl":       "Supervisor hours / day",
-        "run_btn":         "▸  Run Workflow",
-        "running":         "Running workflow…",
-        "run_ok":          "Budget processed — file ready.",
-        "dl_btn":          "↓  Download Budget File",
-        "admin_title":     "Admin Panel",
-        "new_user_title":  "Create user",
-        "nm_lbl":          "Full name",
-        "new_email_lbl":   "Email",
-        "new_pass_lbl":    "Password",
-        "role_lbl":        "Role",
-        "create_btn":      "Create user",
-        "user_exists":     "A user with that email already exists.",
-        "user_created":    "User created successfully.",
-        "users_title":     "User list",
-        "delete_btn":      "Remove",
-        "del_ok":          "User removed.",
-        "no_del_admin":    "The admin account cannot be removed.",
-        "reset_title":     "Reset password",
-        "select_user":     "Select user",
-        "new_pw_lbl":      "New password",
-        "reset_btn":       "Reset password",
-        "reset_ok":        "Password updated.",
-        "footer":          "Budget System · Only Solutions Inc.",
-        "lang_en":         "EN",
-        "lang_fr":         "FR",
+        "brand": "BUDGET SYSTEM",
+        "brand_sub": "Only Solutions Inc.",
+        "email_lbl": "Email address",
+        "pass_lbl": "Password",
+        "login_btn": "Sign in",
+        "logout_btn": "Sign out",
+        "wrong_creds": "Incorrect email or password.",
+        "ai_title": "AI Assistant",
+        "clear_chat": "Clear chat",
+        "chat_hint": "Ask about budget, forecasts, or calculations…",
+        "no_msgs": "No messages yet — start a conversation.",
+        "files_title": "File Upload",
+        "excel_lbl": "Excel Template (.xlsx)",
+        "pdf_lbl": "PDF Report (.pdf)",
+        "processing": "Processing files…",
+        "files_ok": "Files ready — metrics extracted.",
+        "transient": "Transient",
+        "monthly": "Monthly",
+        "total": "Total",
+        "config_title": "Workflow",
+        "parking_lbl": "Parking",
+        "type_lbl": "Type",
+        "hours_lbl": "Supervisor hrs/day",
+        "run_btn": "Run Workflow",
+        "running": "Running…",
+        "run_ok": "Done — file ready to download.",
+        "dl_btn": "Download Budget File",
+        "upload_first": "Upload Excel + PDF to unlock workflow.",
+        "admin_title": "Admin Panel",
+        "new_user_title": "Create New User",
+        "nm_lbl": "Full name",
+        "new_email_lbl": "Email",
+        "new_pass_lbl": "Password",
+        "role_lbl": "Role",
+        "create_btn": "Create User",
+        "user_exists": "Email already in use.",
+        "user_created": "User created successfully.",
+        "users_title": "User List",
+        "delete_btn": "Delete",
+        "reset_title": "Reset password",
+        "select_user": "Select user",
+        "new_pw_lbl": "New password",
+        "reset_btn": "Reset Password",
+        "reset_ok": "Password updated successfully.",
+        "theme_dark": "🌙 Dark",
+        "theme_light": "☀️ Light",
+        "footer": "Budget System · Only Solutions Inc.",
+        "settings": "Settings",
+        "profile": "Profile",
     },
     "fr": {
-        "brand":           "SYSTÈME BUDGÉTAIRE",
-        "brand_sub":       "Only Solutions Inc.",
-        "email_lbl":       "Adresse courriel",
-        "pass_lbl":        "Mot de passe",
-        "login_btn":       "Se connecter",
-        "logout_btn":      "Se déconnecter",
-        "wrong_creds":     "Courriel ou mot de passe incorrect.",
-        "dashboard_title": "Tableau de bord",
-        "ai_title":        "Assistant IA",
-        "clear_chat":      "Effacer",
-        "chat_hint":       "Posez une question sur le budget, les prévisions…",
-        "no_msgs":         "Aucun message.",
-        "files_title":     "Téléverser les fichiers",
-        "excel_lbl":       "Modèle Excel (.xlsx)",
-        "pdf_lbl":         "Rapport PDF (.pdf)",
-        "processing":      "Traitement des fichiers…",
-        "files_ok":        "Fichiers extraits — vérifiez les métriques ci-dessous.",
-        "metrics_title":   "Métriques extraites",
-        "transient":       "Transitoire",
-        "monthly":         "Mensuel",
-        "total":           "Total",
-        "config_title":    "Configuration du workflow",
-        "parking_lbl":     "Stationnement",
-        "type_lbl":        "Type de stationnement",
-        "hours_lbl":       "Heures superviseur / jour",
-        "run_btn":         "▸  Exécuter le workflow",
-        "running":         "Exécution en cours…",
-        "run_ok":          "Budget traité — fichier prêt.",
-        "dl_btn":          "↓  Télécharger le fichier",
-        "admin_title":     "Panneau admin",
-        "new_user_title":  "Créer un utilisateur",
-        "nm_lbl":          "Nom complet",
-        "new_email_lbl":   "Courriel",
-        "new_pass_lbl":    "Mot de passe",
-        "role_lbl":        "Rôle",
-        "create_btn":      "Créer l'utilisateur",
-        "user_exists":     "Un utilisateur avec ce courriel existe déjà.",
-        "user_created":    "Utilisateur créé avec succès.",
-        "users_title":     "Liste des utilisateurs",
-        "delete_btn":      "Supprimer",
-        "del_ok":          "Utilisateur supprimé.",
-        "no_del_admin":    "Le compte administrateur ne peut pas être supprimé.",
-        "reset_title":     "Réinitialiser le mot de passe",
-        "select_user":     "Sélectionner un utilisateur",
-        "new_pw_lbl":      "Nouveau mot de passe",
-        "reset_btn":       "Réinitialiser",
-        "reset_ok":        "Mot de passe mis à jour.",
-        "footer":          "Système budgétaire · Only Solutions Inc.",
-        "lang_en":         "EN",
-        "lang_fr":         "FR",
+        "brand": "SYSTÈME BUDGÉTAIRE",
+        "brand_sub": "Only Solutions Inc.",
+        "email_lbl": "Adresse courriel",
+        "pass_lbl": "Mot de passe",
+        "login_btn": "Se connecter",
+        "logout_btn": "Se déconnecter",
+        "wrong_creds": "Courriel ou mot de passe incorrect.",
+        "ai_title": "Assistant IA",
+        "clear_chat": "Effacer",
+        "chat_hint": "Budget, prévisions, calculs…",
+        "no_msgs": "Aucun message — commencez une conversation.",
+        "files_title": "Fichiers",
+        "excel_lbl": "Modèle Excel (.xlsx)",
+        "pdf_lbl": "Rapport PDF (.pdf)",
+        "processing": "Traitement…",
+        "files_ok": "Fichiers prêts — métriques extraites.",
+        "transient": "Transitoire",
+        "monthly": "Mensuel",
+        "total": "Total",
+        "config_title": "Workflow",
+        "parking_lbl": "Stationnement",
+        "type_lbl": "Type",
+        "hours_lbl": "Heures sup./jour",
+        "run_btn": "Exécuter le workflow",
+        "running": "Exécution…",
+        "run_ok": "Terminé — fichier prêt.",
+        "dl_btn": "Télécharger le fichier",
+        "upload_first": "Téléversez Excel + PDF pour débloquer le workflow.",
+        "admin_title": "Admin",
+        "new_user_title": "Créer un utilisateur",
+        "nm_lbl": "Nom complet",
+        "new_email_lbl": "Courriel",
+        "new_pass_lbl": "Mot de passe",
+        "role_lbl": "Rôle",
+        "create_btn": "Créer",
+        "user_exists": "Ce courriel est déjà utilisé.",
+        "user_created": "Utilisateur créé avec succès.",
+        "users_title": "Liste des utilisateurs",
+        "delete_btn": "Supprimer",
+        "reset_title": "Réinitialiser",
+        "select_user": "Sélectionner",
+        "new_pw_lbl": "Nouveau mot de passe",
+        "reset_btn": "Réinitialiser",
+        "reset_ok": "Mot de passe mis à jour.",
+        "theme_dark": "🌙 Sombre",
+        "theme_light": "☀️ Clair",
+        "footer": "Système budgétaire · Only Solutions Inc.",
+        "settings": "Paramètres",
+        "profile": "Profil",
     },
 }
 
-# ─────────────────────────────────────────────
-#  USER MANAGEMENT
-# ─────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────────
+# USER MANAGEMENT
+# ─────────────────────────────────────────────────────────────────
 USERS_FILE = "users.json"
+ADMIN_EMAIL = "admin@onlys.com"
 
 DEFAULT_USERS = {
-    "admin@onlys.com": {
+    ADMIN_EMAIL: {
         "password": "12345",
-        "name":     "Administrator",
-        "role":     "admin",
-        "created":  datetime.now().isoformat(),
+        "name": "Administrator",
+        "role": "admin",
+        "created": datetime.now().isoformat(),
     }
 }
 
 def load_users():
     if os.path.exists(USERS_FILE):
-        with open(USERS_FILE, "r") as f:
+        with open(USERS_FILE) as f:
             return json.load(f)
     save_users(DEFAULT_USERS)
     return DEFAULT_USERS
 
-def save_users(users):
+def save_users(u):
     with open(USERS_FILE, "w") as f:
-        json.dump(users, f, indent=2)
+        json.dump(u, f, indent=2)
 
-def authenticate(email, password):
-    users = load_users()
-    u = users.get(email)
-    return u if u and u["password"] == password else None
+def authenticate(email, pw):
+    u = load_users().get(email)
+    return u if (u and u["password"] == pw) else None
 
-def create_user(email, name, password, role="user"):
+def create_user(email, name, pw, role="user"):
     users = load_users()
     if email in users:
-        return False, "User already exists"
-    users[email] = {"password": password, "name": name, "role": role, "created": datetime.now().isoformat()}
+        return False
+    users[email] = {"password": pw, "name": name, "role": role, "created": datetime.now().isoformat()}
     save_users(users)
-    return True, "User created successfully"
+    return True
 
 def delete_user(email):
-    if email == "admin@onlys.com":
-        return False, "Cannot delete admin"
+    if email == ADMIN_EMAIL:
+        return False
     users = load_users()
     if email in users:
         del users[email]
         save_users(users)
-        return True, "User deleted"
-    return False, "User not found"
+        return True
+    return False
 
-def reset_password(email, new_pw):
+def reset_password(email, pw):
     users = load_users()
     if email in users:
-        users[email]["password"] = new_pw
+        users[email]["password"] = pw
         save_users(users)
-        return True, "Password updated"
-    return False, "User not found"
+        return True
+    return False
 
-# ─────────────────────────────────────────────
-#  PDF / EXCEL PROCESSING
-# ─────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────────
+# PDF / EXCEL
+# ─────────────────────────────────────────────────────────────────
 def extract_pdf_data(pdf_file):
-    result = {"transient": 0, "monthly": 0, "total": 0}
+    r = {"transient": 0, "monthly": 0, "total": 0}
     with pdfplumber.open(pdf_file) as pdf:
-        text = ""
-        for page in pdf.pages:
-            text += page.extract_text() or ""
+        text = "".join(p.extract_text() or "" for p in pdf.pages)
     nums = re.findall(r'\$?([\d,]+\.?\d*)', text)
-    result["total"] = float(nums[0].replace(",", "")) if nums else 40000
+    r["total"] = float(nums[0].replace(",", "")) if nums else 40000
     for line in text.split("\n"):
-        ll = line.lower()
-        ns = re.findall(r'\$?([\d,]+\.?\d*)', line)
+        ll, ns = line.lower(), re.findall(r'\$?([\d,]+\.?\d*)', line)
         if "transient" in ll and ns:
-            result["transient"] = float(ns[0].replace(",", ""))
+            r["transient"] = float(ns[0].replace(",", ""))
         elif "monthly" in ll and ns:
-            result["monthly"] = float(ns[0].replace(",", ""))
-    if result["transient"] == 0:
-        result["transient"] = result["total"] * 0.6
-    if result["monthly"] == 0:
-        result["monthly"] = result["total"] * 0.4
-    return result
+            r["monthly"] = float(ns[0].replace(",", ""))
+    if not r["transient"]:
+        r["transient"] = r["total"] * 0.6
+    if not r["monthly"]:
+        r["monthly"] = r["total"] * 0.4
+    return r
 
 def run_excel_workflow(excel_bytes, revenue, parking_type, supervisor_hours):
     wb = load_workbook(io.BytesIO(excel_bytes))
     ws = wb.active
     log = []
 
-    def setcell(addr, val):
+    def sc(addr, val):
         try:
             ws[addr] = val
             ws[addr].number_format = "#,##0.00"
         except Exception:
             pass
 
-    setcell("K17", revenue["transient"])
-    setcell("K18", revenue["monthly"])
-    setcell("K26", revenue["total"])
-    log.append(f"✓ Revenue cells updated (K17=${revenue['transient']:,.0f}, K18=${revenue['monthly']:,.0f}, K26=${revenue['total']:,.0f})")
+    sc("K17", revenue["transient"])
+    sc("K18", revenue["monthly"])
+    sc("K26", revenue["total"])
+    log.append(f"Revenue → K17 ${revenue['transient']:,.0f} K18 ${revenue['monthly']:,.0f} K26 ${revenue['total']:,.0f}")
 
-    if "School" in parking_type:
-        mult = [1.2, 1.2, 1.2, 1.1, 0.8, 0.8, 0.8, 0.8, 1.1, 1.1, 1.2, 1.2]
-    else:
-        mult = [0.8, 0.8, 0.9, 0.9, 1.3, 1.3, 1.3, 1.2, 1.0, 1.0, 0.8, 0.8]
-
+    mult = ([1.2,1.2,1.2,1.1,0.8,0.8,0.8,0.8,1.1,1.1,1.2,1.2] if "School" in parking_type 
+            else [0.8,0.8,0.9,0.9,1.3,1.3,1.3,1.2,1.0,1.0,0.8,0.8])
     base = revenue["total"] / 12
     for i, m in enumerate(mult):
-        setcell(f"K{20 + i}", base * m)
-    log.append("✓ Monthly projections applied (K20–K31)")
+        sc(f"K{20+i}", base * m)
+    log.append("Monthly projections → K20–K31")
 
-    sup_cost = 25 * supervisor_hours * 30
-    setcell("K30", sup_cost)
-    log.append(f"✓ Supervisor cost set to ${sup_cost:,.2f} / month")
+    sup = 25 * supervisor_hours * 30
+    sc("K30", sup)
+    log.append(f"Supervisor cost → K30 ${sup:,.2f}/month")
 
     out = io.BytesIO()
     wb.save(out)
     out.seek(0)
     return out, log
 
-# ─────────────────────────────────────────────
-#  GLOBAL CSS
-# ─────────────────────────────────────────────
-st.markdown("""
-<style>
-@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500;600&family=Inter:wght@300;400;500;600;700&display=swap');
-
-html, body, [class*="css"] {
-    font-family: 'Inter', sans-serif;
-    background: #060D18 !important;
-    color: #B8CCDE;
-}
-.main { padding: 0 !important; }
-.block-container { padding: 0 !important; max-width: 100% !important; }
-#MainMenu, footer, header { visibility: hidden; }
-::-webkit-scrollbar { width: 4px; }
-::-webkit-scrollbar-track { background: #0A1525; }
-::-webkit-scrollbar-thumb { background: #1A3050; border-radius: 4px; }
-
-.login-container {
-    max-width: 420px;
-    margin: 0 auto;
-    position: absolute;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
-    background: #0D1B2E;
-    border-radius: 16px;
-    border: 1px solid #1A3050;
-    padding: 2rem;
-    width: 90%;
-}
-.login-header {
-    text-align: center;
-    margin-bottom: 1.5rem;
-}
-.login-header h1 {
-    font-family: 'IBM Plex Mono', monospace;
-    font-size: 1.5rem;
-    color: #00D4FF;
-    margin-bottom: 0.25rem;
-}
-.login-header .subtitle {
-    font-size: 0.65rem;
-    color: #4A6E8A;
-}
-
-.db-header {
-    background: #0D1B2E;
-    padding: 0.8rem 1.5rem;
-    border-radius: 8px;
-    border-bottom: 2px solid #00D4FF;
-    margin-bottom: 1rem;
-    display: flex;
-    justify-content: space-between;
-}
-.scard {
-    background: #0C1929;
-    border: 1px solid #172A42;
-    border-radius: 8px;
-    padding: 1rem 1.25rem;
-    margin-bottom: 1rem;
-}
-.scard-title {
-    font-family: 'IBM Plex Mono', monospace;
-    font-size: 0.63rem;
-    font-weight: 500;
-    color: #00D4FF;
-    text-transform: uppercase;
-    margin-bottom: 0.8rem;
-    padding-bottom: 0.5rem;
-    border-bottom: 1px solid #172A42;
-}
-.metric-row {
-    display: grid;
-    grid-template-columns: 1fr 1fr 1fr;
-    gap: 0.6rem;
-    margin-top: 0.75rem;
-}
-.metric-block {
-    background: #070E1A;
-    border: 1px solid #172A42;
-    border-radius: 6px;
-    padding: 0.6rem 0.8rem;
-    text-align: center;
-}
-.metric-value {
-    font-family: 'IBM Plex Mono', monospace;
-    font-size: 1.1rem;
-    font-weight: 600;
-    color: #00D4FF;
-}
-.chat-scroll {
-    max-height: 350px;
-    overflow-y: auto;
-    padding: 0.25rem 0;
-}
-.bubble-user {
-    background: #0E2A45;
-    border-right: 2px solid #00D4FF;
-    padding: 0.6rem 0.85rem;
-    border-radius: 8px 2px 8px 8px;
-    margin-bottom: 0.65rem;
-    margin-left: auto;
-    max-width: 80%;
-}
-.bubble-bot {
-    background: #070E1A;
-    border-left: 2px solid #C9A84C;
-    padding: 0.6rem 0.85rem;
-    border-radius: 2px 8px 8px 8px;
-    margin-bottom: 0.65rem;
-    max-width: 80%;
-}
-.log-line {
-    font-family: 'IBM Plex Mono', monospace;
-    font-size: 0.7rem;
-    color: #00C9A7;
-    padding: 0.2rem 0;
-}
-.hr {
-    height: 1px;
-    background: #172A42;
-    margin: 0.8rem 0;
-}
-.db-footer {
-    text-align: center;
-    font-family: 'IBM Plex Mono', monospace;
-    font-size: 0.55rem;
-    color: #1A3050;
-    padding: 1rem 0 0.5rem;
-    border-top: 1px solid #0E1E30;
-    margin-top: 0.8rem;
-}
-.stButton > button {
-    background: #0A2240 !important;
-    color: #00D4FF !important;
-    border: 1px solid #1A4460 !important;
-    font-family: 'IBM Plex Mono', monospace !important;
-    font-size: 0.72rem !important;
-    font-weight: 500 !important;
-    letter-spacing: 0.1em !important;
-    text-transform: uppercase !important;
-    border-radius: 5px !important;
-    padding: 0.4rem 1rem !important;
-    width: 100% !important;
-}
-.stButton > button:hover {
-    background: #0D2E58 !important;
-    border-color: #00D4FF88 !important;
-}
-.stButton > button[kind="primary"] {
-    background: linear-gradient(90deg, #003D5C 0%, #005C80 100%) !important;
-    border-color: #007AAA !important;
-}
-.stDownloadButton > button {
-    background: #071A10 !important;
-    color: #00C9A7 !important;
-    border: 1px solid #0D4030 !important;
-}
-section[data-testid="stSidebar"] {
-    background: #0A1525 !important;
-    border-right: 1px solid #172A42 !important;
-}
-</style>
-""", unsafe_allow_html=True)
-
-# ─────────────────────────────────────────────
-#  SESSION STATE INIT
-# ─────────────────────────────────────────────
-_defaults = {
-    "authenticated": False,
-    "user_email":    "",
-    "user_name":     "",
-    "user_role":     "",
-    "lang":          "en",
-    "messages":      [],
-    "excel_bytes":   None,
-    "extracted_rev": {},
-    "files_ready":   False,
-    "fixed_excel":   None,
-    "workflow_log":  [],
-}
-for k, v in _defaults.items():
+# ─────────────────────────────────────────────────────────────────
+# SESSION STATE
+# ─────────────────────────────────────────────────────────────────
+_D = dict(
+    authenticated=False,
+    user_email="",
+    user_name="",
+    user_role="",
+    lang="en",
+    theme="dark",
+    messages=[],
+    excel_bytes=None,
+    extracted_rev={},
+    files_ready=False,
+    fixed_excel=None,
+    workflow_log=[],
+    show_settings=False,
+)
+for k, v in _D.items():
     if k not in st.session_state:
         st.session_state[k] = v
 
 def T(key):
-    return TEXTS[st.session_state.lang].get(key, key)
+    return T_DATA[st.session_state.lang].get(key, key)
 
 def do_logout():
-    for k, v in _defaults.items():
+    for k, v in _D.items():
         st.session_state[k] = v
     st.rerun()
 
-# ─────────────────────────────────────────────
-#  MISTRAL SETUP
-# ─────────────────────────────────────────────
-MISTRAL_API_KEY = "em5oqjSdA1Nus9iUpa1MNAJtQA4YfCtK"
+# ─────────────────────────────────────────────────────────────────
+# THEME TOKENS
+# ─────────────────────────────────────────────────────────────────
+DARK = dict(
+    bg="#0D1117",
+    surface="#161B22",
+    border="#30363D",
+    accent="#58A6FF",
+    accent2="#D2A8FF",
+    accent3="#3FB950",
+    text="#E6EDF3",
+    text_secondary="#8B949E",
+    muted="#8B949E",
+    danger="#F85149",
+    bubble_user="#1F6FEB",
+    bubble_bot="#21262D",
+    input_bg="#0D1117",
+    navbar="#161B22",
+    btn_bg="#21262D",
+    btn_border="#30363D",
+    run_bg="#1F6FEB",
+    run_bg2="#388BFD",
+    dl_bg="#21262D",
+    dl_color="#3FB950",
+    dl_border="#30363D",
+)
 
-try:
-    from mistralai import Mistral
-    _mistral_client = Mistral(api_key=MISTRAL_API_KEY)
-    MISTRAL_OK = True
-except Exception:
-    _mistral_client = None
-    MISTRAL_OK = False
+LIGHT = dict(
+    bg="#F5F7FA",
+    surface="#FFFFFF",
+    border="#D4DCE8",
+    accent="#0066CC",
+    accent2="#7C3AED",
+    accent3="#0E7933",
+    text="#1A2E45",
+    text_secondary="#5C6F8C",
+    muted="#5C6F8C",
+    danger="#DC2626",
+    bubble_user="#E6F0FF",
+    bubble_bot="#F8FAFE",
+    input_bg="#FFFFFF",
+    navbar="#F0F4F9",
+    btn_bg="#EFF3F8",
+    btn_border="#D4DCE8",
+    run_bg="#0066CC",
+    run_bg2="#1A75D6",
+    dl_bg="#E6F7ED",
+    dl_color="#0E7933",
+    dl_border="#C4E6D4",
+)
 
-def ask_mistral(messages_history):
-    if not MISTRAL_OK:
-        return "⚠️ Mistral AI not configured. Please add your API key."
-    try:
-        sys_msg = {"role": "system", "content": "You are a professional budget assistant for parking operations. Be concise and actionable."}
-        payload = [sys_msg] + [{"role": m["role"], "content": m["content"]} for m in messages_history]
-        resp = _mistral_client.chat.complete(model="mistral-small-latest", messages=payload)
-        return resp.choices[0].message.content
-    except Exception as e:
-        return f"Error: {str(e)}"
+def TK():
+    return DARK if st.session_state.theme == "dark" else LIGHT
 
-# ─────────────────────────────────────────────
-#  LOGIN PAGE
-# ─────────────────────────────────────────────
+def inject_css():
+    C = TK()
+    is_dark = st.session_state.theme == "dark"
+    st.markdown(f"""
+    <style>
+    @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500;600&family=Inter:wght@300;400;500;600;700&display=swap');
+
+    html, body, [class*="css"], .stApp, .main, .stApp > div, div[data-testid="stAppViewContainer"], div[data-testid="stHeader"] {{
+        background-color: {C['bg']} !important;
+        color: {C['text']} !important;
+    }}
+    
+    p, span, div, label, .stMarkdown, .stText, .stCaption, .stException, .stCodeBlock, .stAlert, 
+    .stSuccess, .stInfo, .stWarning, .stError, .stDataFrame, .stTable, .stJson,
+    .element-container, .stTextInput label, .stSelectbox label, .stNumberInput label,
+    .stFileUploader label, .stMultiSelect label, .stTextArea label {{
+        color: {C['text']} !important;
+    }}
+    
+    div[data-testid="stFileUploader"] span, 
+    div[data-testid="stFileUploader"] p, 
+    div[data-testid="stFileUploader"] div,
+    .stFileUploader div,
+    .uploadedFileName,
+    .stFileUploader span {{
+        color: {C['text']} !important;
+    }}
+    
+    .stMarkdown small, .stCaption, .text-muted, .secondary-text {{
+        color: {C['text_secondary']} !important;
+    }}
+    
+    .main {{ padding: 0 !important; }}
+    .block-container {{ padding: 1rem 1.5rem 2rem !important; max-width: 100% !important; }}
+    #MainMenu, footer, header {{ visibility: hidden; }}
+    
+    ::-webkit-scrollbar {{ width: 4px; }}
+    ::-webkit-scrollbar-track {{ background: {C['bg']}; }}
+    ::-webkit-scrollbar-thumb {{ background: {C['border']}; border-radius: 4px; }}
+
+    .navbar {{ display: flex; align-items: center; padding: 0.55rem 0.25rem; gap: 0.75rem; border-bottom: 1px solid {C['border']}; margin-bottom: 1.25rem; }}
+    .navbar-brand {{ font-family: 'IBM Plex Mono', monospace; font-size: 0.82rem; font-weight: 600; color: {C['accent']} !important; letter-spacing: 0.07em; flex: 1; }}
+    .navbar-user {{ font-family: 'IBM Plex Mono', monospace; font-size: 0.6rem; color: {C['text_secondary']} !important; border-left: 1px solid {C['border']}; padding-left: 0.75rem; margin-left: 0.25rem; }}
+
+    .scard {{ background: {C['surface']}; border: 1px solid {C['border']}; border-radius: 8px; padding: 1rem 1.1rem 1.1rem; margin-bottom: 1rem; height: 100%; }}
+    .scard-title {{ font-family: 'IBM Plex Mono', monospace; font-size: 0.6rem; font-weight: 500; color: {C['accent']} !important; text-transform: uppercase; letter-spacing: 0.16em; margin-bottom: 0.85rem; padding-bottom: 0.45rem; border-bottom: 1px solid {C['border']}; display: flex; align-items: center; gap: 0.4rem; }}
+    .scard-title::before {{ content: ''; width: 2px; height: 9px; background: {C['accent']}; border-radius: 2px; flex-shrink: 0; }}
+
+    .metric-row {{ display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0.5rem; margin-top: 0.75rem; }}
+    .mblock {{ background: {C['bg']}; border: 1px solid {C['border']}; border-radius: 6px; padding: 0.6rem 0.7rem; }}
+    .mblock-label {{ font-family: 'IBM Plex Mono', monospace; font-size: 0.55rem; color: {C['text_secondary']} !important; letter-spacing: 0.1em; text-transform: uppercase; margin-bottom: 0.2rem; }}
+    .mblock-val {{ font-family: 'IBM Plex Mono', monospace; font-size: 1rem; font-weight: 600; line-height: 1; }}
+    .mblock-val.c {{ color: {C['accent']} !important; }}
+    .mblock-val.g {{ color: {C['accent2']} !important; }}
+    .mblock-val.t {{ color: {C['accent3']} !important; }}
+
+    .chat-scroll {{ 
+        max-height: 400px; 
+        overflow-y: auto; 
+        overflow-x: hidden;
+        padding-right: 10px;
+        margin-bottom: 0.5rem;
+        scrollbar-width: thin;
+    }}
+    .bubble-user {{ background: {C['bubble_user']}; border: 1px solid {C['border']}; border-right: 2px solid {C['accent']}; padding: 0.5rem 0.75rem; border-radius: 8px 2px 8px 8px; margin-bottom: 0.5rem; margin-left: auto; margin-right: 0; max-width: 85%; width: fit-content; font-size: 0.82rem; line-height: 1.5; color: {C['text']} !important; }}
+    .bubble-bot {{ background: {C['bubble_bot']}; border: 1px solid {C['border']}; border-left: 2px solid {C['accent2']}; padding: 0.5rem 0.75rem; border-radius: 2px 8px 8px 8px; margin-bottom: 0.5rem; margin-right: auto; margin-left: 0; max-width: 85%; width: fit-content; font-size: 0.82rem; line-height: 1.5; color: {C['text']} !important; }}
+    .bubble-lbl {{ font-family: 'IBM Plex Mono', monospace; font-size: 0.52rem; letter-spacing: 0.1em; text-transform: uppercase; color: {C['text_secondary']} !important; margin-bottom: 0.2rem; opacity: 0.7; }}
+    .no-msgs {{ font-family: 'IBM Plex Mono', monospace; font-size: 0.68rem; color: {C['text_secondary']} !important; text-align: center; padding: 2rem 0 1.5rem; letter-spacing: 0.06em; }}
+
+    .log-line {{ font-family: 'IBM Plex Mono', monospace; font-size: 0.65rem; color: {C['accent3']} !important; padding: 0.15rem 0; letter-spacing: 0.03em; }}
+    .log-line::before {{ content: '▸ '; opacity: 0.5; }}
+
+    .hr {{ height: 1px; background: {C['border']}; margin: 0.7rem 0; }}
+
+    .login-box {{ background: {C['surface']}; border: 1px solid {C['border']}; border-top: 2px solid {C['accent']}; border-radius: 10px; padding: 2rem 2rem 1.75rem; margin-top: 8vh; }}
+    .login-brand {{ font-family: 'IBM Plex Mono', monospace; font-size: 1.05rem; font-weight: 600; color: {C['accent']} !important; letter-spacing: 0.07em; margin-bottom: 0.15rem; }}
+    .login-sub {{ font-size: 0.6rem; color: {C['text_secondary']} !important; letter-spacing: 0.13em; text-transform: uppercase; margin-bottom: 1.6rem; }}
+
+    .db-footer {{ text-align: center; font-family: 'IBM Plex Mono', monospace; font-size: 0.55rem; color: {C['text_secondary']} !important; letter-spacing: 0.1em; text-transform: uppercase; padding: 1.25rem 0 0.5rem; border-top: 1px solid {C['border']}; margin-top: 0.5rem; }}
+    </style>
+    """, unsafe_allow_html=True)
+
+# ─────────────────────────────────────────────────────────────────
+# LOGIN PAGE
+# ─────────────────────────────────────────────────────────────────
 def page_login():
-    t = TEXTS[st.session_state.lang]
-
-    lc1, lc2, lc3 = st.columns([8, 0.6, 0.6])
-    with lc2:
-        if st.button("EN"):
+    inject_css()
+    
+    r1, r2, r3, r4 = st.columns([8, 0.75, 0.55, 0.55])
+    with r2:
+        theme_label = T("theme_light") if st.session_state.theme == "dark" else T("theme_dark")
+        if st.button(theme_label, key="login_theme"):
+            st.session_state.theme = "light" if st.session_state.theme == "dark" else "dark"
+            st.rerun()
+    with r3:
+        if st.button("EN", key="login_en"):
             st.session_state.lang = "en"
             st.rerun()
-    with lc3:
-        if st.button("FR"):
+    with r4:
+        if st.button("FR", key="login_fr"):
             st.session_state.lang = "fr"
             st.rerun()
 
-    st.markdown(f"""
-    <div class="login-container">
-        <div class="login-header">
-            <h1>▸ {t['brand']}</h1>
-            <div class="subtitle">{t['brand_sub']}</div>
+    _, center, _ = st.columns([1, 1.05, 1])
+    with center:
+        st.markdown(f"""
+        <div class="login-box">
+            <div class="login-brand">▸ {T('brand')}</div>
+            <div class="login-sub">{T('brand_sub')}</div>
         </div>
-    """, unsafe_allow_html=True)
-
-    with st.form("login_form"):
-        email = st.text_input(t["email_lbl"], placeholder="admin@onlys.com")
-        password = st.text_input(t["pass_lbl"], type="password", placeholder="12345")
-        submitted = st.form_submit_button(t["login_btn"], use_container_width=True)
-
-        if submitted:
-            user = authenticate(email, password)
-            if user:
-                st.session_state.authenticated = True
-                st.session_state.user_email = email
-                st.session_state.user_name = user["name"]
-                st.session_state.user_role = user["role"]
-                st.rerun()
-            else:
-                st.error(t["wrong_creds"])
-
-    st.markdown("</div>", unsafe_allow_html=True)
-
-# ─────────────────────────────────────────────
-#  ADMIN SIDEBAR
-# ─────────────────────────────────────────────
-def render_admin_sidebar():
-    t = TEXTS[st.session_state.lang]
-    with st.sidebar:
-        st.markdown("---")
-        st.markdown(f"### {t['admin_title']}")
+        """, unsafe_allow_html=True)
         
-        with st.expander("➕ " + t["new_user_title"], expanded=False):
+        with st.form("login_form", clear_on_submit=False):
+            email = st.text_input(T("email_lbl"), placeholder="admin@onlys.com")
+            password = st.text_input(T("pass_lbl"), type="password", placeholder="••••••••")
+            submit = st.form_submit_button(T("login_btn"), use_container_width=True)
+            
+            if submit:
+                user = authenticate(email, password)
+                if user:
+                    st.session_state.authenticated = True
+                    st.session_state.user_email = email
+                    st.session_state.user_name = user["name"]
+                    st.session_state.user_role = user["role"]
+                    st.rerun()
+                else:
+                    st.error(T("wrong_creds"))
+        
+        st.markdown(f'<div class="db-footer">{T("footer")}</div>', unsafe_allow_html=True)
+
+# ─────────────────────────────────────────────────────────────────
+# SETTINGS MENU
+# ─────────────────────────────────────────────────────────────────
+def render_settings_menu():
+    with st.expander(f"⚙️ {T('settings')}", expanded=st.session_state.show_settings):
+        st.markdown(f"**{T('profile')}**")
+        st.info(f"**{st.session_state.user_name}**  \n`{st.session_state.user_email}`  \nRole: **{st.session_state.user_role.upper()}**")
+        
+        st.markdown("---")
+        
+        if st.button(T("logout_btn"), type="secondary", use_container_width=True):
+            do_logout()
+        
+        if st.session_state.user_role == "admin":
+            st.markdown("### 👑 Admin Management")
+            st.markdown(f"### 👤 {T('new_user_title')}")
             with st.form("create_user_form"):
-                new_name = st.text_input(t["nm_lbl"], key="cu_name")
-                new_email = st.text_input(t["new_email_lbl"], key="cu_email")
-                new_pass = st.text_input(t["new_pass_lbl"], type="password", key="cu_pw")
-                role = st.selectbox(t["role_lbl"], ["user", "admin"], key="cu_role")
-                if st.form_submit_button(t["create_btn"]):
-                    if new_email and new_name and new_pass:
-                        ok, msg = create_user(new_email, new_name, new_pass, role)
-                        if ok:
-                            st.success(msg)
+                col1, col2 = st.columns(2)
+                with col1:
+                    new_name = st.text_input(T("nm_lbl"), placeholder="John Doe")
+                with col2:
+                    new_email = st.text_input(T("new_email_lbl"), placeholder="user@example.com")
+                new_password = st.text_input(T("new_pass_lbl"), type="password", placeholder="••••••••")
+                new_role = st.selectbox(T("role_lbl"), ["user", "admin"])
+                
+                if st.form_submit_button("➕ " + T("create_btn"), type="primary"):
+                    if new_email and new_name and new_password:
+                        if create_user(new_email, new_name, new_password, new_role):
+                            st.success(f"✅ {T('user_created')}")
                             st.rerun()
                         else:
-                            st.error(msg)
+                            st.error(f"❌ {T('user_exists')}")
                     else:
                         st.warning("All fields required")
-        
-        with st.expander("📋 " + t["users_title"], expanded=False):
-            users = load_users()
-            for ue, ud in users.items():
-                col1, col2 = st.columns([3, 1])
-                with col1:
-                    badge = "👑 ADMIN" if ud["role"] == "admin" else "👤 USER"
-                    st.markdown(f"**{ud['name']}**  \n`{ue}`  \n*{badge}*")
-                with col2:
-                    if ud["role"] != "admin":
-                        if st.button("🗑️", key=f"del_{ue}"):
-                            delete_user(ue)
-                            st.rerun()
-                st.markdown("---")
-        
-        with st.expander("🔑 " + t["reset_title"], expanded=False):
-            users = load_users()
-            sel = st.selectbox(t["select_user"], list(users.keys()))
-            npw = st.text_input(t["new_pw_lbl"], type="password")
-            if st.button(t["reset_btn"]):
-                if sel and npw:
-                    ok, msg = reset_password(sel, npw)
-                    if ok:
-                        st.success(msg)
-                    else:
-                        st.error(msg)
+            
+            st.markdown("---")
+            with st.expander("📋 " + T("users_title")):
+                users = load_users()
+                for ue, ud in users.items():
+                    ca, cb = st.columns([5, 1])
+                    with ca:
+                        tag = "👑 ADMIN" if ud["role"] == "admin" else "👤 USER"
+                        st.markdown(f"**{ud['name']}** \n`{ue}`  \n*{tag}*", unsafe_allow_html=True)
+                    with cb:
+                        if ud["role"] != "admin":
+                            if st.button("🗑️", key=f"del_{ue}"):
+                                delete_user(ue)
+                                st.rerun()
+                    st.markdown("---")
+            
+            with st.expander("🔑 " + T("reset_title")):
+                users = load_users()
+                sel = st.selectbox(T("select_user"), list(users.keys()), key="reset_select")
+                npw = st.text_input(T("new_pw_lbl"), type="password", key="reset_password_input")
+                if st.button(T("reset_btn"), use_container_width=True):
+                    if sel and npw:
+                        reset_password(sel, npw)
+                        st.success(T("reset_ok"))
 
-# ─────────────────────────────────────────────
-#  MAIN DASHBOARD
-# ─────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────────
+# MAIN DASHBOARD
+# ─────────────────────────────────────────────────────────────────
 def page_dashboard():
-    t = TEXTS[st.session_state.lang]
-
-    if st.session_state.user_role == "admin":
-        render_admin_sidebar()
-
-    # Header
-    st.markdown(f"""
-    <div class="db-header">
-        <div><strong>{t['brand']}</strong><br><small>{st.session_state.user_name} | {st.session_state.user_role.upper()}</small></div>
-        <div><small>{datetime.now().strftime('%Y-%m-%d %H:%M')}</small></div>
-    </div>
-    """, unsafe_allow_html=True)
-
-    # Language and logout buttons
-    col_l1, col_l2, col_l3, col_l4 = st.columns([6, 0.8, 0.8, 1.2])
-    with col_l2:
-        if st.button("EN"):
+    inject_css()
+    
+    # Navbar
+    n1, n2, n3, n4, n5, n6, n7 = st.columns([4, 1.4, 0.65, 0.65, 0.65, 0.65, 0.85])
+    with n1:
+        st.markdown(f"""
+        <div class="navbar">
+            <span class="navbar-brand">▸ {T('brand')}</span>
+            <span class="navbar-user">{st.session_state.user_name} · {st.session_state.user_role.upper()}</span>
+        </div>
+        """, unsafe_allow_html=True)
+    with n2:
+        st.markdown(f"<div style='font-family:IBM Plex Mono,monospace;font-size:0.58rem;color:{TK()['text_secondary']};padding-top:0.6rem;text-align:right;'>{datetime.now().strftime('%Y-%m-%d %H:%M')}</div>", unsafe_allow_html=True)
+    with n3:
+        theme_label = T("theme_light") if st.session_state.theme == "dark" else T("theme_dark")
+        if st.button(theme_label, key="dash_theme"):
+            st.session_state.theme = "light" if st.session_state.theme == "dark" else "dark"
+            st.rerun()
+    with n4:
+        if st.button("EN", key="dash_en"):
             st.session_state.lang = "en"
             st.rerun()
-    with col_l3:
-        if st.button("FR"):
+    with n5:
+        if st.button("FR", key="dash_fr"):
             st.session_state.lang = "fr"
             st.rerun()
-    with col_l4:
-        if st.button(t["logout_btn"]):
+    with n6:
+        if st.button("⚙️", key="settings_btn"):
+            st.session_state.show_settings = not st.session_state.show_settings
+    with n7:
+        if st.button(T("logout_btn"), key="logout_top"):
             do_logout()
 
-    st.markdown("---")
+    # Settings Menu (top right)
+    render_settings_menu()
 
-    # Main layout - 3 columns
-    col_chat, col_files, col_workflow = st.columns([1, 1.2, 1])
+    col_chat, col_files, col_wf = st.columns([1, 1.15, 0.95])
 
-    # COLUMN 1: AI CHAT
     with col_chat:
-        st.markdown(f'<div class="scard"><div class="scard-title">{t["ai_title"]}</div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="scard"><div class="scard-title">{T("ai_title")}</div>', unsafe_allow_html=True)
         
-        if st.button(t["clear_chat"], key="clear_chat"):
-            st.session_state.messages = []
-            st.rerun()
+        _, btn_col = st.columns([3, 1])
+        with btn_col:
+            if st.button(T("clear_chat"), key="clr"):
+                st.session_state.messages = []
+                st.rerun()
         
         st.markdown('<div class="chat-scroll">', unsafe_allow_html=True)
         if not st.session_state.messages:
-            st.info(t["no_msgs"])
-        for msg in st.session_state.messages:
-            if msg["role"] == "user":
-                st.markdown(f'<div class="bubble-user"><strong>You:</strong><br>{msg["content"]}</div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="no-msgs">— {T("no_msgs")} —</div>', unsafe_allow_html=True)
+        for m in st.session_state.messages:
+            if m["role"] == "user":
+                st.markdown(f'<div class="bubble-user"><div class="bubble-lbl">You</div>{m["content"]}</div>', unsafe_allow_html=True)
             else:
-                st.markdown(f'<div class="bubble-bot"><strong>AI:</strong><br>{msg["content"]}</div>', unsafe_allow_html=True)
+                st.markdown(f'<div class="bubble-bot"><div class="bubble-lbl">Assistant</div>{m["content"]}</div>', unsafe_allow_html=True)
         st.markdown('</div>', unsafe_allow_html=True)
         
-        user_input = st.chat_input(t["chat_hint"])
+        user_input = st.chat_input(T("chat_hint"))
         if user_input:
+            ctx_suffix = ""
+            if st.session_state.extracted_rev and not st.session_state.messages:
+                rev = st.session_state.extracted_rev
+                ctx_suffix = (f" [Budget context: Transient ${rev['transient']:,.0f}, "
+                            f"Monthly ${rev['monthly']:,.0f}, Total ${rev['total']:,.0f}]")
             st.session_state.messages.append({"role": "user", "content": user_input})
-            reply = ask_mistral(st.session_state.messages)
+            hist = st.session_state.messages[:-1] + [{"role": "user", "content": user_input + ctx_suffix}]
+            reply = ask_mistral(hist)
             st.session_state.messages.append({"role": "assistant", "content": reply})
             st.rerun()
         
         st.markdown('</div>', unsafe_allow_html=True)
 
-    # COLUMN 2: FILE UPLOAD
     with col_files:
-        st.markdown(f'<div class="scard"><div class="scard-title">{t["files_title"]}</div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="scard"><div class="scard-title">{T("files_title")}</div>', unsafe_allow_html=True)
         
-        excel_file = st.file_uploader(t["excel_lbl"], type=["xlsx"], key="excel_up")
-        pdf_file = st.file_uploader(t["pdf_lbl"], type=["pdf"], key="pdf_up")
+        excel_file = st.file_uploader(T("excel_lbl"), type=["xlsx"], key="xl")
+        pdf_file = st.file_uploader(T("pdf_lbl"), type=["pdf"], key="pd")
         
         if excel_file and pdf_file and not st.session_state.files_ready:
-            with st.spinner(t["processing"]):
+            with st.spinner(T("processing")):
                 rev = extract_pdf_data(pdf_file)
                 st.session_state.extracted_rev = rev
                 st.session_state.excel_bytes = excel_file.read()
                 st.session_state.files_ready = True
-                st.session_state.workflow_log = []
-            st.success(t["files_ok"])
+                st.session_state.fixed_excel = None
+            st.success(T("files_ok"))
             st.rerun()
         
         if st.session_state.extracted_rev:
             rev = st.session_state.extracted_rev
             st.markdown(f"""
             <div class="metric-row">
-                <div class="metric-block"><div class="metric-value">${rev['transient']:,.0f}</div><div>{t['transient']}</div></div>
-                <div class="metric-block"><div class="metric-value">${rev['monthly']:,.0f}</div><div>{t['monthly']}</div></div>
-                <div class="metric-block"><div class="metric-value">${rev['total']:,.0f}</div><div>{t['total']}</div></div>
+                <div class="mblock">
+                    <div class="mblock-label">{T('transient')}</div>
+                    <div class="mblock-val c">${rev['transient']:,.0f}</div>
+                </div>
+                <div class="mblock">
+                    <div class="mblock-label">{T('monthly')}</div>
+                    <div class="mblock-val g">${rev['monthly']:,.0f}</div>
+                </div>
+                <div class="mblock">
+                    <div class="mblock-label">{T('total')}</div>
+                    <div class="mblock-val t">${rev['total']:,.0f}</div>
+                </div>
             </div>
             """, unsafe_allow_html=True)
         
         st.markdown('</div>', unsafe_allow_html=True)
 
-    # COLUMN 3: WORKFLOW
-    with col_workflow:
-        if st.session_state.files_ready:
-            st.markdown(f'<div class="scard"><div class="scard-title">{t["config_title"]}</div>', unsafe_allow_html=True)
-            
-            parking = st.selectbox(t["parking_lbl"], ["CMO142 (LUNA)", "CMO143", "CMO144"])
-            p_type = st.selectbox(t["type_lbl"], ["SC (School)", "RG (Tourism)"])
-            hours = st.number_input(t["hours_lbl"], min_value=0, max_value=24, value=1, step=1)
+    with col_wf:
+        st.markdown(f'<div class="scard"><div class="scard-title">{T("config_title")}</div>', unsafe_allow_html=True)
+        
+        if not st.session_state.files_ready:
+            st.markdown(f'<div style="font-size:0.78rem;color:{TK()["text_secondary"]};padding:1rem 0;">{T("upload_first")}</div>', unsafe_allow_html=True)
+        else:
+            parking = st.selectbox(T("parking_lbl"), ["CMO142 (LUNA)", "CMO143", "CMO144"])
+            p_type = st.selectbox(T("type_lbl"), ["SC (School)", "RG (Tourism)"])
+            hours = st.number_input(T("hours_lbl"), min_value=0, max_value=24, value=1, step=1)
             
             st.markdown('<div class="hr"></div>', unsafe_allow_html=True)
             
-            # THE THIRD BUTTON - RUN WORKFLOW
-            if st.button("🚀 " + t["run_btn"], use_container_width=True, type="primary"):
-                with st.spinner(t["running"]):
+            if st.button("🚀 " + T("run_btn"), use_container_width=True, type="primary"):
+                with st.spinner(T("running")):
                     try:
                         output, log = run_excel_workflow(
                             st.session_state.excel_bytes,
                             st.session_state.extracted_rev,
                             p_type,
-                            hours
+                            hours,
                         )
                         st.session_state.fixed_excel = output
                         st.session_state.workflow_log = log
                         for line in log:
                             st.markdown(f'<div class="log-line">{line}</div>', unsafe_allow_html=True)
-                        st.success(t["run_ok"])
+                        st.success(T("run_ok"))
                     except Exception as e:
-                        st.error(f"Error: {e}")
+                        st.error(f"Workflow error: {e}")
             
             if st.session_state.fixed_excel:
                 st.markdown('<div class="hr"></div>', unsafe_allow_html=True)
                 pclean = parking.replace(" ", "_").replace("(", "").replace(")", "")
                 st.download_button(
-                    label="📥 " + t["dl_btn"],
+                    label="📥 " + T("dl_btn"),
                     data=st.session_state.fixed_excel,
-                    file_name=f"{pclean}_budget_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+                    file_name=f"{pclean}_budget_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    use_container_width=True
+                    use_container_width=True,
                 )
-            
-            st.markdown('</div>', unsafe_allow_html=True)
-        else:
-            st.markdown(f'<div class="scard"><div class="scard-title">{t["config_title"]}</div><p style="color:#4A7090;">👈 Upload Excel and PDF files to begin</p></div>', unsafe_allow_html=True)
+        
+        st.markdown('</div>', unsafe_allow_html=True)
+    
+    st.markdown(f'<div class="db-footer">{T("footer")}</div>', unsafe_allow_html=True)
 
-    # Footer
-    st.markdown(f'<div class="db-footer">{t["footer"]}</div>', unsafe_allow_html=True)
-
-# ─────────────────────────────────────────────
-#  ROUTER
-# ─────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────────
+# ROUTER
+# ─────────────────────────────────────────────────────────────────
 if st.session_state.authenticated:
     page_dashboard()
 else:
