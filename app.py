@@ -7,13 +7,14 @@ import os
 import json
 import requests
 from datetime import datetime
+import time
 
 # ─────────────────────────────────────────────────────────────────
 # PAGE CONFIG
 # ─────────────────────────────────────────────────────────────────
 st.set_page_config(
     page_title="Budget System · Only Solutions",
-    page_icon="▸",
+    page_icon="🤖",
     layout="wide",
     initial_sidebar_state="expanded",
 )
@@ -74,7 +75,7 @@ T_DATA = {
         "login_btn": "Sign in",
         "logout_btn": "Sign out",
         "wrong_creds": "Incorrect email or password.",
-        "ai_title": "AI Assistant",
+        "ai_title": "🤖 AI Assistant",
         "clear_chat": "Clear chat",
         "chat_hint": "Ask about budget, forecasts, or calculations…",
         "no_msgs": "No messages yet — start a conversation.",
@@ -127,7 +128,7 @@ T_DATA = {
         "login_btn": "Se connecter",
         "logout_btn": "Se déconnecter",
         "wrong_creds": "Courriel ou mot de passe incorrect.",
-        "ai_title": "Assistant IA",
+        "ai_title": "🤖 Assistant IA",
         "clear_chat": "Effacer",
         "chat_hint": "Budget, prévisions, calculs…",
         "no_msgs": "Aucun message — commencez une conversation.",
@@ -301,6 +302,7 @@ _D = dict(
     fixed_excel=None,
     workflow_log=[],
     show_settings=False,
+    waiting_for_response=False,
 )
 for k, v in _D.items():
     if k not in st.session_state:
@@ -315,7 +317,7 @@ def do_logout():
     st.rerun()
 
 # ─────────────────────────────────────────────────────────────────
-# THEME TOKENS - Orange accent for ALL elements
+# THEME TOKENS
 # ─────────────────────────────────────────────────────────────────
 DARK = dict(
     bg="#0D1117",
@@ -391,7 +393,65 @@ def inject_css():
         color: {C['text']} !important;
     }}
     
-    /* Make ALL selectbox options visible in dark theme */
+    /* FIXED SCROLLABLE CHAT */
+    .chat-container {{
+        height: 420px;
+        overflow-y: auto;
+        overflow-x: hidden;
+        padding-right: 8px;
+        margin-bottom: 12px;
+        scrollbar-width: thin;
+    }}
+    
+    .chat-container::-webkit-scrollbar {{
+        width: 6px;
+    }}
+    
+    .chat-container::-webkit-scrollbar-track {{
+        background: {C['border']};
+        border-radius: 3px;
+    }}
+    
+    .chat-container::-webkit-scrollbar-thumb {{
+        background: {C['highlight']};
+        border-radius: 3px;
+    }}
+    
+    .chat-container::-webkit-scrollbar-thumb:hover {{
+        background: {C['run_bg2']};
+    }}
+    
+    /* FIXED THINKING DOTS */
+    .thinking-container {{
+        display: inline-block;
+        padding: 0.5rem 0.75rem;
+        background: {C['bubble_bot']};
+        border: 1px solid {C['border']};
+        border-left: 2px solid {C['accent2']};
+        border-radius: 2px 8px 8px 8px;
+        margin-bottom: 0.5rem;
+    }}
+    
+    .dot {{
+        display: inline-block;
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: {C['highlight']};
+        margin: 0 3px;
+        animation: dot-bounce 1.4s infinite ease-in-out both;
+    }}
+    
+    .dot:nth-child(1) {{ animation-delay: -0.32s; }}
+    .dot:nth-child(2) {{ animation-delay: -0.16s; }}
+    .dot:nth-child(3) {{ animation-delay: 0s; }}
+    
+    @keyframes dot-bounce {{
+        0%, 80%, 100% {{ transform: scale(0.6); opacity: 0.4; }}
+        40% {{ transform: scale(1); opacity: 1; }}
+    }}
+    
+    /* Make ALL selectbox options visible */
     div[data-baseweb="select"] div, 
     div[data-baseweb="select"] span,
     div[data-testid="stSelectbox"] div,
@@ -403,7 +463,6 @@ def inject_css():
         background-color: {C['surface']} !important;
     }}
     
-    /* Dropdown menu items */
     div[data-baseweb="popover"] div,
     div[data-baseweb="popover"] span,
     ul[role="listbox"] li,
@@ -417,7 +476,6 @@ def inject_css():
         color: #000000 !important;
     }}
     
-    /* Selected item in selectbox */
     div[data-baseweb="select"] [aria-selected="true"] {{
         background-color: {C['highlight']} !important;
         color: #000000 !important;
@@ -450,7 +508,7 @@ def inject_css():
         color: {C['highlight']} !important;
     }}
     
-    /* ALL BUTTONS - Login, Sign in, everything */
+    /* ALL BUTTONS */
     .stButton > button {{
         background: {C['btn_bg']} !important;
         color: {C['btn_text']} !important;
@@ -467,7 +525,6 @@ def inject_css():
         cursor: pointer !important;
     }}
     
-    /* Login form button specific */
     div[data-testid="stForm"] .stButton > button {{
         background: {C['btn_bg']} !important;
         color: #FFFFFF !important;
@@ -481,7 +538,6 @@ def inject_css():
         box-shadow: 0 2px 8px rgba(230,126,34,0.3) !important;
     }}
     
-    /* Primary/Run button */
     .stButton > button[kind="primary"] {{
         background: {C['run_bg']} !important;
         color: #FFFFFF !important;
@@ -493,7 +549,6 @@ def inject_css():
         transform: scale(1.01) !important;
     }}
     
-    /* Download button */
     .stDownloadButton > button {{
         background: {C['dl_bg']} !important;
         color: #FFFFFF !important;
@@ -552,14 +607,6 @@ def inject_css():
     .mblock-val.g {{ color: {C['accent2']} !important; }}
     .mblock-val.t {{ color: {C['accent3']} !important; }}
 
-    .chat-scroll {{ 
-        max-height: 400px; 
-        overflow-y: auto; 
-        overflow-x: hidden;
-        padding-right: 10px;
-        margin-bottom: 0.5rem;
-        scrollbar-width: thin;
-    }}
     .bubble-user {{ background: {C['bubble_user']}; border: 1px solid {C['border']}; border-right: 2px solid {C['accent']}; padding: 0.5rem 0.75rem; border-radius: 8px 2px 8px 8px; margin-bottom: 0.5rem; margin-left: auto; margin-right: 0; max-width: 85%; width: fit-content; font-size: 0.82rem; line-height: 1.5; color: {C['text']} !important; }}
     .bubble-bot {{ background: {C['bubble_bot']}; border: 1px solid {C['border']}; border-left: 2px solid {C['accent2']}; padding: 0.5rem 0.75rem; border-radius: 2px 8px 8px 8px; margin-bottom: 0.5rem; margin-right: auto; margin-left: 0; max-width: 85%; width: fit-content; font-size: 0.82rem; line-height: 1.5; color: {C['text']} !important; }}
     .bubble-lbl {{ font-family: 'IBM Plex Mono', monospace; font-size: 0.52rem; letter-spacing: 0.1em; text-transform: uppercase; color: {C['text_secondary']} !important; margin-bottom: 0.2rem; opacity: 0.7; }}
@@ -601,12 +648,10 @@ def inject_css():
         color: {C['highlight']} !important;
     }}
     
-    /* Fix for password reset select box text */
     .stSelectbox div[data-baseweb="select"] div {{
         color: {C['text']} !important;
     }}
     
-    /* Info box styling */
     .stInfo {{
         background-color: {C['surface']} !important;
         border: 1px solid {C['highlight']} !important;
@@ -644,7 +689,7 @@ def page_login():
     with center:
         st.markdown(f"""
         <div class="login-box">
-            <div class="login-brand">▸ {T('brand')}</div>
+            <div class="login-brand">🤖 {T('brand')}</div>
             <div class="login-sub">{T('brand_sub')}</div>
         </div>
         """, unsafe_allow_html=True)
@@ -761,7 +806,7 @@ def page_dashboard():
     with n1:
         st.markdown(f"""
         <div class="navbar">
-            <span class="navbar-brand">▸ {T('brand')}</span>
+            <span class="navbar-brand">🤖 {T('brand')}</span>
             <span class="navbar-user">{st.session_state.user_name} · {st.session_state.user_role.upper()}</span>
         </div>
         """, unsafe_allow_html=True)
@@ -784,27 +829,41 @@ def page_dashboard():
                 st.session_state.messages = []
                 st.rerun()
         
-        st.markdown('<div class="chat-scroll">', unsafe_allow_html=True)
+        # SCROLLABLE CHAT CONTAINER - FIXED
+        st.markdown('<div class="chat-container">', unsafe_allow_html=True)
+        
         if not st.session_state.messages:
             st.markdown(f'<div class="no-msgs">— {T("no_msgs")} —</div>', unsafe_allow_html=True)
-        for m in st.session_state.messages:
-            if m["role"] == "user":
-                st.markdown(f'<div class="bubble-user"><div class="bubble-lbl">You</div>{m["content"]}</div>', unsafe_allow_html=True)
+        
+        # Display all messages
+        for msg in st.session_state.messages:
+            if msg["role"] == "user":
+                st.markdown(f'<div class="bubble-user"><div class="bubble-lbl">You</div>{msg["content"]}</div>', unsafe_allow_html=True)
             else:
-                st.markdown(f'<div class="bubble-bot"><div class="bubble-lbl">Assistant</div>{m["content"]}</div>', unsafe_allow_html=True)
+                st.markdown(f'<div class="bubble-bot"><div class="bubble-lbl">Assistant</div>{msg["content"]}</div>', unsafe_allow_html=True)
+        
+        # Show thinking animation while waiting for response
+        if st.session_state.get("waiting_for_response", False):
+            st.markdown("""
+            <div class="thinking-container">
+                <span class="dot"></span>
+                <span class="dot"></span>
+                <span class="dot"></span>
+            </div>
+            """, unsafe_allow_html=True)
+        
         st.markdown('</div>', unsafe_allow_html=True)
         
         user_input = st.chat_input(T("chat_hint"))
-        if user_input:
+        if user_input and not st.session_state.get("waiting_for_response", False):
             ctx_suffix = ""
             if st.session_state.extracted_rev and not st.session_state.messages:
                 rev = st.session_state.extracted_rev
                 ctx_suffix = (f" [Budget context: Transient ${rev['transient']:,.0f}, "
                             f"Monthly ${rev['monthly']:,.0f}, Total ${rev['total']:,.0f}]")
+            
             st.session_state.messages.append({"role": "user", "content": user_input})
-            hist = st.session_state.messages[:-1] + [{"role": "user", "content": user_input + ctx_suffix}]
-            reply = ask_mistral(hist)
-            st.session_state.messages.append({"role": "assistant", "content": reply})
+            st.session_state.waiting_for_response = True
             st.rerun()
         
         st.markdown('</div>', unsafe_allow_html=True)
@@ -889,6 +948,27 @@ def page_dashboard():
         st.markdown('</div>', unsafe_allow_html=True)
     
     st.markdown(f'<div class="db-footer">{T("footer")}</div>', unsafe_allow_html=True)
+
+# ─────────────────────────────────────────────────────────────────
+# Process AI response after rerun
+# ─────────────────────────────────────────────────────────────────
+if st.session_state.get("waiting_for_response", False):
+    # Get the last user message
+    user_messages = [m for m in st.session_state.messages if m["role"] == "user"]
+    if user_messages:
+        last_user_msg = user_messages[-1]["content"]
+        
+        ctx_suffix = ""
+        if st.session_state.extracted_rev:
+            rev = st.session_state.extracted_rev
+            ctx_suffix = (f" [Budget context: Transient ${rev['transient']:,.0f}, "
+                        f"Monthly ${rev['monthly']:,.0f}, Total ${rev['total']:,.0f}]")
+        
+        hist = st.session_state.messages[:-1] + [{"role": "user", "content": last_user_msg + ctx_suffix}]
+        reply = ask_mistral(hist)
+        st.session_state.messages.append({"role": "assistant", "content": reply})
+        st.session_state.waiting_for_response = False
+        st.rerun()
 
 # ─────────────────────────────────────────────────────────────────
 # ROUTER
