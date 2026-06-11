@@ -393,35 +393,50 @@ def inject_css():
         color: {C['text']} !important;
     }}
     
-    /* SCROLLABLE CHAT CONTAINER - FIXED */
-    .chat-container {{
-        height: 420px;
+    /* FIXED: SCROLLABLE CHAT CONTAINER */
+    .chat-wrapper {{
+        display: flex;
+        flex-direction: column;
+        height: 480px;
+        position: relative;
+    }}
+    
+    .chat-messages {{
+        flex: 1;
         overflow-y: auto;
         overflow-x: hidden;
         padding-right: 8px;
-        margin-bottom: 12px;
+        padding-bottom: 4px;
         scrollbar-width: thin;
+        min-height: 0;
     }}
     
-    .chat-container::-webkit-scrollbar {{
+    .chat-messages::-webkit-scrollbar {{
         width: 6px;
     }}
     
-    .chat-container::-webkit-scrollbar-track {{
+    .chat-messages::-webkit-scrollbar-track {{
         background: {C['border']};
         border-radius: 3px;
     }}
     
-    .chat-container::-webkit-scrollbar-thumb {{
+    .chat-messages::-webkit-scrollbar-thumb {{
         background: {C['highlight']};
         border-radius: 3px;
     }}
     
-    .chat-container::-webkit-scrollbar-thumb:hover {{
+    .chat-messages::-webkit-scrollbar-thumb:hover {{
         background: {C['run_bg2']};
     }}
     
-    /* THINKING DOTS - FIXED */
+    .chat-input-area {{
+        flex-shrink: 0;
+        padding-top: 8px;
+        border-top: 1px solid {C['border']};
+        margin-top: 4px;
+    }}
+    
+    /* FIXED: THINKING DOTS WITH ROBOT */
     .thinking-container {{
         display: flex;
         align-items: center;
@@ -432,6 +447,7 @@ def inject_css():
         border-left: 2px solid {C['accent2']};
         border-radius: 2px 8px 8px 8px;
         margin-bottom: 0.5rem;
+        width: fit-content;
     }}
     
     .robot-icon {{
@@ -463,12 +479,17 @@ def inject_css():
         40% {{ transform: scale(1); opacity: 1; }}
     }}
     
-    /* Chat input styling */
+    /* HIDE Streamlit's default chat input to use our own */
     .stChatInput {{
-        position: sticky;
-        bottom: 0;
-        background: {C['surface']};
-        padding-top: 8px;
+        position: relative !important;
+        bottom: auto !important;
+    }}
+    
+    div[data-testid="stChatInput"] {{
+        position: relative !important;
+        bottom: auto !important;
+        background: transparent !important;
+        padding-top: 0 !important;
     }}
     
     /* Make ALL selectbox options visible */
@@ -821,7 +842,7 @@ def render_settings_menu():
 def page_dashboard():
     inject_css()
     
-    # Navbar - Fixed: removed duplicate settings icon
+    # Navbar - ONLY ONE settings icon now
     n1, n2 = st.columns([6, 0.65])
     with n1:
         st.markdown(f"""
@@ -851,8 +872,11 @@ def page_dashboard():
                 st.session_state.messages = []
                 st.rerun()
         
-        # SCROLLABLE CHAT CONTAINER
-        st.markdown('<div class="chat-container">', unsafe_allow_html=True)
+        # FIXED: Chat wrapper with proper flex layout - no gap!
+        st.markdown('<div class="chat-wrapper">', unsafe_allow_html=True)
+        
+        # Scrollable messages area
+        st.markdown('<div class="chat-messages">', unsafe_allow_html=True)
         
         if not st.session_state.messages:
             st.markdown(f'<div class="no-msgs">— {T("no_msgs")} —</div>', unsafe_allow_html=True)
@@ -864,7 +888,7 @@ def page_dashboard():
             else:
                 st.markdown(f'<div class="bubble-bot"><div class="bubble-lbl">Assistant</div>{msg["content"]}</div>', unsafe_allow_html=True)
         
-        # Show thinking animation with robot icon while waiting for response
+        # FIXED: Show thinking animation with ROBOT + 3 dots
         if st.session_state.thinking:
             st.markdown(f"""
             <div class="thinking-container">
@@ -877,10 +901,15 @@ def page_dashboard():
             </div>
             """, unsafe_allow_html=True)
         
+        st.markdown('</div>', unsafe_allow_html=True)  # Close chat-messages
+        
+        # Input area right below messages
+        st.markdown('<div class="chat-input-area">', unsafe_allow_html=True)
+        user_input = st.chat_input(T("chat_hint"))
         st.markdown('</div>', unsafe_allow_html=True)
         
-        # Chat input (stays at bottom by design in Streamlit)
-        user_input = st.chat_input(T("chat_hint"))
+        st.markdown('</div>', unsafe_allow_html=True)  # Close chat-wrapper
+        
         if user_input and not st.session_state.thinking:
             ctx_suffix = ""
             if st.session_state.extracted_rev and not st.session_state.messages:
@@ -892,7 +921,7 @@ def page_dashboard():
             st.session_state.thinking = True
             st.rerun()
         
-        st.markdown('</div>', unsafe_allow_html=True)
+        st.markdown('</div>', unsafe_allow_html=True)  # Close scard
 
     with col_files:
         st.markdown(f'<div class="scard"><div class="scard-title">{T("files_title")}</div>', unsafe_allow_html=True)
