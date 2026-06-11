@@ -302,7 +302,7 @@ _D = dict(
     fixed_excel=None,
     workflow_log=[],
     show_settings=False,
-    waiting_for_response=False,
+    thinking=False,
 )
 for k, v in _D.items():
     if k not in st.session_state:
@@ -393,7 +393,7 @@ def inject_css():
         color: {C['text']} !important;
     }}
     
-    /* FIXED SCROLLABLE CHAT */
+    /* SCROLLABLE CHAT CONTAINER - FIXED */
     .chat-container {{
         height: 420px;
         overflow-y: auto;
@@ -421,10 +421,10 @@ def inject_css():
         background: {C['run_bg2']};
     }}
     
-    /* FIXED THINKING DOTS */
+    /* THINKING DOTS - FIXED */
     .thinking-container {{
         display: inline-block;
-        padding: 0.5rem 0.75rem;
+        padding: 0.6rem 0.9rem;
         background: {C['bubble_bot']};
         border: 1px solid {C['border']};
         border-left: 2px solid {C['accent2']};
@@ -449,6 +449,14 @@ def inject_css():
     @keyframes dot-bounce {{
         0%, 80%, 100% {{ transform: scale(0.6); opacity: 0.4; }}
         40% {{ transform: scale(1); opacity: 1; }}
+    }}
+    
+    /* Chat input styling */
+    .stChatInput {{
+        position: sticky;
+        bottom: 0;
+        background: {C['surface']};
+        padding-top: 8px;
     }}
     
     /* Make ALL selectbox options visible */
@@ -829,7 +837,7 @@ def page_dashboard():
                 st.session_state.messages = []
                 st.rerun()
         
-        # SCROLLABLE CHAT CONTAINER - FIXED
+        # SCROLLABLE CHAT CONTAINER
         st.markdown('<div class="chat-container">', unsafe_allow_html=True)
         
         if not st.session_state.messages:
@@ -843,7 +851,7 @@ def page_dashboard():
                 st.markdown(f'<div class="bubble-bot"><div class="bubble-lbl">Assistant</div>{msg["content"]}</div>', unsafe_allow_html=True)
         
         # Show thinking animation while waiting for response
-        if st.session_state.get("waiting_for_response", False):
+        if st.session_state.thinking:
             st.markdown("""
             <div class="thinking-container">
                 <span class="dot"></span>
@@ -854,8 +862,9 @@ def page_dashboard():
         
         st.markdown('</div>', unsafe_allow_html=True)
         
+        # Chat input (stays at bottom by design in Streamlit)
         user_input = st.chat_input(T("chat_hint"))
-        if user_input and not st.session_state.get("waiting_for_response", False):
+        if user_input and not st.session_state.thinking:
             ctx_suffix = ""
             if st.session_state.extracted_rev and not st.session_state.messages:
                 rev = st.session_state.extracted_rev
@@ -863,7 +872,7 @@ def page_dashboard():
                             f"Monthly ${rev['monthly']:,.0f}, Total ${rev['total']:,.0f}]")
             
             st.session_state.messages.append({"role": "user", "content": user_input})
-            st.session_state.waiting_for_response = True
+            st.session_state.thinking = True
             st.rerun()
         
         st.markdown('</div>', unsafe_allow_html=True)
@@ -952,7 +961,7 @@ def page_dashboard():
 # ─────────────────────────────────────────────────────────────────
 # Process AI response after rerun
 # ─────────────────────────────────────────────────────────────────
-if st.session_state.get("waiting_for_response", False):
+if st.session_state.thinking:
     # Get the last user message
     user_messages = [m for m in st.session_state.messages if m["role"] == "user"]
     if user_messages:
@@ -967,7 +976,7 @@ if st.session_state.get("waiting_for_response", False):
         hist = st.session_state.messages[:-1] + [{"role": "user", "content": last_user_msg + ctx_suffix}]
         reply = ask_mistral(hist)
         st.session_state.messages.append({"role": "assistant", "content": reply})
-        st.session_state.waiting_for_response = False
+        st.session_state.thinking = False
         st.rerun()
 
 # ─────────────────────────────────────────────────────────────────
