@@ -21,21 +21,17 @@ st.set_page_config(
 # ─────────────────────────────────────────────────────────────────
 # MISTRAL — raw HTTP (no SDK needed, errors surface correctly)
 # ─────────────────────────────────────────────────────────────────
-MISTRAL_API_KEY = "em5oqjSdA1Nus9iUpa1MNAJtQA4YfCtK"  # ← your key
+MISTRAL_API_KEY = "em5oqjSdA1Nus9iUpa1MNAJtQA4YfCtK"
 MISTRAL_URL = "https://api.mistral.ai/v1/chat/completions"
 MISTRAL_MODEL = "mistral-small-latest"
 
 def ask_mistral(history: list) -> str:
-    """
-    history: [{"role": "user"|"assistant", "content": str}, ...]
-    Returns the reply string, or a human-readable error.
-    """
     system = {
         "role": "system",
         "content": (
-           "You are a professional budget analyst for parking operations, you're also an expert in traffic data and parking data your expertise is concentrated in the province of Quebec with a special knowledge of the metropolitan area of Montreal, at Only Solutions Inc. "
+            "You are a professional budget analyst for parking operations, you're also an expert in traffic data and parking data your expertise is concentrated in the province of Quebec with a special knowledge of the metropolitan area of Montreal, at Only Solutions Inc. "
             "Be precise and concise but not cold, you're warm and resourceful, you're a co-worker act like it. When revenue figures are available in the conversation, "
-            "reference them directly in your analysis."  
+            "reference them directly in your analysis."
         ),
     }
     try:
@@ -54,17 +50,9 @@ def ask_mistral(history: list) -> str:
         if resp.status_code == 200:
             return resp.json()["choices"][0]["message"]["content"]
         elif resp.status_code == 401:
-            return (
-                "⚠️ **API key rejected (401).** "
-                "Open [console.mistral.ai](https://console.mistral.ai) → API Keys → verify the key is active."
-            )
+            return "⚠️ **API key rejected (401).** Open [console.mistral.ai](https://console.mistral.ai) → API Keys → verify the key is active."
         elif resp.status_code == 403:
-            return (
-                "⚠️ **IP not allowed (403).** "
-                "Your Mistral key has an IP allowlist restriction. "
-                "Go to **console.mistral.ai → API Keys → edit your key → remove the IP restriction** "
-                "(or add the server IP). Then reload this page."
-            )
+            return "⚠️ **IP not allowed (403).** Your Mistral key has an IP allowlist restriction. Go to **console.mistral.ai → API Keys → edit your key → remove the IP restriction** (or add the server IP). Then reload this page."
         elif resp.status_code == 429:
             return "⚠️ **Rate limit hit.** Wait a few seconds and try again."
         else:
@@ -571,8 +559,8 @@ def render_settings_menu():
 def page_dashboard():
     inject_css()
     
-    # Navbar
-    n1, n2, n3, n4, n5, n6, n7 = st.columns([4, 1.4, 0.65, 0.65, 0.65, 0.65, 0.85])
+    # Navbar - only ONE settings button, NO logout button
+    n1, n2, n3, n4, n5, n6 = st.columns([4, 1.4, 0.65, 0.65, 0.65, 0.65])
     with n1:
         st.markdown(f"""
         <div class="navbar">
@@ -598,11 +586,8 @@ def page_dashboard():
     with n6:
         if st.button("⚙️", key="settings_btn"):
             st.session_state.show_settings = not st.session_state.show_settings
-    with n7:
-        if st.button(T("logout_btn"), key="logout_top"):
-            do_logout()
 
-    # Settings Menu (top right)
+    # Settings Menu (only here, no logout button elsewhere)
     render_settings_menu()
 
     col_chat, col_files, col_wf = st.columns([1, 1.15, 0.95])
