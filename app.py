@@ -458,6 +458,52 @@ def inject_css():
         40% {{ transform: scale(1); opacity: 1; }}
     }}
     
+    /* GREEN PULSING DOT - ALIVE INDICATOR */
+    @keyframes pulse-green {{
+        0%, 100% {{ 
+            box-shadow: 0 0 0 0 rgba(63, 185, 80, 0.7);
+            transform: scale(1);
+        }}
+        50% {{ 
+            box-shadow: 0 0 0 6px rgba(63, 185, 80, 0);
+            transform: scale(1.15);
+        }}
+        100% {{ 
+            box-shadow: 0 0 0 0 rgba(63, 185, 80, 0);
+            transform: scale(1);
+        }}
+    }}
+    
+    .alive-dot {{
+        display: inline-block;
+        width: 8px;
+        height: 8px;
+        background-color: #3FB950;
+        border-radius: 50%;
+        animation: pulse-green 2s infinite ease-in-out;
+        vertical-align: middle;
+        margin-left: 2px;
+    }}
+    
+    /* SETTINGS BUTTON - ORANGE ICON ONLY, NO BACKGROUND SQUARE */
+    .settings-btn button {{
+        background: transparent !important;
+        border: none !important;
+        color: #E67E22 !important;
+        font-size: 1.2rem !important;
+        padding: 0.2rem 0.3rem !important;
+        width: auto !important;
+        min-width: auto !important;
+        line-height: 1 !important;
+    }}
+    
+    .settings-btn button:hover {{
+        background: transparent !important;
+        color: #F39C12 !important;
+        transform: scale(1.1) !important;
+        box-shadow: none !important;
+    }}
+    
     /* Make ALL selectbox options visible */
     div[data-baseweb="select"] div, 
     div[data-baseweb="select"] span,
@@ -532,10 +578,18 @@ def inject_css():
         cursor: pointer !important;
     }}
     
+    /* FORM SUBMIT BUTTONS - ALWAYS ORANGE */
     div[data-testid="stForm"] .stButton > button {{
-        background: {C['btn_bg']} !important;
+        background: #E67E22 !important;
         color: #FFFFFF !important;
-        border: 1px solid {C['btn_border']} !important;
+        border: 1px solid #F39C12 !important;
+    }}
+    
+    div[data-testid="stForm"] .stButton > button:hover {{
+        background: #F39C12 !important;
+        border-color: #FFFFFF !important;
+        transform: scale(1.01) !important;
+        box-shadow: 0 2px 8px rgba(230,126,34,0.3) !important;
     }}
     
     .stButton > button:hover, div[data-testid="stForm"] .stButton > button:hover {{
@@ -809,7 +863,7 @@ def render_settings_menu():
 def page_dashboard():
     inject_css()
     
-    # Navbar - ONLY ONE SETTINGS BUTTON (no expander duplicate)
+    # Navbar - ONLY ONE SETTINGS BUTTON + GREEN ALIVE DOT
     n1, n2 = st.columns([6, 0.65])
     with n1:
         st.markdown(f"""
@@ -819,13 +873,17 @@ def page_dashboard():
         </div>
         """, unsafe_allow_html=True)
     with n2:
-        col_time, col_settings = st.columns([3, 1])
+        col_time, col_settings, col_alive = st.columns([2.5, 0.5, 0.5])
         with col_time:
             st.markdown(f"<div style='font-family:IBM Plex Mono,monospace;font-size:0.58rem;color:{TK()['text_secondary']};padding-top:0.6rem;text-align:right;'>{datetime.now().strftime('%Y-%m-%d %H:%M')}</div>", unsafe_allow_html=True)
         with col_settings:
+            st.markdown('<div class="settings-btn">', unsafe_allow_html=True)
             if st.button("⚙️", key="settings_btn"):
                 st.session_state.show_settings = not st.session_state.show_settings
                 st.rerun()
+            st.markdown('</div>', unsafe_allow_html=True)
+        with col_alive:
+            st.markdown('<div style="padding-top:0.55rem;text-align:center;"><span class="alive-dot"></span></div>', unsafe_allow_html=True)
 
     # Settings expander (only shows when toggled from navbar button)
     if st.session_state.show_settings:
