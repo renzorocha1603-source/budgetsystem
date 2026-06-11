@@ -119,6 +119,7 @@ T_DATA = {
         "profile": "Profile",
         "language": "Language",
         "appearance": "Appearance",
+        "send": "Send",
     },
     "fr": {
         "brand": "SYSTÈME BUDGÉTAIRE",
@@ -172,6 +173,7 @@ T_DATA = {
         "profile": "Profil",
         "language": "Langue",
         "appearance": "Apparence",
+        "send": "Envoyer",
     },
 }
 
@@ -376,7 +378,6 @@ def TK():
 
 def inject_css():
     C = TK()
-    is_dark = st.session_state.theme == "dark"
     st.markdown(f"""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500;600&family=Inter:wght@300;400;500;600;700&display=swap');
@@ -393,38 +394,40 @@ def inject_css():
         color: {C['text']} !important;
     }}
     
-    /* SCROLLABLE CHAT CONTAINER - FIXED */
-    .chat-container {{
-        height: 420px;
+    /* SCROLLABLE CHAT CONTAINER */
+    .chat-messages {{
+        max-height: 400px;
         overflow-y: auto;
         overflow-x: hidden;
         padding-right: 8px;
-        margin-bottom: 12px;
+        margin-bottom: 10px;
         scrollbar-width: thin;
     }}
     
-    .chat-container::-webkit-scrollbar {{
+    .chat-messages::-webkit-scrollbar {{
         width: 6px;
     }}
     
-    .chat-container::-webkit-scrollbar-track {{
+    .chat-messages::-webkit-scrollbar-track {{
         background: {C['border']};
         border-radius: 3px;
     }}
     
-    .chat-container::-webkit-scrollbar-thumb {{
+    .chat-messages::-webkit-scrollbar-thumb {{
         background: {C['highlight']};
         border-radius: 3px;
     }}
     
-    .chat-container::-webkit-scrollbar-thumb:hover {{
+    .chat-messages::-webkit-scrollbar-thumb:hover {{
         background: {C['run_bg2']};
     }}
     
-    /* THINKING DOTS - FIXED */
+    /* THINKING DOTS WITH ROBOT */
     .thinking-container {{
-        display: inline-block;
-        padding: 0.6rem 0.9rem;
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 0.5rem 0.8rem;
         background: {C['bubble_bot']};
         border: 1px solid {C['border']};
         border-left: 2px solid {C['accent2']};
@@ -432,31 +435,27 @@ def inject_css():
         margin-bottom: 0.5rem;
     }}
     
+    .robot-icon {{
+        font-size: 1.1rem;
+        line-height: 1;
+    }}
+    
     .dot {{
         display: inline-block;
-        width: 8px;
-        height: 8px;
+        width: 7px;
+        height: 7px;
         border-radius: 50%;
         background: {C['highlight']};
-        margin: 0 3px;
         animation: dot-bounce 1.4s infinite ease-in-out both;
     }}
     
-    .dot:nth-child(1) {{ animation-delay: -0.32s; }}
-    .dot:nth-child(2) {{ animation-delay: -0.16s; }}
-    .dot:nth-child(3) {{ animation-delay: 0s; }}
+    .dot:nth-child(2) {{ animation-delay: -0.32s; }}
+    .dot:nth-child(3) {{ animation-delay: -0.16s; }}
+    .dot:nth-child(4) {{ animation-delay: 0s; }}
     
     @keyframes dot-bounce {{
         0%, 80%, 100% {{ transform: scale(0.6); opacity: 0.4; }}
         40% {{ transform: scale(1); opacity: 1; }}
-    }}
-    
-    /* Chat input styling */
-    .stChatInput {{
-        position: sticky;
-        bottom: 0;
-        background: {C['surface']};
-        padding-top: 8px;
     }}
     
     /* Make ALL selectbox options visible */
@@ -603,7 +602,7 @@ def inject_css():
     .navbar-brand {{ font-family: 'IBM Plex Mono', monospace; font-size: 0.82rem; font-weight: 600; color: {C['accent']} !important; letter-spacing: 0.07em; flex: 1; }}
     .navbar-user {{ font-family: 'IBM Plex Mono', monospace; font-size: 0.6rem; color: {C['text_secondary']} !important; border-left: 1px solid {C['border']}; padding-left: 0.75rem; margin-left: 0.25rem; }}
 
-    .scard {{ background: {C['surface']}; border: 1px solid {C['border']}; border-radius: 8px; padding: 1rem 1.1rem 1.1rem; margin-bottom: 1rem; height: 100%; }}
+    .scard {{ background: {C['surface']}; border: 1px solid {C['border']}; border-radius: 8px; padding: 1rem 1.1rem 1.1rem; margin-bottom: 1rem; }}
     .scard-title {{ font-family: 'IBM Plex Mono', monospace; font-size: 0.6rem; font-weight: 500; color: {C['accent']} !important; text-transform: uppercase; letter-spacing: 0.16em; margin-bottom: 0.85rem; padding-bottom: 0.45rem; border-bottom: 1px solid {C['border']}; display: flex; align-items: center; gap: 0.4rem; }}
     .scard-title::before {{ content: ''; width: 2px; height: 9px; background: {C['accent']}; border-radius: 2px; flex-shrink: 0; }}
 
@@ -721,96 +720,97 @@ def page_login():
         st.markdown(f'<div class="db-footer">{T("footer")}</div>', unsafe_allow_html=True)
 
 # ─────────────────────────────────────────────────────────────────
-# SETTINGS MENU
+# SETTINGS MENU (now only accessible from the ⚙️ button in navbar)
 # ─────────────────────────────────────────────────────────────────
 def render_settings_menu():
-    with st.expander(f"⚙️ {T('settings')}", expanded=st.session_state.show_settings):
-        st.markdown(f"**{T('profile')}**")
-        st.info(f"**{st.session_state.user_name}**  \n`{st.session_state.user_email}`  \nRole: **{st.session_state.user_role.upper()}**")
-        
-        st.markdown("---")
-        
-        st.markdown(f"**{T('appearance')}**")
-        col1, col2 = st.columns(2)
-        with col1:
-            if st.button(T("theme_dark"), use_container_width=True):
-                st.session_state.theme = "dark"
-                st.rerun()
-        with col2:
-            if st.button(T("theme_light"), use_container_width=True):
-                st.session_state.theme = "light"
-                st.rerun()
-        
-        st.markdown(f"**{T('language')}**")
-        col1, col2 = st.columns(2)
-        with col1:
-            if st.button("English", use_container_width=True):
-                st.session_state.lang = "en"
-                st.rerun()
-        with col2:
-            if st.button("Français", use_container_width=True):
-                st.session_state.lang = "fr"
-                st.rerun()
-        
-        st.markdown("---")
-        
-        if st.button(T("logout_btn"), use_container_width=True):
-            do_logout()
-        
-        if st.session_state.user_role == "admin":
+    if st.session_state.show_settings:
+        with st.expander(f"⚙️ {T('settings')}", expanded=True):
+            st.markdown(f"**{T('profile')}**")
+            st.info(f"**{st.session_state.user_name}**  \n`{st.session_state.user_email}`  \nRole: **{st.session_state.user_role.upper()}**")
+            
             st.markdown("---")
-            st.markdown("### 👑 Admin Management")
-            st.markdown(f"### 👤 {T('new_user_title')}")
-            with st.form("create_user_form"):
-                col1, col2 = st.columns(2)
-                with col1:
-                    new_name = st.text_input(T("nm_lbl"), placeholder="John Doe")
-                with col2:
-                    new_email = st.text_input(T("new_email_lbl"), placeholder="user@example.com")
-                new_password = st.text_input(T("new_pass_lbl"), type="password", placeholder="••••••••")
-                new_role = st.selectbox(T("role_lbl"), ["user", "admin"])
-                
-                if st.form_submit_button("➕ " + T("create_btn"), type="primary"):
-                    if new_email and new_name and new_password:
-                        if create_user(new_email, new_name, new_password, new_role):
-                            st.success(f"✅ {T('user_created')}")
-                            st.rerun()
-                        else:
-                            st.error(f"❌ {T('user_exists')}")
-                    else:
-                        st.warning("All fields required")
             
-            with st.expander("📋 " + T("users_title")):
-                users = load_users()
-                for ue, ud in users.items():
-                    ca, cb = st.columns([5, 1])
-                    with ca:
-                        tag = "👑 ADMIN" if ud["role"] == "admin" else "👤 USER"
-                        st.markdown(f"**{ud['name']}** \n`{ue}`  \n*{tag}*", unsafe_allow_html=True)
-                    with cb:
-                        if ud["role"] != "admin":
-                            if st.button("🗑️", key=f"del_{ue}"):
-                                delete_user(ue)
+            st.markdown(f"**{T('appearance')}**")
+            col1, col2 = st.columns(2)
+            with col1:
+                if st.button(T("theme_dark"), use_container_width=True, key="theme_dark_settings"):
+                    st.session_state.theme = "dark"
+                    st.rerun()
+            with col2:
+                if st.button(T("theme_light"), use_container_width=True, key="theme_light_settings"):
+                    st.session_state.theme = "light"
+                    st.rerun()
+            
+            st.markdown(f"**{T('language')}**")
+            col1, col2 = st.columns(2)
+            with col1:
+                if st.button("English", use_container_width=True, key="en_settings"):
+                    st.session_state.lang = "en"
+                    st.rerun()
+            with col2:
+                if st.button("Français", use_container_width=True, key="fr_settings"):
+                    st.session_state.lang = "fr"
+                    st.rerun()
+            
+            st.markdown("---")
+            
+            if st.button(T("logout_btn"), use_container_width=True, key="logout_settings"):
+                do_logout()
+            
+            if st.session_state.user_role == "admin":
+                st.markdown("---")
+                st.markdown("### 👑 Admin Management")
+                st.markdown(f"### 👤 {T('new_user_title')}")
+                with st.form("create_user_form"):
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        new_name = st.text_input(T("nm_lbl"), placeholder="John Doe")
+                    with col2:
+                        new_email = st.text_input(T("new_email_lbl"), placeholder="user@example.com")
+                    new_password = st.text_input(T("new_pass_lbl"), type="password", placeholder="••••••••")
+                    new_role = st.selectbox(T("role_lbl"), ["user", "admin"])
+                    
+                    if st.form_submit_button("➕ " + T("create_btn"), type="primary"):
+                        if new_email and new_name and new_password:
+                            if create_user(new_email, new_name, new_password, new_role):
+                                st.success(f"✅ {T('user_created')}")
                                 st.rerun()
-                    st.markdown("---")
-            
-            with st.expander("🔑 " + T("reset_title")):
-                users = load_users()
-                sel = st.selectbox(T("select_user"), list(users.keys()), key="reset_select")
-                npw = st.text_input(T("new_pw_lbl"), type="password", key="reset_password_input")
-                if st.button(T("reset_btn"), use_container_width=True):
-                    if sel and npw:
-                        reset_password(sel, npw)
-                        st.success(T("reset_ok"))
+                            else:
+                                st.error(f"❌ {T('user_exists')}")
+                        else:
+                            st.warning("All fields required")
+                
+                with st.expander("📋 " + T("users_title")):
+                    users = load_users()
+                    for ue, ud in users.items():
+                        ca, cb = st.columns([5, 1])
+                        with ca:
+                            tag = "👑 ADMIN" if ud["role"] == "admin" else "👤 USER"
+                            st.markdown(f"**{ud['name']}** \n`{ue}`  \n*{tag}*", unsafe_allow_html=True)
+                        with cb:
+                            if ud["role"] != "admin":
+                                if st.button("🗑️", key=f"del_{ue}"):
+                                    delete_user(ue)
+                                    st.rerun()
+                        st.markdown("---")
+                
+                with st.expander("🔑 " + T("reset_title")):
+                    users = load_users()
+                    sel = st.selectbox(T("select_user"), list(users.keys()), key="reset_select")
+                    npw = st.text_input(T("new_pw_lbl"), type="password", key="reset_password_input")
+                    if st.button(T("reset_btn"), use_container_width=True):
+                        if sel and npw:
+                            reset_password(sel, npw)
+                            st.success(T("reset_ok"))
 
 # ─────────────────────────────────────────────────────────────────
-# MAIN DASHBOARD
+# MAIN DASHBOARD - NEW LAYOUT
 # ─────────────────────────────────────────────────────────────────
 def page_dashboard():
     inject_css()
     
-    # Navbar
-    n1, n2, n3 = st.columns([6, 2, 0.65])
+    # Navbar - ONLY ONE SETTINGS BUTTON (no expander duplicate)
+    n1, n2 = st.columns([6, 0.65])
     with n1:
         st.markdown(f"""
         <div class="navbar">
@@ -819,70 +819,80 @@ def page_dashboard():
         </div>
         """, unsafe_allow_html=True)
     with n2:
-        st.markdown(f"<div style='font-family:IBM Plex Mono,monospace;font-size:0.58rem;color:{TK()['text_secondary']};padding-top:0.6rem;text-align:right;'>{datetime.now().strftime('%Y-%m-%d %H:%M')}</div>", unsafe_allow_html=True)
-    with n3:
-        if st.button("⚙️", key="settings_btn"):
-            st.session_state.show_settings = not st.session_state.show_settings
-
-    render_settings_menu()
-
-    col_chat, col_files, col_wf = st.columns([1, 1.15, 0.95])
-
-    with col_chat:
-        st.markdown(f'<div class="scard"><div class="scard-title">{T("ai_title")}</div>', unsafe_allow_html=True)
-        
-        _, btn_col = st.columns([3, 1])
-        with btn_col:
-            if st.button(T("clear_chat"), key="clr"):
-                st.session_state.messages = []
+        col_time, col_settings = st.columns([3, 1])
+        with col_time:
+            st.markdown(f"<div style='font-family:IBM Plex Mono,monospace;font-size:0.58rem;color:{TK()['text_secondary']};padding-top:0.6rem;text-align:right;'>{datetime.now().strftime('%Y-%m-%d %H:%M')}</div>", unsafe_allow_html=True)
+        with col_settings:
+            if st.button("⚙️", key="settings_btn"):
+                st.session_state.show_settings = not st.session_state.show_settings
                 st.rerun()
-        
-        # SCROLLABLE CHAT CONTAINER
-        st.markdown('<div class="chat-container">', unsafe_allow_html=True)
-        
-        if not st.session_state.messages:
-            st.markdown(f'<div class="no-msgs">— {T("no_msgs")} —</div>', unsafe_allow_html=True)
-        
-        # Display all messages
-        for msg in st.session_state.messages:
-            if msg["role"] == "user":
-                st.markdown(f'<div class="bubble-user"><div class="bubble-lbl">You</div>{msg["content"]}</div>', unsafe_allow_html=True)
-            else:
-                st.markdown(f'<div class="bubble-bot"><div class="bubble-lbl">Assistant</div>{msg["content"]}</div>', unsafe_allow_html=True)
-        
-        # Show thinking animation while waiting for response
-        if st.session_state.thinking:
-            st.markdown("""
-            <div class="thinking-container">
-                <span class="dot"></span>
-                <span class="dot"></span>
-                <span class="dot"></span>
-            </div>
-            """, unsafe_allow_html=True)
-        
-        st.markdown('</div>', unsafe_allow_html=True)
-        
-        # CHAT INPUT USING TEXT INPUT - STAYS IN PLACE
-        with st.form(key="chat_form", clear_on_submit=True):
+
+    # Settings expander (only shows when toggled from navbar button)
+    if st.session_state.show_settings:
+        render_settings_menu()
+
+    # ============ AI CHAT - FULL WIDTH TOP ============
+    st.markdown(f'<div class="scard"><div class="scard-title">{T("ai_title")}</div>', unsafe_allow_html=True)
+    
+    _, btn_col = st.columns([5, 1])
+    with btn_col:
+        if st.button(T("clear_chat"), key="clr"):
+            st.session_state.messages = []
+            st.rerun()
+    
+    # SCROLLABLE MESSAGES AREA
+    st.markdown('<div class="chat-messages">', unsafe_allow_html=True)
+    
+    if not st.session_state.messages:
+        st.markdown(f'<div class="no-msgs">— {T("no_msgs")} —</div>', unsafe_allow_html=True)
+    
+    for msg in st.session_state.messages:
+        if msg["role"] == "user":
+            st.markdown(f'<div class="bubble-user"><div class="bubble-lbl">You</div>{msg["content"]}</div>', unsafe_allow_html=True)
+        else:
+            st.markdown(f'<div class="bubble-bot"><div class="bubble-lbl">Assistant</div>{msg["content"]}</div>', unsafe_allow_html=True)
+    
+    # THINKING ANIMATION WITH ROBOT 🤖 + 3 DOTS
+    if st.session_state.thinking:
+        st.markdown(f"""
+        <div class="thinking-container">
+            <span class="robot-icon">🤖</span>
+            <span class="dot"></span>
+            <span class="dot"></span>
+            <span class="dot"></span>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    st.markdown('</div>', unsafe_allow_html=True)  # close chat-messages
+    
+    # CHAT INPUT - INSIDE THE CARD, RIGHT BELOW MESSAGES
+    with st.form(key="chat_form", clear_on_submit=True):
+        col_input, col_send = st.columns([5, 1])
+        with col_input:
             user_input = st.text_input(
                 T("chat_hint"),
                 placeholder=T("chat_hint"),
-                label_visibility="collapsed"
+                label_visibility="collapsed",
+                key="chat_input"
             )
-            submitted = st.form_submit_button("Send", use_container_width=True)
+        with col_send:
+            submitted = st.form_submit_button("➤ " + T("send"), use_container_width=True)
+    
+    st.markdown('</div>', unsafe_allow_html=True)  # close scard
+    
+    if submitted and user_input and not st.session_state.thinking:
+        ctx_suffix = ""
+        if st.session_state.extracted_rev and not st.session_state.messages:
+            rev = st.session_state.extracted_rev
+            ctx_suffix = (f" [Budget context: Transient ${rev['transient']:,.0f}, "
+                        f"Monthly ${rev['monthly']:,.0f}, Total ${rev['total']:,.0f}]")
         
-        st.markdown('</div>', unsafe_allow_html=True)
+        st.session_state.messages.append({"role": "user", "content": user_input})
+        st.session_state.thinking = True
+        st.rerun()
 
-        if submitted and user_input and not st.session_state.thinking:
-            ctx_suffix = ""
-            if st.session_state.extracted_rev and not st.session_state.messages:
-                rev = st.session_state.extracted_rev
-                ctx_suffix = (f" [Budget context: Transient ${rev['transient']:,.0f}, "
-                            f"Monthly ${rev['monthly']:,.0f}, Total ${rev['total']:,.0f}]")
-            
-            st.session_state.messages.append({"role": "user", "content": user_input})
-            st.session_state.thinking = True
-            st.rerun()
+    # ============ FILE UPLOAD + WORKFLOW - SIDE BY SIDE BELOW ============
+    col_files, col_wf = st.columns([1, 1])
 
     with col_files:
         st.markdown(f'<div class="scard"><div class="scard-title">{T("files_title")}</div>', unsafe_allow_html=True)
@@ -969,7 +979,6 @@ def page_dashboard():
 # Process AI response after rerun
 # ─────────────────────────────────────────────────────────────────
 if st.session_state.thinking:
-    # Get the last user message
     user_messages = [m for m in st.session_state.messages if m["role"] == "user"]
     if user_messages:
         last_user_msg = user_messages[-1]["content"]
