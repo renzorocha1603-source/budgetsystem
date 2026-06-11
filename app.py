@@ -9,14 +9,8 @@ import requests
 from datetime import datetime
 import time
 import csv
-import PyPDF2
-
-# Try importing python-docx, but don't crash if not installed
-try:
-    import docx
-    DOCX_AVAILABLE = True
-except ImportError:
-    DOCX_AVAILABLE = False
+import zipfile
+from xml.etree import ElementTree
 
 # ─────────────────────────────────────────────────────────────────
 # PAGE CONFIG
@@ -73,7 +67,7 @@ def ask_mistral(history: list) -> str:
         return f"⚠️ Unexpected error: {e}"
 
 # ─────────────────────────────────────────────────────────────────
-# FILE EXTRACTION FUNCTIONS
+# FILE EXTRACTION FUNCTIONS (using only installed libraries)
 # ─────────────────────────────────────────────────────────────────
 def extract_text_from_excel(file_bytes):
     """Extract text from Excel file"""
@@ -96,31 +90,34 @@ def extract_text_from_csv(file_bytes):
     return csv_data
 
 def extract_text_from_pdf(file_bytes):
-    """Extract text from PDF file"""
+    """Extract text from PDF file using pdfplumber"""
     text = ""
     try:
-        reader = PyPDF2.PdfReader(io.BytesIO(file_bytes))
-        for page in reader.pages:
-            text += page.extract_text() or ""
+        with pdfplumber.open(io.BytesIO(file_bytes)) as pdf:
+            text = "".join(p.extract_text() or "" for p in pdf.pages)
     except:
         pass
-    
-    if not text.strip():
-        try:
-            with pdfplumber.open(io.BytesIO(file_bytes)) as pdf:
-                text = "".join(p.extract_text() or "" for p in pdf.pages)
-        except:
-            pass
-    
     return text if text.strip() else "Could not extract text from PDF"
 
 def extract_text_from_docx(file_bytes):
-    """Extract text from Word document"""
-    if DOCX_AVAILABLE:
-        doc = docx.Document(io.BytesIO(file_bytes))
-        text = "\n".join([paragraph.text for paragraph in doc.paragraphs])
-        return text
-    return "python-docx not installed"
+    """Extract text from Word document using built-in zipfile and ElementTree"""
+    try:
+        with zipfile.ZipFile(io.BytesIO(file_bytes)) as z:
+            if 'word/document.xml' in z.namelist():
+                xml_content = z.read('word/document.xml')
+                tree = ElementTree.fromstring(xml_content)
+                ns = {'w': 'http://schemas.openxmlformats.org/wordprocessingml/2006/main'}
+                paragraphs = tree.findall('.//w:p', ns)
+                text_parts = []
+                for p in paragraphs:
+                    texts = p.findall('.//w:t', ns)
+                    para_text = ''.join(t.text for t in texts if t.text)
+                    if para_text:
+                        text_parts.append(para_text)
+                return '\n'.join(text_parts)
+    except:
+        pass
+    return "Could not extract text from this document"
 
 def extract_text_from_txt(file_bytes):
     """Extract text from text file"""
@@ -1129,15 +1126,12 @@ def page_dashboard():
         
         if excel_file and pdf_file and not st.session_state.files_ready:
             with st.spinner(T("processing")):
-                # Read files
                 excel_bytes_read = excel_file.read()
                 pdf_bytes_read = pdf_file.read()
                 
-                # Try to extract revenue from uploaded file (works with PDFs and other formats)
                 if pdf_file.name.lower().endswith('.pdf'):
                     rev = extract_pdf_revenue(pdf_bytes_read)
                 else:
-                    # For non-PDF files, try to extract from Excel or use defaults
                     try:
                         _, _, _ = process_any_file(excel_file)
                         rev = {"transient": 24000, "monthly": 16000, "total": 40000}
