@@ -393,22 +393,14 @@ def inject_css():
         color: {C['text']} !important;
     }}
     
-    /* FIXED: SCROLLABLE CHAT CONTAINER */
-    .chat-wrapper {{
-        display: flex;
-        flex-direction: column;
-        height: 480px;
-        position: relative;
-    }}
-    
+    /* SCROLLABLE CHAT CONTAINER */
     .chat-messages {{
-        flex: 1;
+        height: 380px;
         overflow-y: auto;
         overflow-x: hidden;
         padding-right: 8px;
-        padding-bottom: 4px;
+        margin-bottom: 8px;
         scrollbar-width: thin;
-        min-height: 0;
     }}
     
     .chat-messages::-webkit-scrollbar {{
@@ -429,14 +421,7 @@ def inject_css():
         background: {C['run_bg2']};
     }}
     
-    .chat-input-area {{
-        flex-shrink: 0;
-        padding-top: 8px;
-        border-top: 1px solid {C['border']};
-        margin-top: 4px;
-    }}
-    
-    /* FIXED: THINKING DOTS WITH ROBOT */
+    /* THINKING DOTS WITH ROBOT */
     .thinking-container {{
         display: flex;
         align-items: center;
@@ -455,12 +440,6 @@ def inject_css():
         line-height: 1;
     }}
     
-    .dots-wrapper {{
-        display: flex;
-        align-items: center;
-        gap: 3px;
-    }}
-    
     .dot {{
         display: inline-block;
         width: 8px;
@@ -468,6 +447,7 @@ def inject_css():
         border-radius: 50%;
         background: {C['highlight']};
         animation: dot-bounce 1.4s infinite ease-in-out both;
+        margin: 0 3px;
     }}
     
     .dot:nth-child(1) {{ animation-delay: -0.32s; }}
@@ -479,7 +459,7 @@ def inject_css():
         40% {{ transform: scale(1); opacity: 1; }}
     }}
     
-    /* HIDE Streamlit's default chat input to use our own */
+    /* Chat input styling - keep it inside the card */
     .stChatInput {{
         position: relative !important;
         bottom: auto !important;
@@ -842,7 +822,7 @@ def render_settings_menu():
 def page_dashboard():
     inject_css()
     
-    # Navbar - ONLY ONE settings icon now
+    # Navbar - ONLY ONE SETTINGS BUTTON
     n1, n2 = st.columns([6, 0.65])
     with n1:
         st.markdown(f"""
@@ -863,6 +843,7 @@ def page_dashboard():
 
     col_chat, col_files, col_wf = st.columns([1, 1.15, 0.95])
 
+    # ============ CHAT COLUMN ============
     with col_chat:
         st.markdown(f'<div class="scard"><div class="scard-title">{T("ai_title")}</div>', unsafe_allow_html=True)
         
@@ -872,43 +853,35 @@ def page_dashboard():
                 st.session_state.messages = []
                 st.rerun()
         
-        # FIXED: Chat wrapper with proper flex layout - no gap!
-        st.markdown('<div class="chat-wrapper">', unsafe_allow_html=True)
-        
-        # Scrollable messages area
+        # SCROLLABLE MESSAGES AREA
         st.markdown('<div class="chat-messages">', unsafe_allow_html=True)
         
         if not st.session_state.messages:
             st.markdown(f'<div class="no-msgs">— {T("no_msgs")} —</div>', unsafe_allow_html=True)
         
-        # Display all messages
         for msg in st.session_state.messages:
             if msg["role"] == "user":
                 st.markdown(f'<div class="bubble-user"><div class="bubble-lbl">You</div>{msg["content"]}</div>', unsafe_allow_html=True)
             else:
                 st.markdown(f'<div class="bubble-bot"><div class="bubble-lbl">Assistant</div>{msg["content"]}</div>', unsafe_allow_html=True)
         
-        # FIXED: Show thinking animation with ROBOT + 3 dots
+        # THINKING ANIMATION WITH ROBOT + 3 DOTS
         if st.session_state.thinking:
             st.markdown(f"""
             <div class="thinking-container">
                 <span class="robot-icon">🤖</span>
-                <div class="dots-wrapper">
-                    <span class="dot"></span>
-                    <span class="dot"></span>
-                    <span class="dot"></span>
-                </div>
+                <span class="dot"></span>
+                <span class="dot"></span>
+                <span class="dot"></span>
             </div>
             """, unsafe_allow_html=True)
         
-        st.markdown('</div>', unsafe_allow_html=True)  # Close chat-messages
+        st.markdown('</div>', unsafe_allow_html=True)  # close chat-messages
         
-        # Input area right below messages
-        st.markdown('<div class="chat-input-area">', unsafe_allow_html=True)
+        # CHAT INPUT - INSIDE THE CARD, RIGHT BELOW MESSAGES
         user_input = st.chat_input(T("chat_hint"))
-        st.markdown('</div>', unsafe_allow_html=True)
         
-        st.markdown('</div>', unsafe_allow_html=True)  # Close chat-wrapper
+        st.markdown('</div>', unsafe_allow_html=True)  # close scard
         
         if user_input and not st.session_state.thinking:
             ctx_suffix = ""
@@ -920,9 +893,8 @@ def page_dashboard():
             st.session_state.messages.append({"role": "user", "content": user_input})
             st.session_state.thinking = True
             st.rerun()
-        
-        st.markdown('</div>', unsafe_allow_html=True)  # Close scard
 
+    # ============ FILES COLUMN ============
     with col_files:
         st.markdown(f'<div class="scard"><div class="scard-title">{T("files_title")}</div>', unsafe_allow_html=True)
         
@@ -960,6 +932,7 @@ def page_dashboard():
         
         st.markdown('</div>', unsafe_allow_html=True)
 
+    # ============ WORKFLOW COLUMN ============
     with col_wf:
         st.markdown(f'<div class="scard"><div class="scard-title">{T("config_title")}</div>', unsafe_allow_html=True)
         
@@ -1008,7 +981,6 @@ def page_dashboard():
 # Process AI response after rerun
 # ─────────────────────────────────────────────────────────────────
 if st.session_state.thinking:
-    # Get the last user message
     user_messages = [m for m in st.session_state.messages if m["role"] == "user"]
     if user_messages:
         last_user_msg = user_messages[-1]["content"]
