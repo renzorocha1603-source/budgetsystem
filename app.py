@@ -468,10 +468,6 @@ def inject_css():
             box-shadow: 0 0 0 6px rgba(63, 185, 80, 0);
             transform: scale(1.15);
         }}
-        100% {{ 
-            box-shadow: 0 0 0 0 rgba(63, 185, 80, 0);
-            transform: scale(1);
-        }}
     }}
     
     .alive-dot {{
@@ -482,28 +478,8 @@ def inject_css():
         border-radius: 50%;
         animation: pulse-green 2s infinite ease-in-out;
         vertical-align: middle;
-        margin-left: 2px;
     }}
-    
-    /* SETTINGS BUTTON - ORANGE ICON ONLY, NO BACKGROUND SQUARE */
-    .settings-btn button {{
-        background: transparent !important;
-        border: none !important;
-        color: #E67E22 !important;
-        font-size: 1.2rem !important;
-        padding: 0.2rem 0.3rem !important;
-        width: auto !important;
-        min-width: auto !important;
-        line-height: 1 !important;
-    }}
-    
-    .settings-btn button:hover {{
-        background: transparent !important;
-        color: #F39C12 !important;
-        transform: scale(1.1) !important;
-        box-shadow: none !important;
-    }}
-    
+
     /* Make ALL selectbox options visible */
     div[data-baseweb="select"] div, 
     div[data-baseweb="select"] span,
@@ -561,11 +537,11 @@ def inject_css():
         color: {C['highlight']} !important;
     }}
     
-    /* ALL BUTTONS */
+    /* ALL REGULAR BUTTONS - ORANGE */
     .stButton > button {{
-        background: {C['btn_bg']} !important;
-        color: {C['btn_text']} !important;
-        border: 1px solid {C['btn_border']} !important;
+        background: #E67E22 !important;
+        color: #FFFFFF !important;
+        border: 1px solid #F39C12 !important;
         font-family: 'IBM Plex Mono', monospace !important;
         font-size: 0.68rem !important;
         font-weight: 600 !important;
@@ -578,42 +554,53 @@ def inject_css():
         cursor: pointer !important;
     }}
     
-    /* FORM SUBMIT BUTTONS - ALWAYS ORANGE */
-    div[data-testid="stForm"] .stButton > button {{
-        background: #E67E22 !important;
-        color: #FFFFFF !important;
-        border: 1px solid #F39C12 !important;
-    }}
-    
-    div[data-testid="stForm"] .stButton > button:hover {{
+    .stButton > button:hover {{
         background: #F39C12 !important;
         border-color: #FFFFFF !important;
         transform: scale(1.01) !important;
         box-shadow: 0 2px 8px rgba(230,126,34,0.3) !important;
     }}
     
-    .stButton > button:hover, div[data-testid="stForm"] .stButton > button:hover {{
-        background: {C['run_bg2']} !important;
+    .stButton > button[kind="primary"] {{
+        background: #E67E22 !important;
+        color: #FFFFFF !important;
+        border-color: #F39C12 !important;
+    }}
+    
+    .stButton > button[kind="primary"]:hover {{
+        background: #F39C12 !important;
+        transform: scale(1.01) !important;
+    }}
+    
+    /* FORM SUBMIT BUTTONS - ALSO ORANGE */
+    div[data-testid="stFormSubmitButton"] > button {{
+        background: #E67E22 !important;
+        color: #FFFFFF !important;
+        border: 1px solid #F39C12 !important;
+        font-family: 'IBM Plex Mono', monospace !important;
+        font-size: 0.68rem !important;
+        font-weight: 600 !important;
+        letter-spacing: 0.09em !important;
+        text-transform: uppercase !important;
+        border-radius: 6px !important;
+        padding: 0.45rem 0.9rem !important;
+        width: 100% !important;
+        transition: all 0.2s ease !important;
+        cursor: pointer !important;
+    }}
+    
+    div[data-testid="stFormSubmitButton"] > button:hover {{
+        background: #F39C12 !important;
         border-color: #FFFFFF !important;
         transform: scale(1.01) !important;
         box-shadow: 0 2px 8px rgba(230,126,34,0.3) !important;
     }}
     
-    .stButton > button[kind="primary"] {{
-        background: {C['run_bg']} !important;
-        color: #FFFFFF !important;
-        border-color: {C['run_bg2']} !important;
-    }}
-    
-    .stButton > button[kind="primary"]:hover {{
-        background: {C['run_bg2']} !important;
-        transform: scale(1.01) !important;
-    }}
-    
+    /* DOWNLOAD BUTTON */
     .stDownloadButton > button {{
-        background: {C['dl_bg']} !important;
+        background: #E67E22 !important;
         color: #FFFFFF !important;
-        border: 1px solid {C['dl_border']} !important;
+        border: 1px solid #F39C12 !important;
         font-family: 'IBM Plex Mono', monospace !important;
         font-size: 0.68rem !important;
         font-weight: 600 !important;
@@ -625,8 +612,27 @@ def inject_css():
     }}
     
     .stDownloadButton > button:hover {{
-        background: {C['run_bg2']} !important;
+        background: #F39C12 !important;
         border-color: #FFFFFF !important;
+    }}
+    
+    /* SETTINGS BUTTON - JUST ORANGE ICON, NO BOX */
+    button[kind="secondary"][data-testid="baseButton-secondary"] {{
+        background: transparent !important;
+        border: none !important;
+        color: #E67E22 !important;
+        font-size: 1.3rem !important;
+        padding: 0.1rem 0.2rem !important;
+        width: auto !important;
+        min-width: auto !important;
+        line-height: 1 !important;
+    }}
+    
+    button[kind="secondary"][data-testid="baseButton-secondary"]:hover {{
+        background: transparent !important;
+        color: #F39C12 !important;
+        transform: scale(1.15) !important;
+        box-shadow: none !important;
     }}
     
     /* Settings expander */
@@ -689,15 +695,15 @@ def inject_css():
     }}
     
     div[data-testid="stFileUploader"] button {{
-        background: {C['btn_bg']} !important;
+        background: #E67E22 !important;
         color: #FFFFFF !important;
-        border: 1px solid {C['btn_border']} !important;
+        border: 1px solid #F39C12 !important;
         border-radius: 6px !important;
         font-weight: 600 !important;
     }}
     
     div[data-testid="stFileUploader"] button:hover {{
-        background: {C['run_bg2']} !important;
+        background: #F39C12 !important;
         border-color: #FFFFFF !important;
     }}
     
@@ -774,7 +780,7 @@ def page_login():
         st.markdown(f'<div class="db-footer">{T("footer")}</div>', unsafe_allow_html=True)
 
 # ─────────────────────────────────────────────────────────────────
-# SETTINGS MENU (now only accessible from the ⚙️ button in navbar)
+# SETTINGS MENU
 # ─────────────────────────────────────────────────────────────────
 def render_settings_menu():
     if st.session_state.show_settings:
@@ -858,12 +864,12 @@ def render_settings_menu():
                             st.success(T("reset_ok"))
 
 # ─────────────────────────────────────────────────────────────────
-# MAIN DASHBOARD - NEW LAYOUT
+# MAIN DASHBOARD
 # ─────────────────────────────────────────────────────────────────
 def page_dashboard():
     inject_css()
     
-    # Navbar - ONLY ONE SETTINGS BUTTON + GREEN ALIVE DOT
+    # Navbar
     n1, n2 = st.columns([6, 0.65])
     with n1:
         st.markdown(f"""
@@ -877,15 +883,13 @@ def page_dashboard():
         with col_time:
             st.markdown(f"<div style='font-family:IBM Plex Mono,monospace;font-size:0.58rem;color:{TK()['text_secondary']};padding-top:0.6rem;text-align:right;'>{datetime.now().strftime('%Y-%m-%d %H:%M')}</div>", unsafe_allow_html=True)
         with col_settings:
-            st.markdown('<div class="settings-btn">', unsafe_allow_html=True)
             if st.button("⚙️", key="settings_btn"):
                 st.session_state.show_settings = not st.session_state.show_settings
                 st.rerun()
-            st.markdown('</div>', unsafe_allow_html=True)
         with col_alive:
             st.markdown('<div style="padding-top:0.55rem;text-align:center;"><span class="alive-dot"></span></div>', unsafe_allow_html=True)
 
-    # Settings expander (only shows when toggled from navbar button)
+    # Settings expander
     if st.session_state.show_settings:
         render_settings_menu()
 
@@ -921,9 +925,9 @@ def page_dashboard():
         </div>
         """, unsafe_allow_html=True)
     
-    st.markdown('</div>', unsafe_allow_html=True)  # close chat-messages
+    st.markdown('</div>', unsafe_allow_html=True)
     
-    # CHAT INPUT - INSIDE THE CARD, RIGHT BELOW MESSAGES
+    # CHAT INPUT
     with st.form(key="chat_form", clear_on_submit=True):
         col_input, col_send = st.columns([5, 1])
         with col_input:
@@ -936,7 +940,7 @@ def page_dashboard():
         with col_send:
             submitted = st.form_submit_button("➤ " + T("send"), use_container_width=True)
     
-    st.markdown('</div>', unsafe_allow_html=True)  # close scard
+    st.markdown('</div>', unsafe_allow_html=True)
     
     if submitted and user_input and not st.session_state.thinking:
         ctx_suffix = ""
@@ -949,7 +953,7 @@ def page_dashboard():
         st.session_state.thinking = True
         st.rerun()
 
-    # ============ FILE UPLOAD + WORKFLOW - SIDE BY SIDE BELOW ============
+    # ============ FILE UPLOAD + WORKFLOW - SIDE BY SIDE ============
     col_files, col_wf = st.columns([1, 1])
 
     with col_files:
