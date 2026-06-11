@@ -323,7 +323,7 @@ def do_logout():
     st.rerun()
 
 # ─────────────────────────────────────────────────────────────────
-# THEME TOKENS
+# THEME TOKENS — Light theme made softer & more readable
 # ─────────────────────────────────────────────────────────────────
 DARK = dict(
     bg="#0D1117",
@@ -350,27 +350,27 @@ DARK = dict(
 )
 
 LIGHT = dict(
-    bg="#F5F7FA",
+    bg="#F8FAFC",
     surface="#FFFFFF",
-    border="#D4DCE8",
+    border="#E2E8F0",
     accent="#0066CC",
     accent2="#7C3AED",
     accent3="#0E7933",
-    text="#1A2E45",
-    text_secondary="#5C6F8C",
-    muted="#5C6F8C",
+    text="#1E2937",
+    text_secondary="#475569",
+    muted="#64748B",
     danger="#DC2626",
-    bubble_user="#E6F0FF",
-    bubble_bot="#F8FAFE",
+    bubble_user="#EFF6FF",
+    bubble_bot="#F8FAFC",
     input_bg="#FFFFFF",
-    navbar="#F0F4F9",
-    btn_bg="#EFF3F8",
-    btn_border="#D4DCE8",
+    navbar="#F1F5F9",
+    btn_bg="#F1F5F9",
+    btn_border="#E2E8F0",
     run_bg="#0066CC",
     run_bg2="#1A75D6",
-    dl_bg="#E6F7ED",
-    dl_color="#0E7933",
-    dl_border="#C4E6D4",
+    dl_bg="#F0FDF4",
+    dl_color="#166534",
+    dl_border="#BBF7D0",
 )
 
 def TK():
@@ -433,10 +433,10 @@ def inject_css():
     .mblock-val.t {{ color: {C['accent3']} !important; }}
 
     .chat-scroll {{ 
-        max-height: 400px; 
+        max-height: 420px; 
         overflow-y: auto; 
         overflow-x: hidden;
-        padding-right: 10px;
+        padding-right: 12px;
         margin-bottom: 0.5rem;
         scrollbar-width: thin;
     }}
@@ -571,8 +571,8 @@ def render_settings_menu():
 def page_dashboard():
     inject_css()
     
-    # Navbar
-    n1, n2, n3, n4, n5, n6, n7 = st.columns([4, 1.4, 0.65, 0.65, 0.65, 0.65, 0.85])
+    # Navbar - Only one Settings button, removed duplicate logout
+    n1, n2, n3, n4, n5, n6 = st.columns([4, 1.4, 0.65, 0.65, 0.65, 0.85])
     with n1:
         st.markdown(f"""
         <div class="navbar">
@@ -598,17 +598,14 @@ def page_dashboard():
     with n6:
         if st.button("⚙️", key="settings_btn"):
             st.session_state.show_settings = not st.session_state.show_settings
-    with n7:
-        if st.button(T("logout_btn"), key="logout_top"):
-            do_logout()
 
-    # Settings Menu (top right)
+    # Settings Menu
     render_settings_menu()
 
     col_chat, col_files, col_wf = st.columns([1, 1.15, 0.95])
 
     with col_chat:
-        st.markdown(f'<div class="scard"><div class="scard-title">{T("ai_title")}</div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="scard"><div class="scard-title">🤖 {T("ai_title")}</div>', unsafe_allow_html=True)
         
         _, btn_col = st.columns([3, 1])
         with btn_col:
@@ -634,8 +631,13 @@ def page_dashboard():
                 ctx_suffix = (f" [Budget context: Transient ${rev['transient']:,.0f}, "
                             f"Monthly ${rev['monthly']:,.0f}, Total ${rev['total']:,.0f}]")
             st.session_state.messages.append({"role": "user", "content": user_input})
-            hist = st.session_state.messages[:-1] + [{"role": "user", "content": user_input + ctx_suffix}]
-            reply = ask_mistral(hist)
+            st.rerun()  # Show user message immediately
+            
+            # Show thinking indicator
+            with st.spinner("🤖 Assistant is thinking..."):
+                hist = st.session_state.messages[:-1] + [{"role": "user", "content": user_input + ctx_suffix}]
+                reply = ask_mistral(hist)
+            
             st.session_state.messages.append({"role": "assistant", "content": reply})
             st.rerun()
         
