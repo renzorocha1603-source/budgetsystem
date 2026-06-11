@@ -393,51 +393,43 @@ def inject_css():
         color: {C['text']} !important;
     }}
     
-    /* SCROLLABLE CHAT CONTAINER */
-    .chat-messages {{
-        height: 380px;
+    /* SCROLLABLE CHAT CONTAINER - FIXED */
+    .chat-container {{
+        height: 420px;
         overflow-y: auto;
         overflow-x: hidden;
         padding-right: 8px;
-        margin-bottom: 8px;
+        margin-bottom: 12px;
         scrollbar-width: thin;
     }}
     
-    .chat-messages::-webkit-scrollbar {{
+    .chat-container::-webkit-scrollbar {{
         width: 6px;
     }}
     
-    .chat-messages::-webkit-scrollbar-track {{
+    .chat-container::-webkit-scrollbar-track {{
         background: {C['border']};
         border-radius: 3px;
     }}
     
-    .chat-messages::-webkit-scrollbar-thumb {{
+    .chat-container::-webkit-scrollbar-thumb {{
         background: {C['highlight']};
         border-radius: 3px;
     }}
     
-    .chat-messages::-webkit-scrollbar-thumb:hover {{
+    .chat-container::-webkit-scrollbar-thumb:hover {{
         background: {C['run_bg2']};
     }}
     
-    /* THINKING DOTS WITH ROBOT */
+    /* THINKING DOTS - FIXED */
     .thinking-container {{
-        display: flex;
-        align-items: center;
-        gap: 8px;
+        display: inline-block;
         padding: 0.6rem 0.9rem;
         background: {C['bubble_bot']};
         border: 1px solid {C['border']};
         border-left: 2px solid {C['accent2']};
         border-radius: 2px 8px 8px 8px;
         margin-bottom: 0.5rem;
-        width: fit-content;
-    }}
-    
-    .robot-icon {{
-        font-size: 1.2rem;
-        line-height: 1;
     }}
     
     .dot {{
@@ -446,8 +438,8 @@ def inject_css():
         height: 8px;
         border-radius: 50%;
         background: {C['highlight']};
-        animation: dot-bounce 1.4s infinite ease-in-out both;
         margin: 0 3px;
+        animation: dot-bounce 1.4s infinite ease-in-out both;
     }}
     
     .dot:nth-child(1) {{ animation-delay: -0.32s; }}
@@ -459,17 +451,12 @@ def inject_css():
         40% {{ transform: scale(1); opacity: 1; }}
     }}
     
-    /* Chat input styling - keep it inside the card */
+    /* Chat input styling */
     .stChatInput {{
-        position: relative !important;
-        bottom: auto !important;
-    }}
-    
-    div[data-testid="stChatInput"] {{
-        position: relative !important;
-        bottom: auto !important;
-        background: transparent !important;
-        padding-top: 0 !important;
+        position: sticky;
+        bottom: 0;
+        background: {C['surface']};
+        padding-top: 8px;
     }}
     
     /* Make ALL selectbox options visible */
@@ -822,8 +809,8 @@ def render_settings_menu():
 def page_dashboard():
     inject_css()
     
-    # Navbar - ONLY ONE SETTINGS BUTTON
-    n1, n2 = st.columns([6, 0.65])
+    # Navbar
+    n1, n2, n3 = st.columns([6, 2, 0.65])
     with n1:
         st.markdown(f"""
         <div class="navbar">
@@ -832,18 +819,15 @@ def page_dashboard():
         </div>
         """, unsafe_allow_html=True)
     with n2:
-        col_time, col_settings = st.columns([3, 1])
-        with col_time:
-            st.markdown(f"<div style='font-family:IBM Plex Mono,monospace;font-size:0.58rem;color:{TK()['text_secondary']};padding-top:0.6rem;text-align:right;'>{datetime.now().strftime('%Y-%m-%d %H:%M')}</div>", unsafe_allow_html=True)
-        with col_settings:
-            if st.button("⚙️", key="settings_btn"):
-                st.session_state.show_settings = not st.session_state.show_settings
+        st.markdown(f"<div style='font-family:IBM Plex Mono,monospace;font-size:0.58rem;color:{TK()['text_secondary']};padding-top:0.6rem;text-align:right;'>{datetime.now().strftime('%Y-%m-%d %H:%M')}</div>", unsafe_allow_html=True)
+    with n3:
+        if st.button("⚙️", key="settings_btn"):
+            st.session_state.show_settings = not st.session_state.show_settings
 
     render_settings_menu()
 
     col_chat, col_files, col_wf = st.columns([1, 1.15, 0.95])
 
-    # ============ CHAT COLUMN ============
     with col_chat:
         st.markdown(f'<div class="scard"><div class="scard-title">{T("ai_title")}</div>', unsafe_allow_html=True)
         
@@ -853,37 +837,43 @@ def page_dashboard():
                 st.session_state.messages = []
                 st.rerun()
         
-        # SCROLLABLE MESSAGES AREA
-        st.markdown('<div class="chat-messages">', unsafe_allow_html=True)
+        # SCROLLABLE CHAT CONTAINER
+        st.markdown('<div class="chat-container">', unsafe_allow_html=True)
         
         if not st.session_state.messages:
             st.markdown(f'<div class="no-msgs">— {T("no_msgs")} —</div>', unsafe_allow_html=True)
         
+        # Display all messages
         for msg in st.session_state.messages:
             if msg["role"] == "user":
                 st.markdown(f'<div class="bubble-user"><div class="bubble-lbl">You</div>{msg["content"]}</div>', unsafe_allow_html=True)
             else:
                 st.markdown(f'<div class="bubble-bot"><div class="bubble-lbl">Assistant</div>{msg["content"]}</div>', unsafe_allow_html=True)
         
-        # THINKING ANIMATION WITH ROBOT + 3 DOTS
+        # Show thinking animation while waiting for response
         if st.session_state.thinking:
-            st.markdown(f"""
+            st.markdown("""
             <div class="thinking-container">
-                <span class="robot-icon">🤖</span>
                 <span class="dot"></span>
                 <span class="dot"></span>
                 <span class="dot"></span>
             </div>
             """, unsafe_allow_html=True)
         
-        st.markdown('</div>', unsafe_allow_html=True)  # close chat-messages
+        st.markdown('</div>', unsafe_allow_html=True)
         
-        # CHAT INPUT - INSIDE THE CARD, RIGHT BELOW MESSAGES
-        user_input = st.chat_input(T("chat_hint"))
+        # CHAT INPUT USING TEXT INPUT - STAYS IN PLACE
+        with st.form(key="chat_form", clear_on_submit=True):
+            user_input = st.text_input(
+                T("chat_hint"),
+                placeholder=T("chat_hint"),
+                label_visibility="collapsed"
+            )
+            submitted = st.form_submit_button("Send", use_container_width=True)
         
-        st.markdown('</div>', unsafe_allow_html=True)  # close scard
-        
-        if user_input and not st.session_state.thinking:
+        st.markdown('</div>', unsafe_allow_html=True)
+
+        if submitted and user_input and not st.session_state.thinking:
             ctx_suffix = ""
             if st.session_state.extracted_rev and not st.session_state.messages:
                 rev = st.session_state.extracted_rev
@@ -894,7 +884,6 @@ def page_dashboard():
             st.session_state.thinking = True
             st.rerun()
 
-    # ============ FILES COLUMN ============
     with col_files:
         st.markdown(f'<div class="scard"><div class="scard-title">{T("files_title")}</div>', unsafe_allow_html=True)
         
@@ -932,7 +921,6 @@ def page_dashboard():
         
         st.markdown('</div>', unsafe_allow_html=True)
 
-    # ============ WORKFLOW COLUMN ============
     with col_wf:
         st.markdown(f'<div class="scard"><div class="scard-title">{T("config_title")}</div>', unsafe_allow_html=True)
         
@@ -981,6 +969,7 @@ def page_dashboard():
 # Process AI response after rerun
 # ─────────────────────────────────────────────────────────────────
 if st.session_state.thinking:
+    # Get the last user message
     user_messages = [m for m in st.session_state.messages if m["role"] == "user"]
     if user_messages:
         last_user_msg = user_messages[-1]["content"]
