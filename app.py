@@ -423,7 +423,9 @@ def inject_css():
     
     /* THINKING DOTS - FIXED */
     .thinking-container {{
-        display: inline-block;
+        display: flex;
+        align-items: center;
+        gap: 8px;
         padding: 0.6rem 0.9rem;
         background: {C['bubble_bot']};
         border: 1px solid {C['border']};
@@ -432,13 +434,23 @@ def inject_css():
         margin-bottom: 0.5rem;
     }}
     
+    .robot-icon {{
+        font-size: 1.2rem;
+        line-height: 1;
+    }}
+    
+    .dots-wrapper {{
+        display: flex;
+        align-items: center;
+        gap: 3px;
+    }}
+    
     .dot {{
         display: inline-block;
         width: 8px;
         height: 8px;
         border-radius: 50%;
         background: {C['highlight']};
-        margin: 0 3px;
         animation: dot-bounce 1.4s infinite ease-in-out both;
     }}
     
@@ -809,8 +821,8 @@ def render_settings_menu():
 def page_dashboard():
     inject_css()
     
-    # Navbar
-    n1, n2, n3 = st.columns([6, 2, 0.65])
+    # Navbar - Fixed: removed duplicate settings icon
+    n1, n2 = st.columns([6, 0.65])
     with n1:
         st.markdown(f"""
         <div class="navbar">
@@ -819,10 +831,12 @@ def page_dashboard():
         </div>
         """, unsafe_allow_html=True)
     with n2:
-        st.markdown(f"<div style='font-family:IBM Plex Mono,monospace;font-size:0.58rem;color:{TK()['text_secondary']};padding-top:0.6rem;text-align:right;'>{datetime.now().strftime('%Y-%m-%d %H:%M')}</div>", unsafe_allow_html=True)
-    with n3:
-        if st.button("⚙️", key="settings_btn"):
-            st.session_state.show_settings = not st.session_state.show_settings
+        col_time, col_settings = st.columns([3, 1])
+        with col_time:
+            st.markdown(f"<div style='font-family:IBM Plex Mono,monospace;font-size:0.58rem;color:{TK()['text_secondary']};padding-top:0.6rem;text-align:right;'>{datetime.now().strftime('%Y-%m-%d %H:%M')}</div>", unsafe_allow_html=True)
+        with col_settings:
+            if st.button("⚙️", key="settings_btn"):
+                st.session_state.show_settings = not st.session_state.show_settings
 
     render_settings_menu()
 
@@ -850,13 +864,16 @@ def page_dashboard():
             else:
                 st.markdown(f'<div class="bubble-bot"><div class="bubble-lbl">Assistant</div>{msg["content"]}</div>', unsafe_allow_html=True)
         
-        # Show thinking animation while waiting for response
+        # Show thinking animation with robot icon while waiting for response
         if st.session_state.thinking:
-            st.markdown("""
+            st.markdown(f"""
             <div class="thinking-container">
-                <span class="dot"></span>
-                <span class="dot"></span>
-                <span class="dot"></span>
+                <span class="robot-icon">🤖</span>
+                <div class="dots-wrapper">
+                    <span class="dot"></span>
+                    <span class="dot"></span>
+                    <span class="dot"></span>
+                </div>
             </div>
             """, unsafe_allow_html=True)
         
