@@ -111,11 +111,13 @@ T_DATA = {
         "new_pw_lbl": "New password",
         "reset_btn": "Reset Password",
         "reset_ok": "Password updated successfully.",
-        "theme_dark": "🌙 Dark",
-        "theme_light": "☀️ Light",
+        "theme_dark": "🌙 Dark Mode",
+        "theme_light": "☀️ Light Mode",
         "footer": "Budget System · Only Solutions Inc.",
         "settings": "Settings",
         "profile": "Profile",
+        "language": "Language",
+        "appearance": "Appearance",
     },
     "fr": {
         "brand": "SYSTÈME BUDGÉTAIRE",
@@ -162,11 +164,13 @@ T_DATA = {
         "new_pw_lbl": "Nouveau mot de passe",
         "reset_btn": "Réinitialiser",
         "reset_ok": "Mot de passe mis à jour.",
-        "theme_dark": "🌙 Sombre",
-        "theme_light": "☀️ Clair",
+        "theme_dark": "🌙 Mode Sombre",
+        "theme_light": "☀️ Mode Clair",
         "footer": "Système budgétaire · Only Solutions Inc.",
         "settings": "Paramètres",
         "profile": "Profil",
+        "language": "Langue",
+        "appearance": "Apparence",
     },
 }
 
@@ -311,7 +315,7 @@ def do_logout():
     st.rerun()
 
 # ─────────────────────────────────────────────────────────────────
-# THEME TOKENS
+# THEME TOKENS - Orange accent for ALL elements
 # ─────────────────────────────────────────────────────────────────
 DARK = dict(
     bg="#0D1117",
@@ -328,13 +332,15 @@ DARK = dict(
     bubble_bot="#21262D",
     input_bg="#0D1117",
     navbar="#161B22",
-    btn_bg="#21262D",
-    btn_border="#30363D",
-    run_bg="#1F6FEB",
-    run_bg2="#388BFD",
-    dl_bg="#21262D",
-    dl_color="#3FB950",
-    dl_border="#30363D",
+    btn_bg="#E67E22",
+    btn_border="#F39C12",
+    btn_text="#FFFFFF",
+    run_bg="#E67E22",
+    run_bg2="#F39C12",
+    dl_bg="#E67E22",
+    dl_color="#FFFFFF",
+    dl_border="#F39C12",
+    highlight="#F39C12",
 )
 
 LIGHT = dict(
@@ -352,13 +358,15 @@ LIGHT = dict(
     bubble_bot="#F8FAFE",
     input_bg="#FFFFFF",
     navbar="#F0F4F9",
-    btn_bg="#EFF3F8",
-    btn_border="#D4DCE8",
-    run_bg="#0066CC",
-    run_bg2="#1A75D6",
-    dl_bg="#E6F7ED",
-    dl_color="#0E7933",
-    dl_border="#C4E6D4",
+    btn_bg="#E67E22",
+    btn_border="#F39C12",
+    btn_text="#FFFFFF",
+    run_bg="#E67E22",
+    run_bg2="#F39C12",
+    dl_bg="#E67E22",
+    dl_color="#FFFFFF",
+    dl_border="#F39C12",
+    highlight="#E67E22",
 )
 
 def TK():
@@ -383,17 +391,141 @@ def inject_css():
         color: {C['text']} !important;
     }}
     
+    /* Make ALL selectbox options visible in dark theme */
+    div[data-baseweb="select"] div, 
+    div[data-baseweb="select"] span,
+    div[data-testid="stSelectbox"] div,
+    .stSelectbox div,
+    .stSelectbox span,
+    div[role="listbox"] div,
+    div[role="option"] {{
+        color: {C['text']} !important;
+        background-color: {C['surface']} !important;
+    }}
+    
+    /* Dropdown menu items */
+    div[data-baseweb="popover"] div,
+    div[data-baseweb="popover"] span,
+    ul[role="listbox"] li,
+    ul[role="listbox"] li div {{
+        color: {C['text']} !important;
+        background-color: {C['surface']} !important;
+    }}
+    
+    ul[role="listbox"] li:hover {{
+        background-color: {C['highlight']} !important;
+        color: #000000 !important;
+    }}
+    
+    /* Selected item in selectbox */
+    div[data-baseweb="select"] [aria-selected="true"] {{
+        background-color: {C['highlight']} !important;
+        color: #000000 !important;
+    }}
+    
+    /* File upload hint text */
     div[data-testid="stFileUploader"] span, 
     div[data-testid="stFileUploader"] p, 
     div[data-testid="stFileUploader"] div,
     .stFileUploader div,
     .uploadedFileName,
-    .stFileUploader span {{
-        color: {C['text']} !important;
+    .stFileUploader span,
+    div[data-testid="stFileUploader"] small,
+    .stFileUploader small {{
+        color: {C['highlight']} !important;
+        opacity: 1 !important;
+        font-weight: 500 !important;
+    }}
+    
+    div[data-testid="stFileUploaderDropzone"] p {{
+        color: {C['highlight']} !important;
+        font-weight: 500 !important;
+    }}
+    
+    .stFileUploader .e1y5xznm0 {{
+        color: {C['highlight']} !important;
     }}
     
     .stMarkdown small, .stCaption, .text-muted, .secondary-text {{
-        color: {C['text_secondary']} !important;
+        color: {C['highlight']} !important;
+    }}
+    
+    /* ALL BUTTONS - Login, Sign in, everything */
+    .stButton > button {{
+        background: {C['btn_bg']} !important;
+        color: {C['btn_text']} !important;
+        border: 1px solid {C['btn_border']} !important;
+        font-family: 'IBM Plex Mono', monospace !important;
+        font-size: 0.68rem !important;
+        font-weight: 600 !important;
+        letter-spacing: 0.09em !important;
+        text-transform: uppercase !important;
+        border-radius: 6px !important;
+        padding: 0.45rem 0.9rem !important;
+        width: 100% !important;
+        transition: all 0.2s ease !important;
+        cursor: pointer !important;
+    }}
+    
+    /* Login form button specific */
+    div[data-testid="stForm"] .stButton > button {{
+        background: {C['btn_bg']} !important;
+        color: #FFFFFF !important;
+        border: 1px solid {C['btn_border']} !important;
+    }}
+    
+    .stButton > button:hover, div[data-testid="stForm"] .stButton > button:hover {{
+        background: {C['run_bg2']} !important;
+        border-color: #FFFFFF !important;
+        transform: scale(1.01) !important;
+        box-shadow: 0 2px 8px rgba(230,126,34,0.3) !important;
+    }}
+    
+    /* Primary/Run button */
+    .stButton > button[kind="primary"] {{
+        background: {C['run_bg']} !important;
+        color: #FFFFFF !important;
+        border-color: {C['run_bg2']} !important;
+    }}
+    
+    .stButton > button[kind="primary"]:hover {{
+        background: {C['run_bg2']} !important;
+        transform: scale(1.01) !important;
+    }}
+    
+    /* Download button */
+    .stDownloadButton > button {{
+        background: {C['dl_bg']} !important;
+        color: #FFFFFF !important;
+        border: 1px solid {C['dl_border']} !important;
+        font-family: 'IBM Plex Mono', monospace !important;
+        font-size: 0.68rem !important;
+        font-weight: 600 !important;
+        letter-spacing: 0.09em !important;
+        text-transform: uppercase !important;
+        border-radius: 6px !important;
+        padding: 0.45rem 0.9rem !important;
+        width: 100% !important;
+    }}
+    
+    .stDownloadButton > button:hover {{
+        background: {C['run_bg2']} !important;
+        border-color: #FFFFFF !important;
+    }}
+    
+    /* Settings expander */
+    details {{
+        background: {C['surface']} !important;
+        border: 1px solid {C['border']} !important;
+        border-radius: 8px !important;
+        margin-bottom: 1rem !important;
+    }}
+    
+    details summary {{
+        color: {C['text']} !important;
+        font-family: 'IBM Plex Mono', monospace !important;
+        font-size: 0.7rem !important;
+        padding: 0.5rem !important;
     }}
     
     .main {{ padding: 0 !important; }}
@@ -443,6 +575,47 @@ def inject_css():
     .login-sub {{ font-size: 0.6rem; color: {C['text_secondary']} !important; letter-spacing: 0.13em; text-transform: uppercase; margin-bottom: 1.6rem; }}
 
     .db-footer {{ text-align: center; font-family: 'IBM Plex Mono', monospace; font-size: 0.55rem; color: {C['text_secondary']} !important; letter-spacing: 0.1em; text-transform: uppercase; padding: 1.25rem 0 0.5rem; border-top: 1px solid {C['border']}; margin-top: 0.5rem; }}
+    
+    .streamlit-expanderContent {{
+        background: {C['surface']} !important;
+    }}
+    
+    div[data-testid="stFileUploader"] button {{
+        background: {C['btn_bg']} !important;
+        color: #FFFFFF !important;
+        border: 1px solid {C['btn_border']} !important;
+        border-radius: 6px !important;
+        font-weight: 600 !important;
+    }}
+    
+    div[data-testid="stFileUploader"] button:hover {{
+        background: {C['run_bg2']} !important;
+        border-color: #FFFFFF !important;
+    }}
+    
+    .stCaption, caption, .help-text, .hint-text, .stFileUploader .e1y5xznm0 {{
+        color: {C['highlight']} !important;
+    }}
+    
+    .metric-label {{
+        color: {C['highlight']} !important;
+    }}
+    
+    /* Fix for password reset select box text */
+    .stSelectbox div[data-baseweb="select"] div {{
+        color: {C['text']} !important;
+    }}
+    
+    /* Info box styling */
+    .stInfo {{
+        background-color: {C['surface']} !important;
+        border: 1px solid {C['highlight']} !important;
+        color: {C['text']} !important;
+    }}
+    
+    .stInfo .stMarkdown {{
+        color: {C['text']} !important;
+    }}
     </style>
     """, unsafe_allow_html=True)
 
@@ -504,10 +677,35 @@ def render_settings_menu():
         
         st.markdown("---")
         
-        if st.button(T("logout_btn"), type="secondary", use_container_width=True):
+        st.markdown(f"**{T('appearance')}**")
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button(T("theme_dark"), use_container_width=True):
+                st.session_state.theme = "dark"
+                st.rerun()
+        with col2:
+            if st.button(T("theme_light"), use_container_width=True):
+                st.session_state.theme = "light"
+                st.rerun()
+        
+        st.markdown(f"**{T('language')}**")
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("English", use_container_width=True):
+                st.session_state.lang = "en"
+                st.rerun()
+        with col2:
+            if st.button("Français", use_container_width=True):
+                st.session_state.lang = "fr"
+                st.rerun()
+        
+        st.markdown("---")
+        
+        if st.button(T("logout_btn"), use_container_width=True):
             do_logout()
         
         if st.session_state.user_role == "admin":
+            st.markdown("---")
             st.markdown("### 👑 Admin Management")
             st.markdown(f"### 👤 {T('new_user_title')}")
             with st.form("create_user_form"):
@@ -529,7 +727,6 @@ def render_settings_menu():
                     else:
                         st.warning("All fields required")
             
-            st.markdown("---")
             with st.expander("📋 " + T("users_title")):
                 users = load_users()
                 for ue, ud in users.items():
@@ -559,8 +756,8 @@ def render_settings_menu():
 def page_dashboard():
     inject_css()
     
-    # Navbar - only ONE settings button, NO logout button
-    n1, n2, n3, n4, n5, n6 = st.columns([4, 1.4, 0.65, 0.65, 0.65, 0.65])
+    # Navbar
+    n1, n2, n3 = st.columns([6, 2, 0.65])
     with n1:
         st.markdown(f"""
         <div class="navbar">
@@ -571,23 +768,9 @@ def page_dashboard():
     with n2:
         st.markdown(f"<div style='font-family:IBM Plex Mono,monospace;font-size:0.58rem;color:{TK()['text_secondary']};padding-top:0.6rem;text-align:right;'>{datetime.now().strftime('%Y-%m-%d %H:%M')}</div>", unsafe_allow_html=True)
     with n3:
-        theme_label = T("theme_light") if st.session_state.theme == "dark" else T("theme_dark")
-        if st.button(theme_label, key="dash_theme"):
-            st.session_state.theme = "light" if st.session_state.theme == "dark" else "dark"
-            st.rerun()
-    with n4:
-        if st.button("EN", key="dash_en"):
-            st.session_state.lang = "en"
-            st.rerun()
-    with n5:
-        if st.button("FR", key="dash_fr"):
-            st.session_state.lang = "fr"
-            st.rerun()
-    with n6:
         if st.button("⚙️", key="settings_btn"):
             st.session_state.show_settings = not st.session_state.show_settings
 
-    # Settings Menu (only here, no logout button elsewhere)
     render_settings_menu()
 
     col_chat, col_files, col_wf = st.columns([1, 1.15, 0.95])
