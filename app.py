@@ -12,7 +12,8 @@ import csv
 import zipfile
 from xml.etree import ElementTree
 from audio_recorder_streamlit import audio_recorder
-from deepgram import DeepgramClient, PrerecordedOptions
+from deepgram import DeepgramClient
+import base64
 
 # ─────────────────────────────────────────────────────────────────
 # PAGE CONFIG
@@ -27,7 +28,7 @@ st.set_page_config(
 # ─────────────────────────────────────────────────────────────────
 # DEEPGRAM CONFIGURATION
 # ─────────────────────────────────────────────────────────────────
-DEEPGRAM_API_KEY = "3de1f753938a73b6e3f8d025c72ce235a3f41823"  # Replace with your Deepgram API key
+DEEPGRAM_API_KEY = "3de1f753938a73b6e3f8d025c72ce235a3f41823"
 
 # ─────────────────────────────────────────────────────────────────
 # MISTRAL — raw HTTP (no SDK needed, errors surface correctly)
@@ -40,9 +41,28 @@ def ask_mistral(history: list) -> str:
     system = {
         "role": "system",
         "content": (
-            "You are a professional budget analyst for parking operations, you're also an expert in traffic data and parking data your expertise is concentrated in the province of Quebec with a special knowledge of the metropolitan area of Montreal, at Only Solutions Inc. "
-            "Be precise and concise but not cold, you're warm and resourceful, you're a co-worker act like it. When revenue figures are available in the conversation, "
-            "reference them directly in your analysis."
+            "You are Allison, a senior budget analyst and operations specialist at Only Solutions Inc.\n\n"
+            "Your expertise covers parking operations, budget forecasting, traffic data analysis, and "
+            "inflation modeling — with deep, specific knowledge of the province of Quebec and the "
+            "greater Montreal metropolitan area (boroughs, traffic corridors, seasonal patterns, "
+            "municipal context, and local operators).\n\n"
+            "Your personality:\n"
+            "- You are warm, direct, and collegial — a trusted co-worker, not a formal consultant\n"
+            "- You speak like a sharp colleague who genuinely wants to help, not like a report generator\n"
+            "- You keep answers precise and actionable, but never cold or robotic\n"
+            "- You use natural conversational language — short paragraphs, no unnecessary filler\n\n"
+            "Your rules — non-negotiable:\n"
+            "- If you don't know something, say so clearly and honestly: \"I don't have that data\" "
+            "or \"I'm not sure about that one\" — never guess, never fill gaps with assumptions\n"
+            "- If revenue or operational figures are present in the conversation, reference them "
+            "directly and specifically in your analysis — never speak in generalities when "
+            "real numbers are available\n"
+            "- Never fabricate statistics, benchmarks, or regulatory details — Quebec parking "
+            "regulations, SAAQ rules, municipal bylaws, and ARTM data must only be cited "
+            "if you are certain they are accurate\n"
+            "- If asked something outside your domain, say so and redirect helpfully\n\n"
+            "You are Allison. You know your stuff, you're here to make the work easier, "
+            "and you treat every question like it deserves a real answer."
         ),
     }
     try:
@@ -74,26 +94,86 @@ def ask_mistral(history: list) -> str:
         return f"⚠️ Unexpected error: {e}"
 
 # ─────────────────────────────────────────────────────────────────
-# VOICE TRANSCRIPTION
+# VOICE: Speech-to-Text (transcription)
 # ─────────────────────────────────────────────────────────────────
 def transcribe_with_deepgram(audio_bytes):
-    """Transcribe audio using Deepgram"""
-    if not DEEPGRAM_API_KEY or DEEPGRAM_API_KEY == "YOUR_DEEPGRAM_API_KEY":
-        return "⚠️ Please set your Deepgram API key in the code"
+    """Transcribe audio using Deepgram SDK v7"""
+    if not DEEPGRAM_API_KEY:
+        return None
     
     try:
         deepgram = DeepgramClient(DEEPGRAM_API_KEY)
-        options = PrerecordedOptions(
-            model="nova-2",
-            smart_format=True,
-            language="en",
+        
+        payload = {
+            "buffer": audio_bytes,
+        }
+        
+        options = {
+            "model": "nova-2",
+            "smart_format": True,
+            "language": "en",
+        }
+        
+        response = deepgram.listen.prerecorded.v("1").transcribe_file(
+            payload,
+            options
         )
-        source = {"buffer": audio_bytes, "mimetype": "audio/wav"}
-        response = deepgram.listen.rest.v("1").transcribe_file(source, options)
+        
         transcript = response["results"]["channels"][0]["alternatives"][0]["transcript"]
         return transcript
     except Exception as e:
-        return f"⚠️ Transcription error: {str(e)}"
+        return None
+
+# ─────────────────────────────────────────────────────────────────
+# VOICE: Text-to-Speech (Allison speaks back)
+# ─────────────────────────────────────────────────────────────────
+def clean_text_for_speech(text):
+    """Remove markdown and symbols for clean speech"""
+    clean = text
+    clean = re.sub(r'\*\*(.*?)\*\*', r'\1', clean)
+    clean = re.sub(r'\*(.*?)\*', r'\1', clean)
+    clean = re.sub(r'`(.*?)`', r'\1', clean)
+    clean = re.sub(r'\[(.*?)\]\(.*?\)', r'\1', clean)
+    clean = re.sub(r'#+\s*', '', clean)
+    clean = re.sub(r'[-*]\s', '', clean)
+    clean = re.sub(r'[\$\€\£\%\^\(\)\[\]\{\}]', '', clean)
+    clean = re.sub(r'\s+', ' ', clean)
+    return clean.strip()
+
+def text_to_speech(text):
+    """Convert Allison's text response to speech using Deepgram TTS"""
+    try:
+        clean_text = clean_text_for_speech(text)
+        
+        deepgram = DeepgramClient(DEEPGRAM_API_KEY)
+        
+        options = {
+            "model": "aura-asteria-en",
+        }
+        
+        response = deepgram.speak.v("1").save(
+            "allison_audio.mp3",
+            {"text": clean_text},
+            options
+        )
+        
+        with open("allison_audio.mp3", "rb") as f:
+            audio_bytes = f.read()
+        
+        audio_b64 = base64.b64encode(audio_bytes).decode()
+        return audio_b64
+    except Exception as e:
+        return None
+
+def play_audio_html(audio_b64):
+    """Create HTML audio player that autoplays"""
+    if audio_b64:
+        audio_html = f"""
+        <audio autoplay>
+            <source src="data:audio/mp3;base64,{audio_b64}" type="audio/mp3">
+        </audio>
+        """
+        st.markdown(audio_html, unsafe_allow_html=True)
 
 # ─────────────────────────────────────────────────────────────────
 # FILE EXTRACTION FUNCTIONS (using only installed libraries)
@@ -209,10 +289,10 @@ T_DATA = {
         "login_btn": "Sign in",
         "logout_btn": "Sign out",
         "wrong_creds": "Incorrect email or password.",
-        "ai_title": "🤖 AI Assistant",
+        "ai_title": "🤖 Allison · AI Assistant",
         "clear_chat": "Clear chat",
-        "chat_hint": "Ask about budget, forecasts, or calculations…",
-        "no_msgs": "No messages yet — start a conversation.",
+        "chat_hint": "Ask Allison about budget, forecasts, or calculations…",
+        "no_msgs": "No messages yet — start a conversation with Allison.",
         "files_title": "File Upload",
         "excel_lbl": "Excel Template (any format)",
         "pdf_lbl": "PDF Report (any format)",
@@ -257,7 +337,8 @@ T_DATA = {
         "ai_file_upload": "📎 Upload any file to analyze",
         "ai_file_loaded": "ready for questions",
         "clear_workflow": "Clear Workflow",
-        "mic_processing": "⏳ Transcribing...",
+        "speak_now": "🎤 SPEAK NOW",
+        "thinking_msg": "🤖 Allison is thinking...",
     },
     "fr": {
         "brand": "SYSTÈME BUDGÉTAIRE",
@@ -267,10 +348,10 @@ T_DATA = {
         "login_btn": "Se connecter",
         "logout_btn": "Se déconnecter",
         "wrong_creds": "Courriel ou mot de passe incorrect.",
-        "ai_title": "🤖 Assistant IA",
+        "ai_title": "🤖 Allison · Assistant IA",
         "clear_chat": "Effacer",
-        "chat_hint": "Budget, prévisions, calculs…",
-        "no_msgs": "Aucun message — commencez une conversation.",
+        "chat_hint": "Demandez à Allison budget, prévisions, calculs…",
+        "no_msgs": "Aucun message — commencez une conversation avec Allison.",
         "files_title": "Fichiers",
         "excel_lbl": "Modèle Excel (tout format)",
         "pdf_lbl": "Rapport PDF (tout format)",
@@ -315,7 +396,8 @@ T_DATA = {
         "ai_file_upload": "📎 Téléverser tout fichier à analyser",
         "ai_file_loaded": "prêt pour les questions",
         "clear_workflow": "Effacer Workflow",
-        "mic_processing": "⏳ Transcription...",
+        "speak_now": "🎤 PARLEZ",
+        "thinking_msg": "🤖 Allison réfléchit...",
     },
 }
 
@@ -451,6 +533,8 @@ _D = dict(
     ai_file_name="",
     ai_file_type="",
     voice_text="",
+    last_audio=None,
+    last_processed_text="",
 )
 for k, v in _D.items():
     if k not in st.session_state:
@@ -524,6 +608,7 @@ def TK():
 
 def inject_css():
     C = TK()
+    is_dark = st.session_state.theme == "dark"
     st.markdown(f"""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500;600&family=Inter:wght@300;400;500;600;700&display=swap');
@@ -540,14 +625,22 @@ def inject_css():
         color: {C['text']} !important;
     }}
     
+    /* Hide Streamlit loading bar */
+    .stApp > header {{ display: none !important; }}
+    div[data-testid="stStatusWidget"] {{ display: none !important; }}
+    
     /* SCROLLABLE CHAT CONTAINER */
     .chat-messages {{
+        height: 400px;
         max-height: 400px;
-        overflow-y: auto;
+        overflow-y: auto !important;
         overflow-x: hidden;
         padding-right: 8px;
-        margin-bottom: 10px;
+        margin-bottom: 0px;
         scrollbar-width: thin;
+        border: 1px solid {C['border']};
+        border-radius: 6px;
+        padding: 10px;
     }}
     
     .chat-messages::-webkit-scrollbar {{
@@ -570,7 +663,7 @@ def inject_css():
     
     /* THINKING DOTS WITH ROBOT */
     .thinking-container {{
-        display: inline-flex;
+        display: inline-flex !important;
         align-items: center;
         gap: 6px;
         padding: 0.5rem 0.8rem;
@@ -926,7 +1019,7 @@ def page_login():
         st.markdown(f'<div class="db-footer">{T("footer")}</div>', unsafe_allow_html=True)
 
 # ─────────────────────────────────────────────────────────────────
-# SETTINGS MENU
+# SETTINGS MENU (only shows when ⚙️ clicked)
 # ─────────────────────────────────────────────────────────────────
 def render_settings_menu():
     if st.session_state.show_settings:
@@ -1015,7 +1108,7 @@ def render_settings_menu():
 def page_dashboard():
     inject_css()
     
-    # Navbar
+    # Navbar - only ONE settings icon
     n1, n2 = st.columns([6, 0.65])
     with n1:
         st.markdown(f"""
@@ -1035,15 +1128,15 @@ def page_dashboard():
         with col_alive:
             st.markdown('<div style="padding-top:0.55rem;text-align:center;"><span class="alive-dot"></span></div>', unsafe_allow_html=True)
 
-    # Settings expander
+    # Settings expander (only shows when toggled)
     if st.session_state.show_settings:
         render_settings_menu()
 
     # ============ AI CHAT - FULL WIDTH TOP ============
     st.markdown(f'<div class="scard"><div class="scard-title">{T("ai_title")}</div>', unsafe_allow_html=True)
     
-    # Top row: Clear chat + File upload for AI
-    col_clear_area, col_upload_area = st.columns([4, 1.5])
+    # Top row: File upload + Clear chat
+    col_upload_area, col_clear_area = st.columns([1.5, 0.8])
     with col_upload_area:
         uploaded_file_for_ai = st.file_uploader(
             T("ai_file_upload"),
@@ -1051,6 +1144,14 @@ def page_dashboard():
             key="ai_file_upload",
             label_visibility="collapsed"
         )
+    with col_clear_area:
+        if st.button(T("clear_chat"), key="clr", use_container_width=True):
+            st.session_state.messages = []
+            st.session_state.ai_file_data = None
+            st.session_state.ai_file_name = ""
+            st.session_state.ai_file_type = ""
+            st.session_state.last_processed_text = ""
+            st.rerun()
     
     # Process uploaded file for AI context
     if uploaded_file_for_ai and not st.session_state.ai_file_data:
@@ -1070,16 +1171,6 @@ def page_dashboard():
         file_type = st.session_state.ai_file_type
         st.markdown(f'<div style="font-size:0.6rem;color:{TK()["highlight"]};margin-bottom:0.5rem;">📎 {file_name} ({file_type}) {T("ai_file_loaded")}</div>', unsafe_allow_html=True)
     
-    # Clear chat button
-    _, btn_col = st.columns([5, 1])
-    with btn_col:
-        if st.button(T("clear_chat"), key="clr"):
-            st.session_state.messages = []
-            st.session_state.ai_file_data = None
-            st.session_state.ai_file_name = ""
-            st.session_state.ai_file_type = ""
-            st.rerun()
-    
     # SCROLLABLE MESSAGES AREA
     st.markdown('<div class="chat-messages">', unsafe_allow_html=True)
     
@@ -1090,81 +1181,103 @@ def page_dashboard():
         if msg["role"] == "user":
             st.markdown(f'<div class="bubble-user"><div class="bubble-lbl">You</div>{msg["content"]}</div>', unsafe_allow_html=True)
         else:
-            st.markdown(f'<div class="bubble-bot"><div class="bubble-lbl">Assistant</div>{msg["content"]}</div>', unsafe_allow_html=True)
-    
-    # THINKING ANIMATION WITH ROBOT 🤖 + 3 DOTS
-    if st.session_state.thinking:
-        st.markdown(f"""
-        <div class="thinking-container">
-            <span class="robot-icon">🤖</span>
-            <span class="dot"></span>
-            <span class="dot"></span>
-            <span class="dot"></span>
-        </div>
-        """, unsafe_allow_html=True)
+            st.markdown(f'<div class="bubble-bot"><div class="bubble-lbl">Allison</div>{msg["content"]}</div>', unsafe_allow_html=True)
     
     st.markdown('</div>', unsafe_allow_html=True)
     
-    # CHAT INPUT WITH VOICE RECORDER
-    col_input, col_mic, col_send = st.columns([4, 0.5, 0.7])
-    
-    with col_input:
-        default_text = st.session_state.get("voice_text", "")
-        user_input = st.text_input(
-            T("chat_hint"),
-            placeholder=T("chat_hint"),
-            label_visibility="collapsed",
-            key="chat_input",
-            value=default_text
-        )
-    
-    with col_mic:
-        # Voice recorder
+    # ============ SPEAK NOW BUTTON - Centered, 1/3 width ============
+    _, col_speak_center, _ = st.columns([1, 1, 1])
+    with col_speak_center:
         audio_bytes = audio_recorder(
-            text="",
+            text=T("speak_now"),
             recording_color="#DC2626",
             neutral_color="#E67E22",
             icon_name="microphone",
             icon_size="1x",
+            key="mic_recorder"
         )
-        if audio_bytes:
-            with st.spinner(T("mic_processing")):
-                transcript = transcribe_with_deepgram(audio_bytes)
-                if not transcript.startswith("⚠️"):
-                    st.session_state.voice_text = transcript
-                    st.rerun()
-                else:
-                    st.error(transcript)
     
-    with col_send:
-        if st.button("➤ " + T("send"), key="send_btn", use_container_width=True):
-            if user_input and not st.session_state.thinking:
-                ctx_suffix = ""
-                
-                if st.session_state.ai_file_data:
-                    file_data = st.session_state.ai_file_data
-                    file_name = st.session_state.ai_file_name
-                    file_type = st.session_state.ai_file_type
-                    ctx_suffix += f"\n\n[Uploaded {file_type} file: {file_name}]\n"
-                    
-                    if file_type in ["excel", "csv"]:
-                        ctx_suffix += "Here is the data from the uploaded spreadsheet:\n"
-                        for row in file_data[:30]:
-                            ctx_suffix += " | ".join(row) + "\n"
-                    else:
-                        ctx_suffix += f"Content:\n{str(file_data)[:3000]}\n"
-                    
-                    ctx_suffix += f"\n[End of {file_name} data. Answer questions about this file.]\n"
-                
-                if st.session_state.extracted_rev:
-                    rev = st.session_state.extracted_rev
-                    ctx_suffix += (f" [Budget context: Transient ${rev['transient']:,.0f}, "
-                                f"Monthly ${rev['monthly']:,.0f}, Total ${rev['total']:,.0f}]")
-                
-                st.session_state.messages.append({"role": "user", "content": user_input})
-                st.session_state.voice_text = ""
-                st.session_state.thinking = True
-                st.rerun()
+    # Handle voice input - with duplicate prevention
+    if audio_bytes:
+        transcript = transcribe_with_deepgram(audio_bytes)
+        if transcript and transcript.strip() and transcript != st.session_state.last_processed_text:
+            st.session_state.last_processed_text = transcript
+            st.session_state.messages.append({"role": "user", "content": transcript})
+            
+            # Build context
+            ctx_suffix = ""
+            if st.session_state.ai_file_data:
+                file_data = st.session_state.ai_file_data
+                file_name = st.session_state.ai_file_name
+                file_type = st.session_state.ai_file_type
+                ctx_suffix += f"\n\n[Uploaded {file_type} file: {file_name}]\n"
+                if file_type in ["excel", "csv"]:
+                    ctx_suffix += "Spreadsheet data:\n"
+                    for row in file_data[:30]:
+                        ctx_suffix += " | ".join(row) + "\n"
+                else:
+                    ctx_suffix += f"Content:\n{str(file_data)[:3000]}\n"
+                ctx_suffix += f"\n[End of {file_name}]\n"
+            if st.session_state.extracted_rev:
+                rev = st.session_state.extracted_rev
+                ctx_suffix += f" [Budget: Transient ${rev['transient']:,.0f}, Monthly ${rev['monthly']:,.0f}, Total ${rev['total']:,.0f}]"
+            
+            # Memory: keep last 12 messages
+            recent_history = st.session_state.messages[-12:] if len(st.session_state.messages) > 12 else st.session_state.messages
+            history_for_mistral = []
+            for msg in recent_history[:-1]:
+                history_for_mistral.append({"role": msg["role"], "content": msg["content"]})
+            history_for_mistral.append({"role": "user", "content": transcript + ctx_suffix})
+            
+            # API call inside spinner - NO dark overlay
+            with st.spinner(T("thinking_msg")):
+                reply = ask_mistral(history_for_mistral)
+                st.session_state.messages.append({"role": "assistant", "content": reply})
+                audio_b64 = text_to_speech(reply)
+                st.session_state.last_audio = audio_b64
+            
+            st.rerun()
+    
+    # ============ CHAT INPUT - st.chat_input (no gap) ============
+    prompt = st.chat_input(T("chat_hint"))
+    
+    if prompt and prompt.strip() and prompt != st.session_state.last_processed_text:
+        st.session_state.last_processed_text = prompt
+        st.session_state.messages.append({"role": "user", "content": prompt})
+        
+        # Build context
+        ctx_suffix = ""
+        if st.session_state.ai_file_data:
+            file_data = st.session_state.ai_file_data
+            file_name = st.session_state.ai_file_name
+            file_type = st.session_state.ai_file_type
+            ctx_suffix += f"\n\n[Uploaded {file_type} file: {file_name}]\n"
+            if file_type in ["excel", "csv"]:
+                ctx_suffix += "Spreadsheet data:\n"
+                for row in file_data[:30]:
+                    ctx_suffix += " | ".join(row) + "\n"
+            else:
+                ctx_suffix += f"Content:\n{str(file_data)[:3000]}\n"
+            ctx_suffix += f"\n[End of {file_name}]\n"
+        if st.session_state.extracted_rev:
+            rev = st.session_state.extracted_rev
+            ctx_suffix += f" [Budget: Transient ${rev['transient']:,.0f}, Monthly ${rev['monthly']:,.0f}, Total ${rev['total']:,.0f}]"
+        
+        # Memory: keep last 12 messages
+        recent_history = st.session_state.messages[-12:] if len(st.session_state.messages) > 12 else st.session_state.messages
+        history_for_mistral = []
+        for msg in recent_history[:-1]:
+            history_for_mistral.append({"role": msg["role"], "content": msg["content"]})
+        history_for_mistral.append({"role": "user", "content": prompt + ctx_suffix})
+        
+        # API call inside spinner - NO dark overlay
+        with st.spinner(T("thinking_msg")):
+            reply = ask_mistral(history_for_mistral)
+            st.session_state.messages.append({"role": "assistant", "content": reply})
+            audio_b64 = text_to_speech(reply)
+            st.session_state.last_audio = audio_b64
+        
+        st.rerun()
     
     st.markdown('</div>', unsafe_allow_html=True)
 
@@ -1274,41 +1387,10 @@ def page_dashboard():
     
     st.markdown(f'<div class="db-footer">{T("footer")}</div>', unsafe_allow_html=True)
 
-# ─────────────────────────────────────────────────────────────────
-# Process AI response after rerun
-# ─────────────────────────────────────────────────────────────────
-if st.session_state.thinking:
-    user_messages = [m for m in st.session_state.messages if m["role"] == "user"]
-    if user_messages:
-        last_user_msg = user_messages[-1]["content"]
-        
-        ctx_suffix = ""
-        
-        if st.session_state.ai_file_data:
-            file_data = st.session_state.ai_file_data
-            file_name = st.session_state.ai_file_name
-            file_type = st.session_state.ai_file_type
-            ctx_suffix += f"\n\n[Uploaded {file_type} file: {file_name}]\n"
-            
-            if file_type in ["excel", "csv"]:
-                ctx_suffix += "Here is the data from the uploaded spreadsheet:\n"
-                for row in file_data[:30]:
-                    ctx_suffix += " | ".join(row) + "\n"
-            else:
-                ctx_suffix += f"Content:\n{str(file_data)[:3000]}\n"
-            
-            ctx_suffix += f"\n[End of {file_name} data. Answer questions about this file.]\n"
-        
-        if st.session_state.extracted_rev:
-            rev = st.session_state.extracted_rev
-            ctx_suffix += (f" [Budget context: Transient ${rev['transient']:,.0f}, "
-                        f"Monthly ${rev['monthly']:,.0f}, Total ${rev['total']:,.0f}]")
-        
-        hist = st.session_state.messages[:-1] + [{"role": "user", "content": last_user_msg + ctx_suffix}]
-        reply = ask_mistral(hist)
-        st.session_state.messages.append({"role": "assistant", "content": reply})
-        st.session_state.thinking = False
-        st.rerun()
+# Play Allison's audio if available
+if st.session_state.get("last_audio"):
+    play_audio_html(st.session_state.last_audio)
+    st.session_state.last_audio = None
 
 # ─────────────────────────────────────────────────────────────────
 # ROUTER
