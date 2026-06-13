@@ -25,6 +25,10 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
+# Clear cache to fix file uploader errors
+st.cache_data.clear()
+st.cache_resource.clear()
+
 # ─────────────────────────────────────────────────────────────────
 # DEEPGRAM CONFIGURATION
 # ─────────────────────────────────────────────────────────────────
@@ -1177,9 +1181,21 @@ def page_dashboard():
         else:
             st.markdown(f'<div class="bubble-bot"><div class="bubble-lbl">Allison</div>{msg["content"]}</div>', unsafe_allow_html=True)
     
-    # THINKING INDICATOR - Native Streamlit component
+    # THINKING INDICATOR - VISIBLE WITH DOTS
     if st.session_state.thinking:
-        st.info(T("thinking_msg"))
+        st.markdown(f"""
+        <div style="display: flex; align-items: center; gap: 8px; padding: 10px 15px; 
+                    background: {TK()['bubble_bot']}; border: 1px solid {TK()['border']}; 
+                    border-left: 3px solid {TK()['accent2']}; border-radius: 4px; margin-bottom: 8px;">
+            <span style="font-size: 1.2rem;">🤖</span>
+            <span style="color: {TK()['highlight']}; font-family: 'IBM Plex Mono', monospace; font-size: 0.7rem;">
+                {T("thinking_msg")}
+            </span>
+            <span class="dot"></span>
+            <span class="dot"></span>
+            <span class="dot"></span>
+        </div>
+        """, unsafe_allow_html=True)
     
     st.markdown('</div>', unsafe_allow_html=True)
     
@@ -1228,7 +1244,10 @@ def page_dashboard():
             neutral_color="#E67E22",
             icon_name="microphone",
             icon_size="1x",
-            key="mic_recorder"
+            key="mic_recorder",
+            pause_threshold=120.0,
+            sample_rate=16000,
+            energy_threshold=0.001
         )
     
     # Handle voice input - auto sends on second press
@@ -1246,6 +1265,7 @@ def page_dashboard():
     with col_files:
         st.markdown(f'<div class="scard"><div class="scard-title">{T("files_title")}</div>', unsafe_allow_html=True)
         
+        # ACCEPT ANY FILE TYPE
         excel_file = st.file_uploader(T("excel_lbl"), type=None, key="xl")
         pdf_file = st.file_uploader(T("pdf_lbl"), type=None, key="pd")
         
