@@ -12,7 +12,7 @@ import csv
 import zipfile
 from xml.etree import ElementTree
 from audio_recorder_streamlit import audio_recorder
-from deepgram import DeepgramClient
+from deepgram import Deepgram
 import base64
 
 # ─────────────────────────────────────────────────────────────────
@@ -97,28 +97,21 @@ def ask_mistral(history: list) -> str:
 # VOICE: Speech-to-Text (transcription)
 # ─────────────────────────────────────────────────────────────────
 def transcribe_with_deepgram(audio_bytes):
-    """Transcribe audio using Deepgram SDK v7"""
+    """Transcribe audio using Deepgram SDK v3"""
     if not DEEPGRAM_API_KEY:
         return None
     
     try:
-        deepgram = DeepgramClient(DEEPGRAM_API_KEY)
+        dg_client = Deepgram(DEEPGRAM_API_KEY)
         
-        payload = {
-            "buffer": audio_bytes,
-        }
-        
+        source = {"buffer": audio_bytes, "mimetype": "audio/wav"}
         options = {
-            "model": "nova-2",
             "smart_format": True,
+            "model": "nova-2",
             "language": "en",
         }
         
-        response = deepgram.listen.prerecorded.v("1").transcribe_file(
-            payload,
-            options
-        )
-        
+        response = dg_client.transcription.sync_prerecorded(source, options)
         transcript = response["results"]["channels"][0]["alternatives"][0]["transcript"]
         return transcript
     except Exception as e:
@@ -145,13 +138,13 @@ def text_to_speech(text):
     try:
         clean_text = clean_text_for_speech(text)
         
-        deepgram = DeepgramClient(DEEPGRAM_API_KEY)
+        dg_client = Deepgram(DEEPGRAM_API_KEY)
         
         options = {
             "model": "aura-asteria-en",
         }
         
-        response = deepgram.speak.v("1").save(
+        response = dg_client.speak.v("1").save(
             "allison_audio.mp3",
             {"text": clean_text},
             options
@@ -1176,7 +1169,7 @@ def page_dashboard():
         else:
             st.markdown(f'<div class="bubble-bot"><div class="bubble-lbl">Allison</div>{msg["content"]}</div>', unsafe_allow_html=True)
     
-    # THINKING INDICATOR - Native Streamlit component
+    # THINKING INDICATOR - st.info during processing
     if st.session_state.thinking:
         st.info(T("thinking_msg"))
     
@@ -1194,16 +1187,48 @@ def page_dashboard():
             key="mic_recorder"
         )
     
-    # Handle voice input - with duplicate prevention
+    # Handle voice input - process directly with spinner (NO thinking state, NO extra rerun)
     if audio_bytes:
         transcript = transcribe_with_deepgram(audio_bytes)
         if transcript and transcript.strip() and transcript != st.session_state.last_processed_text:
             st.session_state.last_processed_text = transcript
             st.session_state.messages.append({"role": "user", "content": transcript})
-            st.session_state.thinking = True
+            
+            # Build context
+            ctx_suffix = ""
+            if st.session_state.ai_file_data:
+                file_data = st.session_state.ai_file_data
+                file_name = st.session_state.ai_file_name
+                file_type = st.session_state.ai_file_type
+                ctx_suffix += f"\n\n[Uploaded {file_type} file: {file_name}]\n"
+                if file_type in ["excel", "csv"]:
+                    ctx_suffix += "Spreadsheet data:\n"
+                    for row in file_data[:30]:
+                        ctx_suffix += " | ".join(row) + "\n"
+                else:
+                    ctx_suffix += f"Content:\n{str(file_data)[:3000]}\n"
+                ctx_suffix += f"\n[End of {file_name}]\n"
+            if st.session_state.extracted_rev:
+                rev = st.session_state.extracted_rev
+                ctx_suffix += f" [Budget: Transient ${rev['transient']:,.0f}, Monthly ${rev['monthly']:,.0f}, Total ${rev['total']:,.0f}]"
+            
+            # Memory: keep last 12 messages
+            recent_history = st.session_state.messages[-12:] if len(st.session_state.messages) > 12 else st.session_state.messages
+            history_for_mistral = []
+            for msg in recent_history[:-1]:
+                history_for_mistral.append({"role": msg["role"], "content": msg["content"]})
+            history_for_mistral.append({"role": "user", "content": transcript + ctx_suffix})
+            
+            # Process with spinner - NO dark overlay
+            with st.spinner(T("thinking_msg")):
+                reply = ask_mistral(history_for_mistral)
+                st.session_state.messages.append({"role": "assistant", "content": reply})
+                audio_b64 = text_to_speech(reply)
+                st.session_state.last_audio = audio_b64
+            
             st.rerun()
     
-    # ============ CHAT INPUT - text_input + button ============
+    # ============ CHAT INPUT - text_input + button (process with spinner) ============
     col_input, col_send = st.columns([5, 1])
     with col_input:
         user_input = st.text_input(
@@ -1220,7 +1245,39 @@ def page_dashboard():
     if send_clicked and user_input and user_input.strip() and user_input != st.session_state.last_processed_text:
         st.session_state.last_processed_text = user_input
         st.session_state.messages.append({"role": "user", "content": user_input})
-        st.session_state.thinking = True
+        
+        # Build context
+        ctx_suffix = ""
+        if st.session_state.ai_file_data:
+            file_data = st.session_state.ai_file_data
+            file_name = st.session_state.ai_file_name
+            file_type = st.session_state.ai_file_type
+            ctx_suffix += f"\n\n[Uploaded {file_type} file: {file_name}]\n"
+            if file_type in ["excel", "csv"]:
+                ctx_suffix += "Spreadsheet data:\n"
+                for row in file_data[:30]:
+                    ctx_suffix += " | ".join(row) + "\n"
+            else:
+                ctx_suffix += f"Content:\n{str(file_data)[:3000]}\n"
+            ctx_suffix += f"\n[End of {file_name}]\n"
+        if st.session_state.extracted_rev:
+            rev = st.session_state.extracted_rev
+            ctx_suffix += f" [Budget: Transient ${rev['transient']:,.0f}, Monthly ${rev['monthly']:,.0f}, Total ${rev['total']:,.0f}]"
+        
+        # Memory: keep last 12 messages
+        recent_history = st.session_state.messages[-12:] if len(st.session_state.messages) > 12 else st.session_state.messages
+        history_for_mistral = []
+        for msg in recent_history[:-1]:
+            history_for_mistral.append({"role": msg["role"], "content": msg["content"]})
+        history_for_mistral.append({"role": "user", "content": user_input + ctx_suffix})
+        
+        # Process with spinner - NO dark overlay, NO delay
+        with st.spinner(T("thinking_msg")):
+            reply = ask_mistral(history_for_mistral)
+            st.session_state.messages.append({"role": "assistant", "content": reply})
+            audio_b64 = text_to_speech(reply)
+            st.session_state.last_audio = audio_b64
+        
         st.rerun()
 
     # ============ FILE UPLOAD + WORKFLOW - SIDE BY SIDE ============
@@ -1328,49 +1385,6 @@ def page_dashboard():
         st.markdown('</div>', unsafe_allow_html=True)
     
     st.markdown(f'<div class="db-footer">{T("footer")}</div>', unsafe_allow_html=True)
-
-# ─────────────────────────────────────────────────────────────────
-# Process AI response with MEMORY (last 12 messages)
-# ─────────────────────────────────────────────────────────────────
-if st.session_state.thinking:
-    user_messages = [m for m in st.session_state.messages if m["role"] == "user"]
-    if user_messages:
-        last_user_msg = user_messages[-1]["content"]
-        
-        ctx_suffix = ""
-        
-        if st.session_state.ai_file_data:
-            file_data = st.session_state.ai_file_data
-            file_name = st.session_state.ai_file_name
-            file_type = st.session_state.ai_file_type
-            ctx_suffix += f"\n\n[Uploaded {file_type} file: {file_name}]\n"
-            if file_type in ["excel", "csv"]:
-                ctx_suffix += "Spreadsheet:\n"
-                for row in file_data[:30]:
-                    ctx_suffix += " | ".join(row) + "\n"
-            else:
-                ctx_suffix += f"Content:\n{str(file_data)[:3000]}\n"
-            ctx_suffix += f"\n[End of {file_name}]\n"
-        
-        if st.session_state.extracted_rev:
-            rev = st.session_state.extracted_rev
-            ctx_suffix += f" [Budget: Transient ${rev['transient']:,.0f}, Monthly ${rev['monthly']:,.0f}, Total ${rev['total']:,.0f}]"
-        
-        recent_history = st.session_state.messages[-12:] if len(st.session_state.messages) > 12 else st.session_state.messages
-        
-        history_for_mistral = []
-        for msg in recent_history[:-1]:
-            history_for_mistral.append({"role": msg["role"], "content": msg["content"]})
-        
-        history_for_mistral.append({"role": "user", "content": last_user_msg + ctx_suffix})
-        
-        reply = ask_mistral(history_for_mistral)
-        st.session_state.messages.append({"role": "assistant", "content": reply})
-        st.session_state.thinking = False
-        
-        audio_b64 = text_to_speech(reply)
-        st.session_state.last_audio = audio_b64
-        st.rerun()
 
 # Play Allison's audio if available
 if st.session_state.get("last_audio"):
