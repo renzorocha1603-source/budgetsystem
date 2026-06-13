@@ -627,30 +627,13 @@ def inject_css():
         color: {C['text']} !important;
     }}
     
-    /* ============ GAP KILLERS - NEGATIVE MARGINS ============ */
-    div[data-testid="stVerticalBlock"] > div {{
-        gap: 0rem !important;
-    }}
-    
-    div[data-testid="stVerticalBlock"] > div > div {{
-        margin-top: -8px !important;
-        margin-bottom: -8px !important;
-    }}
-    
-    /* ============ BUTTON DELAY KILLER ============ */
-    .stButton > button {{
-        transition: none !important;
-        animation: none !important;
-    }}
-    
     /* SCROLLABLE CHAT CONTAINER */
     .chat-messages {{
-        height: 400px;
         max-height: 400px;
-        overflow-y: auto !important;
+        overflow-y: auto;
         overflow-x: hidden;
         padding-right: 8px;
-        margin-bottom: 0px !important;
+        margin-bottom: 10px;
         scrollbar-width: thin;
     }}
     
@@ -674,7 +657,7 @@ def inject_css():
     
     /* THINKING DOTS WITH ROBOT */
     .thinking-container {{
-        display: inline-flex !important;
+        display: inline-flex;
         align-items: center;
         gap: 6px;
         padding: 0.5rem 0.8rem;
@@ -800,7 +783,7 @@ def inject_css():
         border-radius: 6px !important;
         padding: 0.45rem 0.9rem !important;
         width: 100% !important;
-        transition: none !important;
+        transition: all 0.2s ease !important;
         cursor: pointer !important;
     }}
     
@@ -835,7 +818,7 @@ def inject_css():
         border-radius: 6px !important;
         padding: 0.45rem 0.9rem !important;
         width: 100% !important;
-        transition: none !important;
+        transition: all 0.2s ease !important;
         cursor: pointer !important;
     }}
     
@@ -1200,7 +1183,28 @@ def page_dashboard():
     
     st.markdown('</div>', unsafe_allow_html=True)
     
-    # ============ GAP FILLER: Status LEFT | Logo CENTER | Mic RIGHT ============
+    # CHAT INPUT USING FORM - THIS ELIMINATES THE GAP
+    with st.form(key="chat_form", clear_on_submit=True):
+        col_input, col_send = st.columns([5, 1])
+        with col_input:
+            user_input = st.text_input(
+                T("chat_hint"),
+                placeholder=T("chat_hint"),
+                label_visibility="collapsed",
+                key="chat_input"
+            )
+        with col_send:
+            submitted = st.form_submit_button("➤ " + T("send"), use_container_width=True)
+    
+    st.markdown('</div>', unsafe_allow_html=True)  # close scard
+    
+    if submitted and user_input and user_input.strip() and user_input != st.session_state.last_processed_text:
+        st.session_state.last_processed_text = user_input
+        st.session_state.messages.append({"role": "user", "content": user_input})
+        st.session_state.thinking = True
+        st.rerun()
+
+    # ============ LOGO + STATUS + MIC - BETWEEN AI CARD AND FILE UPLOAD ============
     col_status_gap, col_logo_gap, col_mic_gap = st.columns([1.5, 1, 1.5])
     
     with col_status_gap:
@@ -1227,7 +1231,7 @@ def page_dashboard():
             key="mic_recorder"
         )
     
-    # Handle voice input - with duplicate prevention
+    # Handle voice input - auto sends on second press
     if audio_bytes:
         transcript = transcribe_with_deepgram(audio_bytes)
         if transcript and transcript.strip() and transcript != st.session_state.last_processed_text:
@@ -1235,26 +1239,6 @@ def page_dashboard():
             st.session_state.messages.append({"role": "user", "content": transcript})
             st.session_state.thinking = True
             st.rerun()
-    
-    # ============ CHAT INPUT - text_input + button ============
-    col_input, col_send = st.columns([5, 1])
-    with col_input:
-        user_input = st.text_input(
-            T("chat_hint"),
-            placeholder=T("chat_hint"),
-            label_visibility="collapsed",
-            key="chat_input"
-        )
-    with col_send:
-        send_clicked = st.button("➤ " + T("send"), key="send_btn", use_container_width=True)
-    
-    st.markdown('</div>', unsafe_allow_html=True)
-    
-    if send_clicked and user_input and user_input.strip() and user_input != st.session_state.last_processed_text:
-        st.session_state.last_processed_text = user_input
-        st.session_state.messages.append({"role": "user", "content": user_input})
-        st.session_state.thinking = True
-        st.rerun()
 
     # ============ FILE UPLOAD + WORKFLOW - SIDE BY SIDE ============
     col_files, col_wf = st.columns([1, 1])
