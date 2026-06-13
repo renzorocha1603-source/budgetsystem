@@ -12,7 +12,7 @@ import csv
 import zipfile
 from xml.etree import ElementTree
 from audio_recorder_streamlit import audio_recorder
-from deepgram import Deepgram
+from deepgram import DeepgramClient
 import base64
 
 # ─────────────────────────────────────────────────────────────────
@@ -97,21 +97,28 @@ def ask_mistral(history: list) -> str:
 # VOICE: Speech-to-Text (transcription)
 # ─────────────────────────────────────────────────────────────────
 def transcribe_with_deepgram(audio_bytes):
-    """Transcribe audio using Deepgram SDK v3"""
+    """Transcribe audio using Deepgram SDK v7"""
     if not DEEPGRAM_API_KEY:
         return None
     
     try:
-        dg_client = Deepgram(DEEPGRAM_API_KEY)
+        deepgram = DeepgramClient(DEEPGRAM_API_KEY)
         
-        source = {"buffer": audio_bytes, "mimetype": "audio/wav"}
+        payload = {
+            "buffer": audio_bytes,
+        }
+        
         options = {
-            "smart_format": True,
             "model": "nova-2",
+            "smart_format": True,
             "language": "en",
         }
         
-        response = dg_client.transcription.sync_prerecorded(source, options)
+        response = deepgram.listen.prerecorded.v("1").transcribe_file(
+            payload,
+            options
+        )
+        
         transcript = response["results"]["channels"][0]["alternatives"][0]["transcript"]
         return transcript
     except Exception as e:
@@ -138,13 +145,13 @@ def text_to_speech(text):
     try:
         clean_text = clean_text_for_speech(text)
         
-        dg_client = Deepgram(DEEPGRAM_API_KEY)
+        deepgram = DeepgramClient(DEEPGRAM_API_KEY)
         
         options = {
             "model": "aura-asteria-en",
         }
         
-        response = dg_client.speak.v("1").save(
+        response = deepgram.speak.v("1").save(
             "allison_audio.mp3",
             {"text": clean_text},
             options
@@ -1169,18 +1176,11 @@ def page_dashboard():
         else:
             st.markdown(f'<div class="bubble-bot"><div class="bubble-lbl">Allison</div>{msg["content"]}</div>', unsafe_allow_html=True)
     
-    # THINKING INDICATOR - st.info during processing
+    # THINKING INDICATOR - Native Streamlit component
     if st.session_state.thinking:
         st.info(T("thinking_msg"))
     
     st.markdown('</div>', unsafe_allow_html=True)
-    
-    # ============ ONLY SOLUTIONS LOGO ============
-    st.markdown(f"""
-    <div style="text-align:center; padding: 2px 0; margin: 0;">
-        <img src="https://i.ibb.co/0yfv7KCS/image-1.jpg" width="180" style="border-radius: 8px; opacity: 0.9;">
-    </div>
-    """, unsafe_allow_html=True)
     
     # ============ SPEAK NOW BUTTON - Centered, 1/3 width ============
     _, col_speak_center, _ = st.columns([1, 1, 1])
@@ -1194,7 +1194,7 @@ def page_dashboard():
             key="mic_recorder"
         )
     
-    # Handle voice input
+    # Handle voice input - with duplicate prevention
     if audio_bytes:
         transcript = transcribe_with_deepgram(audio_bytes)
         if transcript and transcript.strip() and transcript != st.session_state.last_processed_text:
