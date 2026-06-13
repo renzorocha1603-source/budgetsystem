@@ -535,6 +535,7 @@ _D = dict(
     workflow_log=[],
     show_settings=False,
     thinking=False,
+    thinking_from_voice=False,
     ai_file_data=None,
     ai_file_name="",
     ai_file_type="",
@@ -657,42 +658,6 @@ def inject_css():
     
     .chat-messages::-webkit-scrollbar-thumb:hover {{
         background: {C['run_bg2']};
-    }}
-    
-    /* THINKING DOTS WITH ROBOT */
-    .thinking-container {{
-        display: inline-flex;
-        align-items: center;
-        gap: 6px;
-        padding: 0.5rem 0.8rem;
-        background: {C['bubble_bot']};
-        border: 1px solid {C['border']};
-        border-left: 2px solid {C['accent2']};
-        border-radius: 2px 8px 8px 8px;
-        margin-bottom: 0.5rem;
-    }}
-    
-    .robot-icon {{
-        font-size: 1.1rem;
-        line-height: 1;
-    }}
-    
-    .dot {{
-        display: inline-block;
-        width: 7px;
-        height: 7px;
-        border-radius: 50%;
-        background: {C['highlight']};
-        animation: dot-bounce 1.4s infinite ease-in-out both;
-    }}
-    
-    .dot:nth-child(2) {{ animation-delay: -0.32s; }}
-    .dot:nth-child(3) {{ animation-delay: -0.16s; }}
-    .dot:nth-child(4) {{ animation-delay: 0s; }}
-    
-    @keyframes dot-bounce {{
-        0%, 80%, 100% {{ transform: scale(0.6); opacity: 0.4; }}
-        40% {{ transform: scale(1); opacity: 1; }}
     }}
     
     /* GREEN PULSING DOT - ALIVE INDICATOR */
@@ -1181,21 +1146,10 @@ def page_dashboard():
         else:
             st.markdown(f'<div class="bubble-bot"><div class="bubble-lbl">Allison</div>{msg["content"]}</div>', unsafe_allow_html=True)
     
-    # THINKING INDICATOR - VISIBLE WITH DOTS
+    # THINKING INDICATOR - Use st.spinner which ALWAYS shows
     if st.session_state.thinking:
-        st.markdown(f"""
-        <div style="display: flex; align-items: center; gap: 8px; padding: 10px 15px; 
-                    background: {TK()['bubble_bot']}; border: 1px solid {TK()['border']}; 
-                    border-left: 3px solid {TK()['accent2']}; border-radius: 4px; margin-bottom: 8px;">
-            <span style="font-size: 1.2rem;">🤖</span>
-            <span style="color: {TK()['highlight']}; font-family: 'IBM Plex Mono', monospace; font-size: 0.7rem;">
-                {T("thinking_msg")}
-            </span>
-            <span class="dot"></span>
-            <span class="dot"></span>
-            <span class="dot"></span>
-        </div>
-        """, unsafe_allow_html=True)
+        with st.spinner(T("thinking_msg")):
+            pass  # This forces the spinner to show
     
     st.markdown('</div>', unsafe_allow_html=True)
     
@@ -1218,6 +1172,7 @@ def page_dashboard():
         st.session_state.last_processed_text = user_input
         st.session_state.messages.append({"role": "user", "content": user_input})
         st.session_state.thinking = True
+        st.session_state.thinking_from_voice = False  # Text input = no TTS
         st.rerun()
 
     # ============ LOGO + STATUS + MIC - BETWEEN AI CARD AND FILE UPLOAD ============
@@ -1257,6 +1212,7 @@ def page_dashboard():
             st.session_state.last_processed_text = transcript
             st.session_state.messages.append({"role": "user", "content": transcript})
             st.session_state.thinking = True
+            st.session_state.thinking_from_voice = True  # Voice input = TTS
             st.rerun()
 
     # ============ FILE UPLOAD + WORKFLOW - SIDE BY SIDE ============
@@ -1405,8 +1361,13 @@ if st.session_state.thinking:
         st.session_state.messages.append({"role": "assistant", "content": reply})
         st.session_state.thinking = False
         
-        audio_b64 = text_to_speech(reply)
-        st.session_state.last_audio = audio_b64
+        # ONLY generate TTS if the message came from voice
+        if st.session_state.thinking_from_voice:
+            audio_b64 = text_to_speech(reply)
+            st.session_state.last_audio = audio_b64
+        else:
+            st.session_state.last_audio = None
+        
         st.rerun()
 
 # Play Allison's audio if available
