@@ -3,8 +3,7 @@ pdfplumber
 openpyxl
 pandas
 requests
-deepgram-sdk==3.4.1
+deepgram-sdk
 pydub
 simple-websocket
-streamlit-audiorecorder
-deepgram-sdk
+audio-recorder-streamlit
