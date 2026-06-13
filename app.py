@@ -1182,6 +1182,13 @@ def page_dashboard():
     
     st.markdown('</div>', unsafe_allow_html=True)
     
+    # ============ ONLY SOLUTIONS LOGO - FILLS THE GAP ============
+    st.markdown(f"""
+    <div style="text-align:center; padding: 4px 0; margin: 0;">
+        <img src="https://i.ibb.co/0yfv7KCS/image-1.jpg" width="180" style="border-radius: 8px; opacity: 0.9;">
+    </div>
+    """, unsafe_allow_html=True)
+    
     # ============ SPEAK NOW BUTTON - Centered, 1/3 width ============
     _, col_speak_center, _ = st.columns([1, 1, 1])
     with col_speak_center:
