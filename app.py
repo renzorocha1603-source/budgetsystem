@@ -627,6 +627,22 @@ def inject_css():
         color: {C['text']} !important;
     }}
     
+    /* ============ GAP KILLERS - NEGATIVE MARGINS ============ */
+    div[data-testid="stVerticalBlock"] > div {{
+        gap: 0rem !important;
+    }}
+    
+    div[data-testid="stVerticalBlock"] > div > div {{
+        margin-top: -8px !important;
+        margin-bottom: -8px !important;
+    }}
+    
+    /* ============ BUTTON DELAY KILLER ============ */
+    .stButton > button {{
+        transition: none !important;
+        animation: none !important;
+    }}
+    
     /* SCROLLABLE CHAT CONTAINER */
     .chat-messages {{
         height: 400px;
@@ -634,7 +650,7 @@ def inject_css():
         overflow-y: auto !important;
         overflow-x: hidden;
         padding-right: 8px;
-        margin-bottom: 10px;
+        margin-bottom: 0px !important;
         scrollbar-width: thin;
     }}
     
@@ -784,7 +800,7 @@ def inject_css():
         border-radius: 6px !important;
         padding: 0.45rem 0.9rem !important;
         width: 100% !important;
-        transition: all 0.2s ease !important;
+        transition: none !important;
         cursor: pointer !important;
     }}
     
@@ -819,7 +835,7 @@ def inject_css():
         border-radius: 6px !important;
         padding: 0.45rem 0.9rem !important;
         width: 100% !important;
-        transition: all 0.2s ease !important;
+        transition: none !important;
         cursor: pointer !important;
     }}
     
@@ -1184,20 +1200,20 @@ def page_dashboard():
     
     st.markdown('</div>', unsafe_allow_html=True)
     
-    # ============ GAP FILLER: Logo + Status + Mic in one row ============
-    col_logo, col_status, col_mic_gap = st.columns([1, 2, 1])
+    # ============ GAP FILLER: Status LEFT | Logo CENTER | Mic RIGHT ============
+    col_status_gap, col_logo_gap, col_mic_gap = st.columns([1.5, 1, 1.5])
     
-    with col_logo:
+    with col_status_gap:
         st.markdown(f"""
-        <div style="text-align:center; padding: 0; margin: 0;">
-            <img src="https://i.ibb.co/0yfv7KCS/image-1.jpg" width="120" style="border-radius: 8px; opacity: 0.9;">
+        <div style="text-align:right; padding-top: 12px; font-family: 'IBM Plex Mono', monospace; font-size: 0.7rem; color: {TK()['highlight']};">
+            {T("allison_online")}
         </div>
         """, unsafe_allow_html=True)
     
-    with col_status:
+    with col_logo_gap:
         st.markdown(f"""
-        <div style="text-align:center; padding-top: 15px; font-family: 'IBM Plex Mono', monospace; font-size: 0.75rem; color: {TK()['highlight']};">
-            {T("allison_online")}
+        <div style="text-align:center; padding: 0; margin: 0;">
+            <img src="https://i.ibb.co/0yfv7KCS/image-1.jpg" width="130" style="border-radius: 8px; opacity: 0.9;">
         </div>
         """, unsafe_allow_html=True)
     
