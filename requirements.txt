@@ -1,5 +1,9 @@
+
 streamlit
 pdfplumber
 openpyxl
 pandas
-mistralai
+requests
+deepgram-sdk==3.4.1
+pydub
+simple-websocket
