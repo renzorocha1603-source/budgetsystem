@@ -25,9 +25,6 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-# Clear cache to fix file uploader errors
-st.cache_data.clear()
-st.cache_resource.clear()
 
 # ─────────────────────────────────────────────────────────────────
 # DEEPGRAM CONFIGURATION
