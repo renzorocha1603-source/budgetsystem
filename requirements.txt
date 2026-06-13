@@ -6,3 +6,5 @@ requests
 deepgram-sdk==3.4.1
 pydub
 simple-websocket
+streamlit-audiorecorder
+deepgram-sdk
