@@ -625,8 +625,7 @@ def inject_css():
         overflow-y: auto !important;
         overflow-x: hidden;
         padding-right: 8px;
-        margin-bottom: 0px !important;
-        padding-bottom: 0px !important;
+        margin-bottom: 10px;
         scrollbar-width: thin;
     }}
     
@@ -646,6 +645,42 @@ def inject_css():
     
     .chat-messages::-webkit-scrollbar-thumb:hover {{
         background: {C['run_bg2']};
+    }}
+    
+    /* THINKING DOTS WITH ROBOT */
+    .thinking-container {{
+        display: inline-flex !important;
+        align-items: center;
+        gap: 6px;
+        padding: 0.5rem 0.8rem;
+        background: {C['bubble_bot']};
+        border: 1px solid {C['border']};
+        border-left: 2px solid {C['accent2']};
+        border-radius: 2px 8px 8px 8px;
+        margin-bottom: 0.5rem;
+    }}
+    
+    .robot-icon {{
+        font-size: 1.1rem;
+        line-height: 1;
+    }}
+    
+    .dot {{
+        display: inline-block;
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        background: {C['highlight']};
+        animation: dot-bounce 1.4s infinite ease-in-out both;
+    }}
+    
+    .dot:nth-child(2) {{ animation-delay: -0.32s; }}
+    .dot:nth-child(3) {{ animation-delay: -0.16s; }}
+    .dot:nth-child(4) {{ animation-delay: 0s; }}
+    
+    @keyframes dot-bounce {{
+        0%, 80%, 100% {{ transform: scale(0.6); opacity: 0.4; }}
+        40% {{ transform: scale(1); opacity: 1; }}
     }}
     
     /* GREEN PULSING DOT - ALIVE INDICATOR */
@@ -1134,26 +1169,17 @@ def page_dashboard():
         else:
             st.markdown(f'<div class="bubble-bot"><div class="bubble-lbl">Allison</div>{msg["content"]}</div>', unsafe_allow_html=True)
     
-    # THINKING INDICATOR
+    # THINKING INDICATOR - st.info during processing
     if st.session_state.thinking:
         st.info(T("thinking_msg"))
     
     st.markdown('</div>', unsafe_allow_html=True)
     
-    # ============ UNIFIED INPUT ROW - Input, Mic, Send in ONE row (NO GAP!) ============
-    col_input, col_mic, col_send = st.columns([5, 0.6, 1], gap="small")
-    
-    with col_input:
-        user_input = st.text_input(
-            T("chat_hint"),
-            placeholder=T("chat_hint"),
-            label_visibility="collapsed",
-            key="chat_input"
-        )
-    
-    with col_mic:
+    # ============ SPEAK NOW BUTTON - Centered, 1/3 width ============
+    _, col_speak_center, _ = st.columns([1, 1, 1])
+    with col_speak_center:
         audio_bytes = audio_recorder(
-            text="",
+            text=T("speak_now"),
             recording_color="#DC2626",
             neutral_color="#E67E22",
             icon_name="microphone",
@@ -1161,83 +1187,33 @@ def page_dashboard():
             key="mic_recorder"
         )
     
-    with col_send:
-        send_clicked = st.button("➤ " + T("send"), key="send_btn", use_container_width=True)
-    
-    st.markdown('</div>', unsafe_allow_html=True)
-    
     # Handle voice input
     if audio_bytes:
         transcript = transcribe_with_deepgram(audio_bytes)
         if transcript and transcript.strip() and transcript != st.session_state.last_processed_text:
             st.session_state.last_processed_text = transcript
             st.session_state.messages.append({"role": "user", "content": transcript})
-            
-            ctx_suffix = ""
-            if st.session_state.ai_file_data:
-                file_data = st.session_state.ai_file_data
-                file_name = st.session_state.ai_file_name
-                file_type = st.session_state.ai_file_type
-                ctx_suffix += f"\n\n[Uploaded {file_type} file: {file_name}]\n"
-                if file_type in ["excel", "csv"]:
-                    ctx_suffix += "Spreadsheet data:\n"
-                    for row in file_data[:30]:
-                        ctx_suffix += " | ".join(row) + "\n"
-                else:
-                    ctx_suffix += f"Content:\n{str(file_data)[:3000]}\n"
-                ctx_suffix += f"\n[End of {file_name}]\n"
-            if st.session_state.extracted_rev:
-                rev = st.session_state.extracted_rev
-                ctx_suffix += f" [Budget: Transient ${rev['transient']:,.0f}, Monthly ${rev['monthly']:,.0f}, Total ${rev['total']:,.0f}]"
-            
-            recent_history = st.session_state.messages[-12:] if len(st.session_state.messages) > 12 else st.session_state.messages
-            history_for_mistral = []
-            for msg in recent_history[:-1]:
-                history_for_mistral.append({"role": msg["role"], "content": msg["content"]})
-            history_for_mistral.append({"role": "user", "content": transcript + ctx_suffix})
-            
-            with st.spinner(T("thinking_msg")):
-                reply = ask_mistral(history_for_mistral)
-                st.session_state.messages.append({"role": "assistant", "content": reply})
-                audio_b64 = text_to_speech(reply)
-                st.session_state.last_audio = audio_b64
-            
+            st.session_state.thinking = True
             st.rerun()
     
-    # Handle text input
+    # ============ CHAT INPUT - text_input + button ============
+    col_input, col_send = st.columns([5, 1])
+    with col_input:
+        user_input = st.text_input(
+            T("chat_hint"),
+            placeholder=T("chat_hint"),
+            label_visibility="collapsed",
+            key="chat_input"
+        )
+    with col_send:
+        send_clicked = st.button("➤ " + T("send"), key="send_btn", use_container_width=True)
+    
+    st.markdown('</div>', unsafe_allow_html=True)
+    
     if send_clicked and user_input and user_input.strip() and user_input != st.session_state.last_processed_text:
         st.session_state.last_processed_text = user_input
         st.session_state.messages.append({"role": "user", "content": user_input})
-        
-        ctx_suffix = ""
-        if st.session_state.ai_file_data:
-            file_data = st.session_state.ai_file_data
-            file_name = st.session_state.ai_file_name
-            file_type = st.session_state.ai_file_type
-            ctx_suffix += f"\n\n[Uploaded {file_type} file: {file_name}]\n"
-            if file_type in ["excel", "csv"]:
-                ctx_suffix += "Spreadsheet data:\n"
-                for row in file_data[:30]:
-                    ctx_suffix += " | ".join(row) + "\n"
-            else:
-                ctx_suffix += f"Content:\n{str(file_data)[:3000]}\n"
-            ctx_suffix += f"\n[End of {file_name}]\n"
-        if st.session_state.extracted_rev:
-            rev = st.session_state.extracted_rev
-            ctx_suffix += f" [Budget: Transient ${rev['transient']:,.0f}, Monthly ${rev['monthly']:,.0f}, Total ${rev['total']:,.0f}]"
-        
-        recent_history = st.session_state.messages[-12:] if len(st.session_state.messages) > 12 else st.session_state.messages
-        history_for_mistral = []
-        for msg in recent_history[:-1]:
-            history_for_mistral.append({"role": msg["role"], "content": msg["content"]})
-        history_for_mistral.append({"role": "user", "content": user_input + ctx_suffix})
-        
-        with st.spinner(T("thinking_msg")):
-            reply = ask_mistral(history_for_mistral)
-            st.session_state.messages.append({"role": "assistant", "content": reply})
-            audio_b64 = text_to_speech(reply)
-            st.session_state.last_audio = audio_b64
-        
+        st.session_state.thinking = True
         st.rerun()
 
     # ============ FILE UPLOAD + WORKFLOW - SIDE BY SIDE ============
@@ -1345,6 +1321,49 @@ def page_dashboard():
         st.markdown('</div>', unsafe_allow_html=True)
     
     st.markdown(f'<div class="db-footer">{T("footer")}</div>', unsafe_allow_html=True)
+
+# ─────────────────────────────────────────────────────────────────
+# Process AI response with MEMORY (last 12 messages)
+# ─────────────────────────────────────────────────────────────────
+if st.session_state.thinking:
+    user_messages = [m for m in st.session_state.messages if m["role"] == "user"]
+    if user_messages:
+        last_user_msg = user_messages[-1]["content"]
+        
+        ctx_suffix = ""
+        
+        if st.session_state.ai_file_data:
+            file_data = st.session_state.ai_file_data
+            file_name = st.session_state.ai_file_name
+            file_type = st.session_state.ai_file_type
+            ctx_suffix += f"\n\n[Uploaded {file_type} file: {file_name}]\n"
+            if file_type in ["excel", "csv"]:
+                ctx_suffix += "Spreadsheet:\n"
+                for row in file_data[:30]:
+                    ctx_suffix += " | ".join(row) + "\n"
+            else:
+                ctx_suffix += f"Content:\n{str(file_data)[:3000]}\n"
+            ctx_suffix += f"\n[End of {file_name}]\n"
+        
+        if st.session_state.extracted_rev:
+            rev = st.session_state.extracted_rev
+            ctx_suffix += f" [Budget: Transient ${rev['transient']:,.0f}, Monthly ${rev['monthly']:,.0f}, Total ${rev['total']:,.0f}]"
+        
+        recent_history = st.session_state.messages[-12:] if len(st.session_state.messages) > 12 else st.session_state.messages
+        
+        history_for_mistral = []
+        for msg in recent_history[:-1]:
+            history_for_mistral.append({"role": msg["role"], "content": msg["content"]})
+        
+        history_for_mistral.append({"role": "user", "content": last_user_msg + ctx_suffix})
+        
+        reply = ask_mistral(history_for_mistral)
+        st.session_state.messages.append({"role": "assistant", "content": reply})
+        st.session_state.thinking = False
+        
+        audio_b64 = text_to_speech(reply)
+        st.session_state.last_audio = audio_b64
+        st.rerun()
 
 # Play Allison's audio if available
 if st.session_state.get("last_audio"):
