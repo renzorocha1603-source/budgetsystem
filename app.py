@@ -1175,7 +1175,7 @@ def page_dashboard():
     
     st.markdown('</div>', unsafe_allow_html=True)
     
-    # ============ ONLY SOLUTIONS LOGO IN THE GAP ============
+    # ============ ONLY SOLUTIONS LOGO ============
     st.markdown(f"""
     <div style="text-align:center; padding: 2px 0; margin: 0;">
         <img src="https://i.ibb.co/0yfv7KCS/image-1.jpg" width="180" style="border-radius: 8px; opacity: 0.9;">
