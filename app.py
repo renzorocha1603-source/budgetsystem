@@ -339,6 +339,7 @@ T_DATA = {
         "clear_workflow": "Clear Workflow",
         "speak_now": "🎤 SPEAK NOW",
         "thinking_msg": "🤖 Allison is thinking...",
+        "allison_online": "🟢 Allison is online and ready",
     },
     "fr": {
         "brand": "SYSTÈME BUDGÉTAIRE",
@@ -398,6 +399,7 @@ T_DATA = {
         "clear_workflow": "Effacer Workflow",
         "speak_now": "🎤 PARLEZ",
         "thinking_msg": "🤖 Allison réfléchit...",
+        "allison_online": "🟢 Allison est en ligne et prête",
     },
 }
 
@@ -1182,16 +1184,24 @@ def page_dashboard():
     
     st.markdown('</div>', unsafe_allow_html=True)
     
-    # ============ ONLY SOLUTIONS LOGO - FILLS THE GAP ============
-    st.markdown(f"""
-    <div style="text-align:center; padding: 4px 0; margin: 0;">
-        <img src="https://i.ibb.co/0yfv7KCS/image-1.jpg" width="180" style="border-radius: 8px; opacity: 0.9;">
-    </div>
-    """, unsafe_allow_html=True)
+    # ============ GAP FILLER: Logo + Status + Mic in one row ============
+    col_logo, col_status, col_mic_gap = st.columns([1, 2, 1])
     
-    # ============ SPEAK NOW BUTTON - Centered, 1/3 width ============
-    _, col_speak_center, _ = st.columns([1, 1, 1])
-    with col_speak_center:
+    with col_logo:
+        st.markdown(f"""
+        <div style="text-align:center; padding: 0; margin: 0;">
+            <img src="https://i.ibb.co/0yfv7KCS/image-1.jpg" width="120" style="border-radius: 8px; opacity: 0.9;">
+        </div>
+        """, unsafe_allow_html=True)
+    
+    with col_status:
+        st.markdown(f"""
+        <div style="text-align:center; padding-top: 15px; font-family: 'IBM Plex Mono', monospace; font-size: 0.75rem; color: {TK()['highlight']};">
+            {T("allison_online")}
+        </div>
+        """, unsafe_allow_html=True)
+    
+    with col_mic_gap:
         audio_bytes = audio_recorder(
             text=T("speak_now"),
             recording_color="#DC2626",
