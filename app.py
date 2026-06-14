@@ -14,6 +14,7 @@ from xml.etree import ElementTree
 from audio_recorder_streamlit import audio_recorder
 from deepgram import DeepgramClient
 import base64
+import threading
 
 # ─────────────────────────────────────────────────────────────────
 # PAGE CONFIG
@@ -37,7 +38,13 @@ MISTRAL_API_KEY = "em5oqjSdA1Nus9iUpa1MNAJtQA4YfCtK"
 MISTRAL_URL = "https://api.mistral.ai/v1/chat/completions"
 MISTRAL_MODEL = "mistral-small-latest"
 
+# Global flag for stopping
+stop_requested = False
+
 def ask_mistral(history: list) -> str:
+    global stop_requested
+    stop_requested = False
+    
     system = {
         "role": "system",
         "content": (
@@ -337,6 +344,7 @@ T_DATA = {
         "language": "Language",
         "appearance": "Appearance",
         "send": "Send",
+        "stop": "⏹ STOP",
         "ai_file_upload": "📎 Upload any file to analyze",
         "ai_file_loaded": "ready for questions",
         "clear_workflow": "Clear Workflow",
@@ -397,6 +405,7 @@ T_DATA = {
         "language": "Langue",
         "appearance": "Apparence",
         "send": "Envoyer",
+        "stop": "⏹ STOP",
         "ai_file_upload": "📎 Téléverser tout fichier à analyser",
         "ai_file_loaded": "prêt pour les questions",
         "clear_workflow": "Effacer Workflow",
@@ -712,6 +721,19 @@ def inject_css():
         border-radius: 50%;
         animation: pulse-green 2s infinite ease-in-out;
         vertical-align: middle;
+    }}
+
+    /* STOP BUTTON - RED */
+    .stop-btn > button {{
+        background: #DC2626 !important;
+        color: #FFFFFF !important;
+        border: 1px solid #DC2626 !important;
+        animation: pulse-stop 1s infinite;
+    }}
+    
+    @keyframes pulse-stop {{
+        0%, 100% {{ box-shadow: 0 0 0 0 rgba(220, 38, 38, 0.5); }}
+        50% {{ box-shadow: 0 0 0 6px rgba(220, 38, 38, 0); }}
     }}
 
     /* Make ALL selectbox options visible */
@@ -1181,9 +1203,9 @@ def page_dashboard():
         else:
             st.markdown(f'<div class="bubble-bot"><div class="bubble-lbl">Allison</div>{msg["content"]}</div>', unsafe_allow_html=True)
     
-    # THINKING INDICATOR - Visible blue box that ALWAYS shows
+    # THINKING INDICATOR - Toast notification that ALWAYS shows
     if st.session_state.thinking:
-        st.info(f"🤖 {T('thinking_msg')}")
+        st.toast(f"🤖 {T('thinking_msg')}", icon="🤖")
     
     st.markdown('</div>', unsafe_allow_html=True)
     
@@ -1198,9 +1220,22 @@ def page_dashboard():
                 key="chat_input"
             )
         with col_send:
-            submitted = st.form_submit_button("➤ " + T("send"), use_container_width=True)
+            if st.session_state.thinking:
+                # STOP BUTTON - Red pulsing
+                st.markdown('<div class="stop-btn">', unsafe_allow_html=True)
+                stop_clicked = st.form_submit_button("⏹ " + T("stop"), use_container_width=True)
+                st.markdown('</div>', unsafe_allow_html=True)
+                submitted = False
+            else:
+                submitted = st.form_submit_button("➤ " + T("send"), use_container_width=True)
+                stop_clicked = False
     
     st.markdown('</div>', unsafe_allow_html=True)  # close scard
+    
+    # Handle STOP button
+    if stop_clicked:
+        st.session_state.thinking = False
+        st.rerun()
     
     if submitted and user_input and user_input.strip() and user_input != st.session_state.last_processed_text:
         st.session_state.last_processed_text = user_input
