@@ -25,32 +25,21 @@ SHEET_PATTERNS = {
 }
 
 # ============================================================================
-# VERIFIED ROW MAPPING: Donnees Historiques row -> P&L labels
+# VERIFIED ROW MAPPING
 # ============================================================================
-# These are the ACTUAL row numbers from the template (mapped manually).
-# FORMULA rows are NOT included - we only write to data rows.
-
 DH_ROW_MAPPING = {
-    # REVENUS section
     12: ["Transient Revenue", "transient revenue"],
     13: ["Monthly Revenues", "monthly revenues"],
     14: ["Car-Wash Revenue", "car-wash revenue", "lave-auto"],
     15: ["Hotel Revenue", "hotel revenue", "revenus hotel"],
     16: ["Interests", "interests", "intérêts", "interets"],
     17: ["Miscellaneous", "miscellaneous", "autres revenus"],
-    # 18 = Total revenus Bruts (FORMULA: SUM 12-17)
     20: ["Discount-Gratuities - Transient", "gratuities transient"],
     22: ["Discount-Gratuities - Monthly", "rabais", "discount monthly"],
-    # 24 = Autres revenus
-    # 26 = TOTAL REVENUS (FORMULA: SUM 18-25)
-
-    # DÉPENSES section
     29: ["Parking wages", "parking wages", "salaire stationnement"],
     30: ["Other wages", "other wages", "salaire superviseur", "supervisor"],
     31: ["Training & Recr.", "training", "formation", "recrutement"],
     32: ["Uniforms", "uniforms", "uniformes"],
-    # 33 = Total Frais de personnel (FORMULA: SUM 29-32)
-
     35: ["R&M - Cleaning", "cleaning", "nettoyage"],
     36: ["R&M - General", "maintenance", "entretien stationnement"],
     37: ["R&M - Equipement", "equipment", "entretien équipement", "entretien equipement"],
@@ -60,11 +49,7 @@ DH_ROW_MAPPING = {
     41: ["Parking supplies", "parking supplies", "fournitures stationnement", "fournitures"],
     42: ["Misc. Re-Billing", "re-billing", "refacturations diverses", "refacturations", "rebilling"],
     43: ["R&M - General", "amenagement", "aménagement stationnement", "aménagement"],
-    # 44 = Total Entretien - réparations (FORMULA: SUM 35-43)
-
     46: ["Public services", "public services", "services publics", "utilities"],
-    # 47 = Total Services Publics (FORMULA: =row 46)
-
     49: ["Office expenses", "office expenses", "fournitures de bureau", "fournitures bureau"],
     50: ["Telecommunication", "telecommunication", "telecommunications", "télécommunications", "telecom"],
     51: ["Rent", "rent", "loyer"],
@@ -81,9 +66,6 @@ DH_ROW_MAPPING = {
     62: ["Percent Management fee", "management fee", "honoraires de gestion en pourcentage", "honoraires de gestion en %"],
     63: ["Management Fees (Basic)", "management fees basic", "honoraires de gestion de base", "honoraires de base"],
     64: ["Incentives", "incentives", "incitatif annuel", "incitatif", "incentive"],
-    # 65 = Total Frais Généraux (FORMULA: SUM 49-64)
-
-    # AUTRES DÉPENSES
     67: ["Depreciation", "depreciation", "amortissement"],
     68: ["Financial fees", "interest", "intérêts sur emprunts", "interets sur emprunts", "emprunts"],
     69: ["Security", "security", "sécurité", "securite"],
@@ -93,9 +75,6 @@ DH_ROW_MAPPING = {
     73: ["Bad debts", "bad debts", "mauvaises créances", "mauvaises creances", "créances"],
     74: ["Dues & Subscription", "dues", "cotisations", "subscription"],
     76: ["Meal & Entertainment", "meal", "représentation repas", "representation repas", "repas", "entertainment"],
-    # 82 = Total Autres dépenses (FORMULA: SUM 67-80)
-    # 84 = TOTAL DÉPENSES (FORMULA: 82 + 65 + 47 + 44 + 33)
-    # 86 = REVENUS NETS (FORMULA: 26 - 84)
 }
 
 FICHE_STATIONNEMENT_MAP = [
@@ -110,7 +89,7 @@ FICHE_STATIONNEMENT_MAP = [
 ]
 
 # ============================================================================
-# FILE TYPE HANDLERS - Accept ANY format
+# FILE TYPE HANDLERS
 # ============================================================================
 
 def is_excel_file(file_bytes_or_obj):
@@ -419,7 +398,7 @@ def read_year_mapping_from_template(wb):
     return year_map
 
 # ============================================================================
-# P&L DATA EXTRACTION - Works with ANY file format
+# P&L DATA EXTRACTION
 # ============================================================================
 
 def extract_pnl_data_from_dataframe(df, sheet_name_hint=None):
