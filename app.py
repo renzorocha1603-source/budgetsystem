@@ -13,7 +13,7 @@ from xml.etree import ElementTree
 from audio_recorder_streamlit import audio_recorder
 from deepgram import DeepgramClient
 import base64
-from excel_fixer import fix_excel
+from excel_fixer import fix_excel, get_parking_codes_from_pnl
 
 # ─────────────────────────────────────────────────────────────────
 # PAGE CONFIG
@@ -357,8 +357,10 @@ T_DATA = {
         "thinking_msg": "🤖 Allison is thinking...",
         "allison_online": "🟢 Allison is online and ready",
         "word_data_upload": "📄 Upload Word Data (optional)",
-        "parking_code_lbl": "Parking Code",
+        "parking_code_lbl": "🏢 Select Parking Code",
+        "parking_code_help": "Choose the parking location from the P&L file",
         "year_info": "📅 Year info",
+        "no_parking_codes": "No parking codes detected in P&L file",
     },
     "fr": {
         "brand": "SYSTÈME BUDGÉTAIRE",
@@ -424,8 +426,10 @@ T_DATA = {
         "thinking_msg": "🤖 Allison réfléchit...",
         "allison_online": "🟢 Allison est en ligne et prête",
         "word_data_upload": "📄 Téléverser données Word (optionnel)",
-        "parking_code_lbl": "Code stationnement",
+        "parking_code_lbl": "🏢 Sélectionner le code stationnement",
+        "parking_code_help": "Choisissez le stationnement du fichier P&L",
         "year_info": "📅 Info année",
+        "no_parking_codes": "Aucun code stationnement détecté dans le fichier P&L",
     },
 }
 
@@ -568,6 +572,8 @@ _D = dict(
     voice_text="",
     last_audio=None,
     last_processed_text="",
+    parking_codes=[],
+    selected_parking_code=None,
 )
 
 for k, v in _D.items():
@@ -1024,6 +1030,15 @@ def inject_css():
         margin-bottom: 0.3rem !important;
         font-style: italic;
     }}
+    
+    /* Parking code selector */
+    .parking-selector {{
+        background: {C['surface']} !important;
+        border: 1px solid {C['highlight']} !important;
+        border-radius: 6px !important;
+        padding: 0.6rem 0.8rem !important;
+        margin-bottom: 0.8rem !important;
+    }}
     </style>
     """, unsafe_allow_html=True)
 
@@ -1432,6 +1447,15 @@ def page_dashboard():
             else:
                 st.session_state.word_bytes = None
 
+            # Extract parking codes from P&L file
+            try:
+                pnl_current_file.seek(0)
+                codes = get_parking_codes_from_pnl(pnl_current_file)
+                pnl_current_file.seek(0)
+                st.session_state.parking_codes = codes
+            except Exception:
+                st.session_state.parking_codes = []
+
             st.session_state.files_ready = True
 
             if pnl_previous_file and pnl_two_ya_file:
@@ -1477,46 +1501,77 @@ def page_dashboard():
 
             st.markdown('<div class="hr"></div>', unsafe_allow_html=True)
 
+            # ── PARKING CODE SELECTOR ────────────────────────────────────
+            parking_codes = st.session_state.get("parking_codes", [])
+            
+            if parking_codes:
+                selected_code = st.selectbox(
+                    T("parking_code_lbl"),
+                    options=parking_codes,
+                    help=T("parking_code_help"),
+                    key="parking_code_select"
+                )
+                st.session_state.selected_parking_code = selected_code
+            else:
+                # Try to extract from template filename as fallback
+                fallback_code = None
+                if hasattr(st.session_state.excel_bytes, 'name'):
+                    name = st.session_state.excel_bytes.name
+                    match = re.search(r'(CMO\d+)', name, re.IGNORECASE)
+                    if match:
+                        fallback_code = match.group(1).upper()
+                
+                if fallback_code:
+                    st.info(f"📌 Parking code from filename: **{fallback_code}**")
+                    st.session_state.selected_parking_code = fallback_code
+                else:
+                    st.warning(T("no_parking_codes"))
+                    st.session_state.selected_parking_code = None
+
+            st.markdown('<div class="hr"></div>', unsafe_allow_html=True)
+
             # Run and Clear buttons
             col_run, col_clear_wf = st.columns([1, 1])
             with col_run:
                 if st.button(T("run_btn"), use_container_width=True, type="primary"):
-                    with st.spinner(T("running")):
-                        try:
-                            word_data = None
-                            # Future: extract word data if word_file is uploaded
+                    if not st.session_state.selected_parking_code:
+                        st.error("❌ Please select a parking code before running.")
+                    else:
+                        with st.spinner(T("running")):
+                            try:
+                                word_data = None
 
-                            # Call the excel_fixer with all 3 P&L files (any format!)
-                            fixed_excel, updates = fix_excel(
-                                excel_file=st.session_state.excel_bytes,
-                                pnl_current_year=st.session_state.pnl_current_bytes,
-                                pnl_previous_year=st.session_state.pnl_previous_bytes,
-                                pnl_two_years_ago=st.session_state.pnl_two_ya_bytes,
-                                parking_code=None,
-                                word_data=word_data
-                            )
+                                # Call the excel_fixer with user-selected parking code
+                                fixed_excel, updates = fix_excel(
+                                    excel_file=st.session_state.excel_bytes,
+                                    pnl_current_year=st.session_state.pnl_current_bytes,
+                                    pnl_previous_year=st.session_state.pnl_previous_bytes,
+                                    pnl_two_years_ago=st.session_state.pnl_two_ya_bytes,
+                                    parking_code=st.session_state.selected_parking_code,
+                                    word_data=word_data
+                                )
 
-                            st.session_state.fixed_excel = fixed_excel
-                            st.session_state.workflow_log = updates
+                                st.session_state.fixed_excel = fixed_excel
+                                st.session_state.workflow_log = updates
 
-                            # Display all updates
-                            if updates:
-                                for update in updates:
-                                    st.markdown(f'<div class="log-line">{update}</div>', unsafe_allow_html=True)
+                                # Display all updates
+                                if updates:
+                                    for update in updates:
+                                        st.markdown(f'<div class="log-line">{update}</div>', unsafe_allow_html=True)
 
-                                success_count = sum(1 for u in updates if u.startswith("✅"))
+                                    success_count = sum(1 for u in updates if u.startswith("✅"))
 
-                                if fixed_excel:
-                                    if success_count > 0:
-                                        st.success(T("run_ok"))
+                                    if fixed_excel:
+                                        if success_count > 0:
+                                            st.success(T("run_ok"))
+                                        else:
+                                            st.warning("Workflow completed with warnings. Download available but some data may be missing.")
                                     else:
-                                        st.warning("Workflow completed with warnings. Download available but some data may be missing.")
+                                        st.error("Workflow failed - no output file generated.")
                                 else:
-                                    st.error("Workflow failed - no output file generated.")
-                            else:
-                                st.warning("No updates were made. Check if the parking code exists in the P&L files.")
-                        except Exception as e:
-                            st.error(f"Workflow error: {str(e)}")
+                                    st.warning("No updates were made.")
+                            except Exception as e:
+                                st.error(f"Workflow error: {str(e)}")
 
             with col_clear_wf:
                 if st.button(T("clear_workflow"), use_container_width=True):
@@ -1528,6 +1583,8 @@ def page_dashboard():
                     st.session_state.files_ready = False
                     st.session_state.fixed_excel = None
                     st.session_state.workflow_log = []
+                    st.session_state.parking_codes = []
+                    st.session_state.selected_parking_code = None
                     st.rerun()
 
             # Download button
