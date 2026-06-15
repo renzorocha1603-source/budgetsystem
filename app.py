@@ -15,6 +15,7 @@ from audio_recorder_streamlit import audio_recorder
 from deepgram import DeepgramClient
 import base64
 import threading
+from excel_fixer import fix_excel
 
 # ─────────────────────────────────────────────────────────────────
 # PAGE CONFIG
@@ -280,30 +281,6 @@ def process_any_file(uploaded_file):
         except:
             return f"Binary file: {file_name} (content cannot be displayed as text)", "binary", file_bytes
 
-def extract_pdf_revenue(pdf_file_bytes):
-    """Extract revenue data from PDF for budget workflow"""
-    r = {"transient": 0, "monthly": 0, "total": 0}
-    try:
-        with pdfplumber.open(io.BytesIO(pdf_file_bytes)) as pdf:
-            text = "".join(p.extract_text() or "" for p in pdf.pages)
-        nums = re.findall(r'\$?([\d,]+\.?\d*)', text)
-        r["total"] = float(nums[0].replace(",", "")) if nums else 40000
-        for line in text.split("\n"):
-            ll, ns = line.lower(), re.findall(r'\$?([\d,]+\.?\d*)', line)
-            if "transient" in ll and ns:
-                r["transient"] = float(ns[0].replace(",", ""))
-            elif "monthly" in ll and ns:
-                r["monthly"] = float(ns[0].replace(",", ""))
-        if not r["transient"]:
-            r["transient"] = r["total"] * 0.6
-        if not r["monthly"]:
-            r["monthly"] = r["total"] * 0.4
-    except:
-        r["total"] = 40000
-        r["transient"] = 24000
-        r["monthly"] = 16000
-    return r
-
 # ─────────────────────────────────────────────────────────────────
 # TRANSLATIONS
 # ─────────────────────────────────────────────────────────────────
@@ -321,8 +298,8 @@ T_DATA = {
         "chat_hint": "Ask Allison about budget, forecasts, or calculations…",
         "no_msgs": "No messages yet — start a conversation with Allison.",
         "files_title": "File Upload",
-        "excel_lbl": "Excel Template (any format)",
-        "pdf_lbl": "PDF Report (any format)",
+        "excel_lbl": "Upload Excel Template",
+        "pdf_lbl": "Upload P&L File",
         "processing": "Processing files…",
         "files_ok": "✅ Files ready — you can now run the workflow.",
         "transient": "Transient",
@@ -333,10 +310,10 @@ T_DATA = {
         "type_lbl": "Type",
         "hours_lbl": "Supervisor hrs/day",
         "run_btn": "Run Workflow",
-        "running": "Running…",
+        "running": "Processing your budget...",
         "run_ok": "Done — file ready to download.",
         "dl_btn": "Download Budget File",
-        "upload_first": "Upload files to unlock workflow.",
+        "upload_first": "Upload Excel Template + P&L File to unlock workflow.",
         "admin_title": "Admin Panel",
         "new_user_title": "Create New User",
         "nm_lbl": "Full name",
@@ -368,6 +345,8 @@ T_DATA = {
         "speak_now": "🎤 SPEAK NOW",
         "thinking_msg": "🤖 Allison is thinking...",
         "allison_online": "🟢 Allison is online and ready",
+        "word_data_upload": "📄 Upload Word Data (optional)",
+        "parking_code_lbl": "Parking Code",
     },
     "fr": {
         "brand": "SYSTÈME BUDGÉTAIRE",
@@ -382,8 +361,8 @@ T_DATA = {
         "chat_hint": "Demandez à Allison budget, prévisions, calculs…",
         "no_msgs": "Aucun message — commencez une conversation avec Allison.",
         "files_title": "Fichiers",
-        "excel_lbl": "Modèle Excel (tout format)",
-        "pdf_lbl": "Rapport PDF (tout format)",
+        "excel_lbl": "Téléverser le modèle Excel",
+        "pdf_lbl": "Téléverser le fichier P&L",
         "processing": "Traitement…",
         "files_ok": "✅ Fichiers prêts — vous pouvez exécuter le workflow.",
         "transient": "Transitoire",
@@ -394,10 +373,10 @@ T_DATA = {
         "type_lbl": "Type",
         "hours_lbl": "Heures sup./jour",
         "run_btn": "Exécuter le workflow",
-        "running": "Exécution…",
+        "running": "Traitement de votre budget...",
         "run_ok": "Terminé — fichier prêt.",
         "dl_btn": "Télécharger le fichier",
-        "upload_first": "Téléversez fichiers pour débloquer le workflow.",
+        "upload_first": "Téléversez le modèle Excel + fichier P&L pour débloquer.",
         "admin_title": "Admin",
         "new_user_title": "Créer un utilisateur",
         "nm_lbl": "Nom complet",
@@ -429,6 +408,8 @@ T_DATA = {
         "speak_now": "🎤 PARLEZ",
         "thinking_msg": "🤖 Allison réfléchit...",
         "allison_online": "🟢 Allison est en ligne et prête",
+        "word_data_upload": "📄 Téléverser données Word (optionnel)",
+        "parking_code_lbl": "Code stationnement",
     },
 }
 
@@ -520,60 +501,6 @@ def reset_password(email, pw):
     return False
 
 # ─────────────────────────────────────────────────────────────────
-# PDF / EXCEL
-# ─────────────────────────────────────────────────────────────────
-def extract_pdf_data(pdf_file):
-    r = {"transient": 0, "monthly": 0, "total": 0}
-    with pdfplumber.open(pdf_file) as pdf:
-        text = "".join(p.extract_text() or "" for p in pdf.pages)
-    nums = re.findall(r'\$?([\d,]+\.?\d*)', text)
-    r["total"] = float(nums[0].replace(",", "")) if nums else 40000
-    for line in text.split("\n"):
-        ll, ns = line.lower(), re.findall(r'\$?([\d,]+\.?\d*)', line)
-        if "transient" in ll and ns:
-            r["transient"] = float(ns[0].replace(",", ""))
-        elif "monthly" in ll and ns:
-            r["monthly"] = float(ns[0].replace(",", ""))
-    if not r["transient"]:
-        r["transient"] = r["total"] * 0.6
-    if not r["monthly"]:
-        r["monthly"] = r["total"] * 0.4
-    return r
-
-def run_excel_workflow(excel_bytes, revenue, parking_type, supervisor_hours):
-    wb = load_workbook(io.BytesIO(excel_bytes))
-    ws = wb.active
-    log = []
-
-    def sc(addr, val):
-        try:
-            ws[addr] = val
-            ws[addr].number_format = "#,##0.00"
-        except Exception:
-            pass
-
-    sc("K17", revenue["transient"])
-    sc("K18", revenue["monthly"])
-    sc("K26", revenue["total"])
-    log.append(f"Revenue → K17 ${revenue['transient']:,.0f} K18 ${revenue['monthly']:,.0f} K26 ${revenue['total']:,.0f}")
-
-    mult = ([1.2,1.2,1.2,1.1,0.8,0.8,0.8,0.8,1.1,1.1,1.2,1.2] if "School" in parking_type 
-            else [0.8,0.8,0.9,0.9,1.3,1.3,1.3,1.2,1.0,1.0,0.8,0.8])
-    base = revenue["total"] / 12
-    for i, m in enumerate(mult):
-        sc(f"K{20+i}", base * m)
-    log.append("Monthly projections → K20–K31")
-
-    sup = 25 * supervisor_hours * 30
-    sc("K30", sup)
-    log.append(f"Supervisor cost → K30 ${sup:,.2f}/month")
-
-    out = io.BytesIO()
-    wb.save(out)
-    out.seek(0)
-    return out, log
-
-# ─────────────────────────────────────────────────────────────────
 # SESSION STATE
 # ─────────────────────────────────────────────────────────────────
 _D = dict(
@@ -585,6 +512,8 @@ _D = dict(
     theme="dark",
     messages=[],
     excel_bytes=None,
+    pnl_bytes=None,
+    word_bytes=None,
     extracted_rev={},
     files_ready=False,
     fixed_excel=None,
@@ -1281,7 +1210,6 @@ def page_dashboard():
             )
         with col_send:
             if st.session_state.thinking:
-                # STOP BUTTON - Red pulsing
                 st.markdown('<div class="stop-btn">', unsafe_allow_html=True)
                 stop_clicked = st.form_submit_button("⏹ " + T("stop"), use_container_width=True)
                 st.markdown('</div>', unsafe_allow_html=True)
@@ -1290,9 +1218,8 @@ def page_dashboard():
                 submitted = st.form_submit_button("➤ " + T("send"), use_container_width=True)
                 stop_clicked = False
 
-    st.markdown('</div>', unsafe_allow_html=True)  # close scard
+    st.markdown('</div>', unsafe_allow_html=True)
 
-    # Handle STOP button
     if stop_clicked:
         st.session_state.thinking = False
         st.rerun()
@@ -1301,10 +1228,10 @@ def page_dashboard():
         st.session_state.last_processed_text = user_input
         st.session_state.messages.append({"role": "user", "content": user_input})
         st.session_state.thinking = True
-        st.session_state.thinking_from_voice = False  # Text input = no TTS
+        st.session_state.thinking_from_voice = False
         st.rerun()
 
-    # ============ LOGO + STATUS + MIC - BETWEEN AI CARD AND FILE UPLOAD ============
+    # ============ LOGO + STATUS + MIC ============
     col_status_gap, col_logo_gap, col_mic_gap = st.columns([1.5, 1, 1.5])
 
     with col_status_gap:
@@ -1334,44 +1261,36 @@ def page_dashboard():
             energy_threshold=0.001
         )
 
-    # Handle voice input - auto sends on second press with correct language
     if audio_bytes:
         transcript = transcribe_with_deepgram(audio_bytes, st.session_state.lang)
         if transcript and transcript.strip() and transcript != st.session_state.last_processed_text:
             st.session_state.last_processed_text = transcript
             st.session_state.messages.append({"role": "user", "content": transcript})
             st.session_state.thinking = True
-            st.session_state.thinking_from_voice = True  # Voice input = TTS
+            st.session_state.thinking_from_voice = True
             st.rerun()
 
-    # ============ FILE UPLOAD + WORKFLOW - SIDE BY SIDE ============
+    # ============ FILE UPLOAD + WORKFLOW - NEW EXCEL FIXER ============
     col_files, col_wf = st.columns([1, 1])
 
     with col_files:
         st.markdown(f'<div class="scard"><div class="scard-title">{T("files_title")}</div>', unsafe_allow_html=True)
 
-        # ACCEPT ANY FILE TYPE
-        excel_file = st.file_uploader(T("excel_lbl"), type=None, key="xl")
-        pdf_file = st.file_uploader(T("pdf_lbl"), type=None, key="pd")
+        # Upload Excel Template
+        excel_file = st.file_uploader(T("excel_lbl"), type=["xlsx"], key="xl")
+        
+        # Upload P&L File
+        pnl_file = st.file_uploader(T("pdf_lbl"), type=["xlsx"], key="pd")
+        
+        # Optional Word Data
+        word_file = st.file_uploader(T("word_data_upload"), type=["xlsx", "csv"], key="wd")
 
-        if excel_file and pdf_file and not st.session_state.files_ready:
-            with st.spinner(T("processing")):
-                excel_bytes_read = excel_file.read()
-                pdf_bytes_read = pdf_file.read()
-
-                if pdf_file.name.lower().endswith('.pdf'):
-                    rev = extract_pdf_revenue(pdf_bytes_read)
-                else:
-                    try:
-                        _, _, _ = process_any_file(excel_file)
-                        rev = {"transient": 24000, "monthly": 16000, "total": 40000}
-                    except:
-                        rev = {"transient": 24000, "monthly": 16000, "total": 40000}
-
-                st.session_state.extracted_rev = rev
-                st.session_state.excel_bytes = excel_bytes_read
-                st.session_state.files_ready = True
-                st.session_state.fixed_excel = None
+        if excel_file and pnl_file and not st.session_state.files_ready:
+            st.session_state.excel_bytes = excel_file
+            st.session_state.pnl_bytes = pnl_file
+            if word_file:
+                st.session_state.word_bytes = word_file
+            st.session_state.files_ready = True
             st.success(T("files_ok"))
             st.rerun()
 
@@ -1383,10 +1302,10 @@ def page_dashboard():
         if not st.session_state.files_ready:
             st.markdown(f'<div style="font-size:0.78rem;color:{TK()["text_secondary"]};padding:1rem 0;">{T("upload_first")}</div>', unsafe_allow_html=True)
         else:
-            parking = st.selectbox(T("parking_lbl"), ["CMO142 (LUNA)", "CMO143", "CMO144"])
-            p_type = st.selectbox(T("type_lbl"), ["SC (School)", "RG (Tourism)"])
-            hours = st.number_input(T("hours_lbl"), min_value=0, max_value=24, value=1, step=1)
-
+            # Show filename of uploaded template
+            template_name = st.session_state.excel_bytes.name if hasattr(st.session_state.excel_bytes, 'name') else "Template"
+            st.markdown(f"**Template:** {template_name}")
+            
             st.markdown('<div class="hr"></div>', unsafe_allow_html=True)
 
             col_run, col_clear_wf = st.columns([1, 1])
@@ -1394,43 +1313,32 @@ def page_dashboard():
                 if st.button("🚀 " + T("run_btn"), use_container_width=True, type="primary"):
                     with st.spinner(T("running")):
                         try:
-                            output, log = run_excel_workflow(
+                            # Call the new excel_fixer
+                            fixed_excel, updates = fix_excel(
                                 st.session_state.excel_bytes,
-                                st.session_state.extracted_rev,
-                                p_type,
-                                hours,
+                                st.session_state.pnl_bytes,
+                                parking_code=None,  # Auto-extract from filename
+                                word_data=None  # Can add later
                             )
-                            st.session_state.fixed_excel = output
-                            st.session_state.workflow_log = log
-
-                            rev = st.session_state.extracted_rev
-                            st.markdown(f"""
-                            <div class="metric-row">
-                                <div class="mblock">
-                                    <div class="mblock-label">{T('transient')}</div>
-                                    <div class="mblock-val c">${rev['transient']:,.0f}</div>
-                                </div>
-                                <div class="mblock">
-                                    <div class="mblock-label">{T('monthly')}</div>
-                                    <div class="mblock-val g">${rev['monthly']:,.0f}</div>
-                                </div>
-                                <div class="mblock">
-                                    <div class="mblock-label">{T('total')}</div>
-                                    <div class="mblock-val t">${rev['total']:,.0f}</div>
-                                </div>
-                            </div>
-                            """, unsafe_allow_html=True)
-
-                            for line in log:
-                                st.markdown(f'<div class="log-line">{line}</div>', unsafe_allow_html=True)
-                            st.success(T("run_ok"))
+                            
+                            st.session_state.fixed_excel = fixed_excel
+                            st.session_state.workflow_log = updates
+                            
+                            # Show what was updated
+                            if updates:
+                                for update in updates:
+                                    st.markdown(f'<div class="log-line">{update}</div>', unsafe_allow_html=True)
+                                st.success(T("run_ok"))
+                            else:
+                                st.warning("No updates were made. Check if the parking code exists in the P&L file.")
                         except Exception as e:
-                            st.error(f"Workflow error: {e}")
+                            st.error(f"Workflow error: {str(e)}")
 
             with col_clear_wf:
                 if st.button("🔄 " + T("clear_workflow"), use_container_width=True):
-                    st.session_state.extracted_rev = {}
                     st.session_state.excel_bytes = None
+                    st.session_state.pnl_bytes = None
+                    st.session_state.word_bytes = None
                     st.session_state.files_ready = False
                     st.session_state.fixed_excel = None
                     st.session_state.workflow_log = []
@@ -1438,11 +1346,11 @@ def page_dashboard():
 
             if st.session_state.fixed_excel:
                 st.markdown('<div class="hr"></div>', unsafe_allow_html=True)
-                pclean = parking.replace(" ", "_").replace("(", "").replace(")", "")
+                template_name_clean = template_name.rsplit('.', 1)[0].replace(" ", "_")
                 st.download_button(
                     label="📥 " + T("dl_btn"),
                     data=st.session_state.fixed_excel,
-                    file_name=f"{pclean}_budget_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx",
+                    file_name=f"{template_name_clean}_updated_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                     use_container_width=True,
                 )
@@ -1490,10 +1398,8 @@ if st.session_state.thinking:
         st.session_state.messages.append({"role": "assistant", "content": reply})
         st.session_state.thinking = False
 
-        # Save chat history after each response
         save_chat_history(st.session_state.messages)
 
-        # ONLY generate TTS if the message came from voice - use current language
         if st.session_state.thinking_from_voice:
             audio_b64 = text_to_speech(reply, st.session_state.lang)
             st.session_state.last_audio = audio_b64
