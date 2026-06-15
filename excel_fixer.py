@@ -26,29 +26,29 @@ SHEET_PATTERNS = {
     "Donnees Historiques": ["donnees historiques", "données historiques", "historiques", "historique"],
 }
 
-PARKING_CODE_PATTERNS = [
-    r'(CMO\d+)',
-    r'(LUNA)',
-    r'([A-Z]{2,5}\d{2,4})',
-]
-
 # ============================================================================
 # HELPER FUNCTIONS
 # ============================================================================
 
 def extract_parking_code_from_filename(filename):
+    """Extract parking code from template filename."""
     if not filename:
         return None
     name = filename.rsplit('.', 1)[0]
-    for pattern in PARKING_CODE_PATTERNS:
-        match = re.search(pattern, name, re.IGNORECASE)
-        if match:
-            return match.group(1).upper()
+    # Try CMO pattern first
+    match = re.search(r'(CMO\d+)', name, re.IGNORECASE)
+    if match:
+        return match.group(1).upper()
+    # Try LUNA
+    if 'LUNA' in name.upper():
+        return 'LUNA'
+    # Fallback
     parts = name.replace('(', ' ').replace(')', ' ').split('_')[0].split()[0]
     return parts.upper()
 
 
 def find_sheet_by_pattern(wb, patterns):
+    """Find a sheet in the workbook matching patterns."""
     for sheet_name in wb.sheetnames:
         sheet_lower = sheet_name.lower().replace('.', ' ').replace('-', ' ').replace('_', ' ')
         for pattern in patterns:
@@ -58,263 +58,267 @@ def find_sheet_by_pattern(wb, patterns):
     return None
 
 
-def find_parking_row_in_df(df, parking_code):
-    """Find the row containing a parking code in ANY column."""
-    code_clean = parking_code.upper().strip()
-    
-    for col_idx in range(len(df.columns)):
-        for row_idx in range(len(df)):
-            value = df.iloc[row_idx, col_idx]
-            if pd.notna(value):
-                cell_str = str(value).upper().strip()
-                if code_clean in cell_str:
-                    return row_idx
-                # Partial match for CMO codes
-                if code_clean.startswith('CMO') and cell_str.startswith('CMO'):
-                    if code_clean[-3:] in cell_str or cell_str[-3:] in code_clean:
-                        return row_idx
-    return None
-
-
-def find_all_parking_codes_in_df(df):
-    codes = []
-    for col_idx in range(len(df.columns)):
-        for row_idx in range(len(df)):
-            value = df.iloc[row_idx, col_idx]
-            if pd.notna(value):
-                cell_str = str(value).strip()
-                for pattern in PARKING_CODE_PATTERNS:
-                    match = re.search(pattern, cell_str, re.IGNORECASE)
-                    if match:
-                        codes.append(match.group(1).upper())
-    return list(set(codes))
-
-
-def safe_float(value, default=0.0):
-    try:
-        if pd.isna(value) or value is None:
-            return default
-        if isinstance(value, str):
-            value = value.replace('$', '').replace(',', '').replace(' ', '').replace('€', '').replace('(', '').replace(')', '')
-        return float(value)
-    except (ValueError, TypeError):
-        return default
-
-
-def find_year_columns(df, max_cols=50):
-    """Find columns that contain year data (2024, 2025, etc.)"""
-    year_cols = {}
-    for col_idx in range(min(max_cols, len(df.columns))):
-        for row_idx in range(min(15, len(df))):
-            cell = str(df.iloc[row_idx, col_idx]).strip()
-            matches = re.findall(r'(20\d{2})', cell)
-            for year_str in matches:
-                year = int(year_str)
-                if 2020 <= year <= 2030:
-                    year_cols[year] = col_idx
-    return year_cols
-
-
-def find_month_columns_in_df(df, max_cols=20):
-    """Find column indices for each month."""
-    month_cols = {}
-    for col_idx in range(1, min(max_cols, len(df.columns))):
-        for row_idx in range(min(10, len(df))):
-            cell = str(df.iloc[row_idx, col_idx]).strip().lower()
-            for i, month in enumerate(MONTHS):
-                if month.lower() in cell:
-                    month_cols[i] = col_idx
-            for i, month in enumerate(MONTHS_ABBR):
-                if month.lower() == cell[:3] and len(cell) <= 4:
-                    month_cols[i] = col_idx
-    if not month_cols:
-        for i in range(12):
-            if i + 1 < len(df.columns):
-                month_cols[i] = i + 1
-    return month_cols
-
-
-def read_all_pnl_sheets(pnl_file):
-    """Read ALL sheets from P&L file and return list of (sheet_name, DataFrame)."""
+def find_pnl_sheet_for_code(pnl_file, parking_code):
+    """
+    Find the P&L sheet for a specific parking code.
+    Each parking code has its own sheet named after the code (e.g., "CMO142").
+    """
     pnl_file.seek(0) if hasattr(pnl_file, 'seek') else None
     file_bytes = pnl_file.read() if hasattr(pnl_file, 'read') else None
     pnl_file.seek(0) if hasattr(pnl_file, 'seek') else None
     
     if file_bytes is None:
-        return []
+        return None, None
     
-    sheets = []
     try:
         xl = pd.ExcelFile(io.BytesIO(file_bytes), engine='openpyxl')
+        
+        # First try exact match
+        for sheet_name in xl.sheet_names:
+            if sheet_name.upper().strip() == parking_code.upper().strip():
+                df = pd.read_excel(xl, sheet_name=sheet_name, engine='openpyxl')
+                print(f"Found exact sheet match: '{sheet_name}'")
+                return df, sheet_name
+        
+        # Try partial match (parking code in sheet name)
+        for sheet_name in xl.sheet_names:
+            if parking_code.upper() in sheet_name.upper():
+                df = pd.read_excel(xl, sheet_name=sheet_name, engine='openpyxl')
+                print(f"Found partial sheet match: '{sheet_name}'")
+                return df, sheet_name
+        
+        # Try searching ALL sheets for the parking code in cells
         for sheet_name in xl.sheet_names:
             try:
                 df = pd.read_excel(xl, sheet_name=sheet_name, engine='openpyxl')
-                sheets.append((sheet_name, df))
+                for col_idx in range(min(5, len(df.columns))):
+                    for row_idx in range(min(20, len(df))):
+                        value = df.iloc[row_idx, col_idx]
+                        if pd.notna(value) and parking_code.upper() in str(value).upper():
+                            print(f"Found code in sheet '{sheet_name}' at row {row_idx}")
+                            return df, sheet_name
             except:
                 pass
+        
+        print(f"Could not find sheet for {parking_code}")
+        return None, None
+    
     except Exception as e:
         print(f"Error reading P&L: {e}")
-    
-    return sheets
+        return None, None
+
+
+def safe_float(value, default=0.0):
+    """Safely convert a value to float."""
+    try:
+        if pd.isna(value) or value is None:
+            return default
+        if isinstance(value, str):
+            value = value.replace('$', '').replace(',', '').replace(' ', '').replace('€', '').replace('(', '').replace(')', '')
+            if value.startswith('-'):
+                value = value[1:]
+                return -safe_float(value, default)
+        return float(value)
+    except (ValueError, TypeError):
+        return default
+
+
+def is_parking_code(value):
+    """Check if a value looks like a parking code (e.g., CMO142)."""
+    if pd.isna(value) or value is None:
+        return False
+    return bool(re.match(r'^[A-Z]{2,5}\d{2,6}$', str(value).strip().upper()))
 
 
 # ============================================================================
-# DATA EXTRACTION - Searches ALL sheets independently
+# DATA EXTRACTION FUNCTIONS
 # ============================================================================
 
 def extract_budget_initial_total(pnl_file, parking_code):
-    """Extract total for Budget Initial - searches ALL sheets."""
-    sheets = read_all_pnl_sheets(pnl_file)
+    """
+    Extract total for Budget Initial.
+    Looks in the parking code's sheet for a total value in the last numeric column.
+    """
+    df, sheet_name = find_pnl_sheet_for_code(pnl_file, parking_code)
+    if df is None:
+        return None
     
-    for sheet_name, df in sheets:
-        row = find_parking_row_in_df(df, parking_code)
-        if row is None:
-            continue
-        
-        print(f"Budget Initial: Found {parking_code} in sheet '{sheet_name}' at row {row}")
-        
-        # Get year columns
-        year_cols = find_year_columns(df)
-        if not year_cols:
-            # Use last numeric column
-            for col_idx in range(len(df.columns) - 1, 0, -1):
-                if pd.api.types.is_numeric_dtype(df.iloc[:, col_idx]):
-                    val = safe_float(df.iloc[row, col_idx])
+    print(f"Budget Initial: Using sheet '{sheet_name}'")
+    
+    # Find the row with the parking code label
+    code_row = None
+    for col_idx in range(min(5, len(df.columns))):
+        for row_idx in range(min(20, len(df))):
+            value = df.iloc[row_idx, col_idx]
+            if pd.notna(value) and parking_code.upper() in str(value).upper():
+                code_row = row_idx
+                break
+        if code_row is not None:
+            break
+    
+    if code_row is None:
+        # Try to find any row with data
+        for row_idx in range(len(df)):
+            for col_idx in range(min(5, len(df.columns))):
+                if pd.notna(df.iloc[row_idx, col_idx]):
+                    code_row = row_idx
+                    break
+            if code_row is not None:
+                break
+    
+    if code_row is None:
+        return None
+    
+    # Look for "Total" or "Grand Total" in Column A
+    total_value = None
+    for row_idx in range(len(df)):
+        if pd.notna(df.iloc[row_idx, 0]):
+            label = str(df.iloc[row_idx, 0]).strip().lower()
+            if 'total' in label or 'grand total' in label:
+                # Get value from the last numeric column
+                for col_idx in range(len(df.columns) - 1, 0, -1):
+                    val = safe_float(df.iloc[row_idx, col_idx])
                     if val > 0:
-                        return val
-            continue
-        
-        # Try to find a "Total" row near this parking
-        latest_year = max(year_cols.keys())
-        total_col = year_cols[latest_year]
-        
-        # First try the parking row itself
-        total = safe_float(df.iloc[row, total_col])
-        if total > 0:
-            return total
-        
-        # Search for "Total" label in rows below parking
-        for search_row in range(row, min(row + 100, len(df))):
-            if pd.notna(df.iloc[search_row, 0]):
-                label = str(df.iloc[search_row, 0]).strip().lower()
-                if any(word in label for word in ['total', 'grand total', 'sum']):
-                    val = safe_float(df.iloc[search_row, total_col])
-                    if val > 0:
-                        return val
-        
-        # Sum all numeric values in parking row
+                        total_value = val
+                        print(f"Found total at row {row_idx}: ${total_value:,.2f}")
+                        return total_value
+    
+    # Fallback: sum all values in Column B (since revenue data is in A-B columns)
+    if total_value is None:
         total = 0
-        for col_idx in range(1, len(df.columns)):
-            val = safe_float(df.iloc[row, col_idx])
-            total += abs(val)
+        for row_idx in range(len(df)):
+            val = safe_float(df.iloc[row_idx, 1])  # Column B
+            if val > 0:
+                total += val
         if total > 0:
+            print(f"Summed all values: ${total:,.2f}")
             return total
     
     return None
 
 
 def extract_revenue_categories(pnl_file, parking_code):
-    """Extract revenue categories - searches ALL sheets."""
-    sheets = read_all_pnl_sheets(pnl_file)
+    """
+    Extract revenue categories from the P&L sheet.
+    Data is in Column A (category name) and Column B (value).
+    """
+    df, sheet_name = find_pnl_sheet_for_code(pnl_file, parking_code)
+    if df is None:
+        return {}
     
-    for sheet_name, df in sheets:
-        row = find_parking_row_in_df(df, parking_code)
-        if row is None:
+    print(f"Revenue: Using sheet '{sheet_name}'")
+    print(f"Revenue: Sheet has {len(df)} rows, {len(df.columns)} columns")
+    
+    revenue_data = {}
+    
+    # Skip header rows and find where actual data starts
+    data_start = 0
+    for row_idx in range(len(df)):
+        col_a = str(df.iloc[row_idx, 0]).strip() if pd.notna(df.iloc[row_idx, 0]) else ""
+        col_b = safe_float(df.iloc[row_idx, 1])
+        
+        # Skip rows that are clearly headers
+        if col_a.lower() in ['code', 'profit & loss', 'profit and loss', '']:
             continue
         
-        print(f"Revenue: Found {parking_code} in sheet '{sheet_name}' at row {row}")
+        # Skip rows with dates or filters
+        if re.search(r'\d{2}-\d{2}-\d{2}', col_a):
+            continue
         
-        # Find year columns
-        year_cols = find_year_columns(df)
-        if not year_cols:
-            # Try last numeric column
-            for col_idx in range(len(df.columns) - 1, 0, -1):
-                if pd.api.types.is_numeric_dtype(df.iloc[:, col_idx]):
-                    revenue_col = col_idx
-                    break
-            else:
-                continue
-        else:
-            latest_year = max(year_cols.keys())
-            revenue_col = year_cols[latest_year]
-        
-        print(f"Revenue: Using column {revenue_col}")
-        
-        # Print ALL rows around this parking for debugging
-        print(f"Revenue: Data around row {row}:")
-        for debug_row in range(max(0, row - 2), min(row + 20, len(df))):
-            cat = str(df.iloc[debug_row, 0]).strip() if pd.notna(df.iloc[debug_row, 0]) else ""
-            val = safe_float(df.iloc[debug_row, revenue_col])
-            if cat or val > 0:
-                print(f"  Row {debug_row}: [{cat}] = ${val:,.2f}")
-        
-        # Extract categories from this parking's section
-        revenue_data = {}
-        for data_row in range(row + 1, min(row + 200, len(df))):
-            category = str(df.iloc[data_row, 0]).strip() if pd.notna(df.iloc[data_row, 0]) else ""
-            value = safe_float(df.iloc[data_row, revenue_col])
-            
-            # Stop conditions
-            if re.match(r'^[A-Z]{2,5}\d{2,6}$', category.upper()):
-                break
-            if not category and value == 0:
-                empty_count = 0
-                for check in range(data_row, min(data_row + 5, len(df))):
-                    c = str(df.iloc[check, 0]).strip() if pd.notna(df.iloc[check, 0]) else ""
-                    v = safe_float(df.iloc[check, revenue_col])
-                    if not c and v == 0:
-                        empty_count += 1
-                if empty_count >= 3:
-                    break
-            
-            if category and category.lower() not in ['total', 'grand total', 'sum', '']:
-                if value > 0:
-                    revenue_data[category] = value
-        
-        if revenue_data:
-            return revenue_data
+        if col_b > 0 and not is_parking_code(col_a):
+            data_start = row_idx
+            break
     
-    return {}
+    print(f"Revenue: Data starts at row {data_start}")
+    
+    # Extract all revenue categories
+    for row_idx in range(data_start, len(df)):
+        category = str(df.iloc[row_idx, 0]).strip() if pd.notna(df.iloc[row_idx, 0]) else ""
+        value = safe_float(df.iloc[row_idx, 1])
+        
+        # Stop conditions
+        if category.lower() in ['total', 'grand total']:
+            break
+        
+        if not category and value == 0:
+            # Check if next rows are also empty
+            all_empty = True
+            for check in range(row_idx, min(row_idx + 3, len(df))):
+                c = str(df.iloc[check, 0]).strip() if pd.notna(df.iloc[check, 0]) else ""
+                v = safe_float(df.iloc[check, 1])
+                if c or v > 0:
+                    all_empty = False
+                    break
+            if all_empty:
+                break
+            continue
+        
+        if category and value > 0 and not is_parking_code(category):
+            # Skip filter/header rows
+            if not re.search(r'\d{2}-\d{2}-\d{2}', category):
+                revenue_data[category] = value
+                print(f"  {category}: ${value:,.2f}")
+    
+    print(f"Revenue: Found {len(revenue_data)} categories")
+    return revenue_data
 
 
 def extract_monthly_data(pnl_file, parking_code):
-    """Extract monthly data - searches ALL sheets."""
-    sheets = read_all_pnl_sheets(pnl_file)
+    """
+    Extract monthly data from the P&L sheet.
+    Looks for rows with month names or month abbreviations in Column A,
+    with values in Column B.
+    """
+    df, sheet_name = find_pnl_sheet_for_code(pnl_file, parking_code)
+    if df is None:
+        return {}
     
-    for sheet_name, df in sheets:
-        row = find_parking_row_in_df(df, parking_code)
-        if row is None:
+    print(f"Monthly: Using sheet '{sheet_name}'")
+    
+    monthly_data = {}
+    
+    # Look for rows that contain month names
+    for row_idx in range(len(df)):
+        category = str(df.iloc[row_idx, 0]).strip() if pd.notna(df.iloc[row_idx, 0]) else ""
+        value = safe_float(df.iloc[row_idx, 1])
+        
+        if not category or value <= 0:
             continue
         
-        print(f"Monthly: Found {parking_code} in sheet '{sheet_name}' at row {row}")
+        # Check if this row contains a month reference
+        cat_lower = category.lower()
+        for i, month in enumerate(MONTHS):
+            if month.lower() in cat_lower:
+                monthly_data[MONTHS[i]] = value
+                print(f"  {MONTHS[i]}: ${value:,.2f}")
+                break
         
-        month_cols = find_month_columns_in_df(df)
-        
-        if len(month_cols) < 3:
-            # If month columns not found, try columns 1-12
-            for i in range(12):
-                if i + 1 < len(df.columns):
-                    month_cols[i] = i + 1
-        
-        # Debug: show what's in the month columns
-        print(f"Monthly: Using month columns: {month_cols}")
-        for month_idx, col_idx in month_cols.items():
-            if month_idx < len(MONTHS):
-                val = safe_float(df.iloc[row, col_idx])
-                if val > 0:
-                    print(f"  {MONTHS[month_idx]}: ${val:,.2f}")
-        
-        monthly_data = {}
-        for month_idx, col_idx in month_cols.items():
-            if month_idx < len(MONTHS) and col_idx < len(df.columns):
-                value = safe_float(df.iloc[row, col_idx])
-                if value > 0:
-                    monthly_data[MONTHS[month_idx]] = value
-        
-        if monthly_data:
-            return monthly_data
+        for i, month in enumerate(MONTHS_ABBR):
+            if month.lower() in cat_lower and len(cat_lower) <= 10:
+                monthly_data[MONTHS[i]] = value
+                print(f"  {MONTHS[i]}: ${value:,.2f}")
+                break
     
-    return {}
+    # If no month data found, try to split "Monthly" rows into 12 equal parts
+    if not monthly_data:
+        monthly_rows = []
+        for row_idx in range(len(df)):
+            category = str(df.iloc[row_idx, 0]).strip() if pd.notna(df.iloc[row_idx, 0]) else ""
+            value = safe_float(df.iloc[row_idx, 1])
+            if 'monthly' in category.lower() and value > 0:
+                monthly_rows.append((category, value))
+        
+        if monthly_rows:
+            # Take the first monthly total and divide by 12
+            for cat, val in monthly_rows[:1]:
+                monthly_value = val / 12
+                for month in MONTHS:
+                    monthly_data[month] = monthly_value
+                print(f"  Divided '{cat}' (${val:,.2f}) into 12 months of ${monthly_value:,.2f}")
+                break
+    
+    print(f"Monthly: Found {len(monthly_data)} months")
+    return monthly_data
 
 
 # ============================================================================
@@ -426,8 +430,21 @@ def update_donnees_historiques(wb, pnl_file, parking_code):
 # ============================================================================
 
 def fix_excel(excel_file, pnl_file, parking_code=None, word_data=None):
+    """
+    Main function to process the Excel template with P&L data.
+    
+    Args:
+        excel_file: Uploaded Excel template (file-like object)
+        pnl_file: Uploaded P&L file (file-like object) 
+        parking_code: Parking code to process (extracted from filename if None)
+        word_data: Optional dict with data for Fiche Stationnement H-M rows
+    
+    Returns:
+        (BytesIO with updated Excel, list of update messages)
+    """
     updates = []
     
+    # Extract parking code from filename if not provided
     if not parking_code and hasattr(excel_file, 'name'):
         parking_code = extract_parking_code_from_filename(excel_file.name)
     
@@ -436,6 +453,7 @@ def fix_excel(excel_file, pnl_file, parking_code=None, word_data=None):
     
     updates.append(f"🔍 Processing: {parking_code}")
     
+    # Read the Excel template
     try:
         wb = load_workbook(io.BytesIO(excel_file.read()))
         excel_file.seek(0) if hasattr(excel_file, 'seek') else None
@@ -444,24 +462,20 @@ def fix_excel(excel_file, pnl_file, parking_code=None, word_data=None):
     
     updates.append(f"📋 Template has {len(wb.sheetnames)} sheets")
     
-    # Check what's in the P&L file
-    sheets = read_all_pnl_sheets(pnl_file)
-    updates.append(f"📊 P&L file has {len(sheets)} sheets")
-    
-    all_codes = []
-    for s_name, s_df in sheets:
-        codes = find_all_parking_codes_in_df(s_df)
-        all_codes.extend(codes)
-    all_codes = list(set(all_codes))
-    updates.append(f"🏷️ P&L codes: {', '.join(all_codes[:15])}")
-    
-    # Process sheets
+    # Process each sheet
     updates.extend(update_budget_initial(wb, pnl_file, parking_code))
     updates.extend(update_fiche_stationnement(wb, pnl_file, parking_code, word_data))
     updates.extend(update_donnees_historiques(wb, pnl_file, parking_code))
     
+    # Count successes
+    success_count = sum(1 for u in updates if u.startswith("✅"))
+    if success_count == 0:
+        updates.append("💡 No updates were made. Check if the parking code exists in the P&L file.")
+    
+    # Reset P&L file pointer
     pnl_file.seek(0) if hasattr(pnl_file, 'seek') else None
     
+    # Save to BytesIO
     output = io.BytesIO()
     wb.save(output)
     output.seek(0)
