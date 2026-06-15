@@ -25,7 +25,7 @@ SHEET_PATTERNS = {
 }
 
 # ============================================================================
-# VERIFIED ROW MAPPING
+# VERIFIED ROW MAPPING: Donnees Historiques row -> P&L labels
 # ============================================================================
 DH_ROW_MAPPING = {
     12: ["Transient Revenue", "transient revenue"],
@@ -89,7 +89,7 @@ FICHE_STATIONNEMENT_MAP = [
 ]
 
 # ============================================================================
-# FILE TYPE HANDLERS
+# FILE TYPE HANDLERS - Accept ANY format
 # ============================================================================
 
 def is_excel_file(file_bytes_or_obj):
@@ -298,6 +298,39 @@ def extract_parking_code_from_filename(filename):
     parts = name.replace('(', ' ').replace(')', ' ').split('_')[0].split()[0]
     return parts.upper()
 
+def get_parking_codes_from_pnl(pnl_file):
+    """
+    Extract all parking codes from a P&L file.
+    Returns a list of parking codes found in sheet names.
+    """
+    sheets_dict, file_type = read_any_file_to_dataframes(pnl_file)
+    if sheets_dict is None:
+        return []
+    
+    codes = []
+    for sheet_name in sheets_dict.keys():
+        # Look for CMO codes
+        match = re.search(r'(CMO\d+)', sheet_name, re.IGNORECASE)
+        if match:
+            codes.append(match.group(1).upper())
+        # Also check for LUNA
+        if 'LUNA' in sheet_name.upper():
+            codes.append('LUNA')
+        # Any other uppercase codes
+        if sheet_name.upper().strip() not in [c.upper() for c in codes]:
+            if re.match(r'^[A-Z0-9]{3,10}$', sheet_name.strip()):
+                codes.append(sheet_name.strip().upper())
+    
+    # Remove duplicates, keep order
+    seen = set()
+    unique_codes = []
+    for code in codes:
+        if code not in seen:
+            seen.add(code)
+            unique_codes.append(code)
+    
+    return unique_codes
+
 def find_sheet_by_pattern(wb, patterns):
     for sheet_name in wb.sheetnames:
         sheet_lower = sheet_name.lower().replace('.', ' ').replace('-', ' ').replace('_', ' ')
@@ -398,7 +431,7 @@ def read_year_mapping_from_template(wb):
     return year_map
 
 # ============================================================================
-# P&L DATA EXTRACTION
+# P&L DATA EXTRACTION - Works with ANY file format
 # ============================================================================
 
 def extract_pnl_data_from_dataframe(df, sheet_name_hint=None):
@@ -603,7 +636,7 @@ def update_fiche_stationnement(wb, year_minus_2_data, parking_code, word_data=No
             return ["❌ Fiche Stationnement: Sheet not found"]
         ws = wb[sheet_name]
         if year_minus_2_data is None:
-            updates.append("⚠️ Fiche Stationnement: No data available")
+            updates.append("⚠️ Fiche Stationnement: Skipped - P&L from 2 years ago not uploaded")
             return updates
         for pnl_label, cell in FICHE_STATIONNEMENT_MAP:
             yearly_value = find_pnl_value(year_minus_2_data, [pnl_label])
@@ -694,16 +727,28 @@ def fix_excel(
     parking_code=None,
     word_data=None
 ):
+    """
+    Main function to process the Excel template with P&L data from MULTIPLE years.
+    
+    Year Usage per Sheet:
+        - Budget Initial: Previous year total (year - 1)
+        - Fiche Stationnement: 2 years ago data (year - 2) - ONLY if uploaded
+        - Donnees Historiques: Jan-Apr = current year, May-Dec = previous year
+    
+    If parking_code is None, it will be extracted from the template filename.
+    """
     updates = []
     
+    # ── Extract parking code ────────────────────────────────────────────
     if not parking_code and hasattr(excel_file, 'name'):
         parking_code = extract_parking_code_from_filename(excel_file.name)
     
     if not parking_code:
-        return None, ["❌ Could not determine parking code from filename"]
+        return None, ["❌ Could not determine parking code. Please select a parking code."]
     
     updates.append(f"🔍 Processing: {parking_code}")
     
+    # ── Detect years from uploaded files ────────────────────────────────
     current_year_name = "?"
     previous_year_name = "?"
     two_years_ago_name = "?"
@@ -729,6 +774,7 @@ def fix_excel(
         f"2YA={two_years_ago_name}"
     )
     
+    # ── Extract data from P&L files (any format!) ───────────────────────
     current_year_data, current_file_type = extract_pnl_data(pnl_current_year, parking_code)
     previous_year_data, prev_file_type = (None, None)
     two_years_ago_data, two_ya_file_type = (None, None)
@@ -754,6 +800,7 @@ def fix_excel(
         keys = list(two_years_ago_data['yearly'].keys())[:10]
         updates.append(f"📊 2YA keys ({two_ya_file_type}): {keys}")
     
+    # ── Read template ───────────────────────────────────────────────────
     try:
         excel_file.seek(0) if hasattr(excel_file, 'seek') else None
         file_bytes = excel_file.read()
@@ -763,8 +810,10 @@ def fix_excel(
     except Exception as e:
         return None, [f"❌ Error reading template: {str(e)}"]
     
+    # ── Read year mapping from Donnees Historiques ──────────────────────
     year_map = read_year_mapping_from_template(wb_read)
     
+    # ── Merge monthly data based on year mapping ────────────────────────
     merged_monthly = {}
     if year_map and current_year_data and previous_year_data:
         merged_monthly = merge_monthly_data(current_year_data, previous_year_data, year_map)
@@ -772,26 +821,31 @@ def fix_excel(
     if not merged_monthly and current_year_data:
         merged_monthly = current_year_data['monthly']
     
+    # ── Determine which data to use for each sheet ──────────────────────
+    # Budget Initial = previous year (year - 1)
     budget_initial_data = previous_year_data if previous_year_data else current_year_data
     
-    fiche_data = two_years_ago_data
-    if fiche_data is None:
-        fiche_data = previous_year_data
-    if fiche_data is None:
-        fiche_data = current_year_data
+    # Fiche Stationnement = 2 years ago (year - 2) - ONLY if uploaded
+    fiche_data = None
+    if pnl_two_years_ago and two_years_ago_data:
+        fiche_data = two_years_ago_data
     
+    # Donnees Historiques = merged (current + previous)
     dh_data = merged_monthly if merged_monthly else {}
     if not dh_data and current_year_data:
         dh_data = current_year_data['monthly']
     
+    # ── Update all sheets ───────────────────────────────────────────────
     updates.extend(update_budget_initial(wb_write, budget_initial_data, parking_code))
     updates.extend(update_fiche_stationnement(wb_write, fiche_data, parking_code, word_data))
     updates.extend(update_donnees_historiques(wb_write, dh_data, parking_code))
     
+    # ── Summary ─────────────────────────────────────────────────────────
     success_count = sum(1 for u in updates if u.startswith("✅"))
     if success_count == 0:
         updates.append("💡 No updates were made.")
     
+    # ── Reset file pointers ─────────────────────────────────────────────
     if hasattr(pnl_current_year, 'seek'):
         pnl_current_year.seek(0)
     if pnl_previous_year and hasattr(pnl_previous_year, 'seek'):
@@ -799,6 +853,7 @@ def fix_excel(
     if pnl_two_years_ago and hasattr(pnl_two_years_ago, 'seek'):
         pnl_two_years_ago.seek(0)
     
+    # ── Save output ─────────────────────────────────────────────────────
     output = io.BytesIO()
     wb_write.save(output)
     output.seek(0)
