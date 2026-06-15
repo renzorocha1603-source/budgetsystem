@@ -154,26 +154,32 @@ def clean_text_for_speech(text):
     clean = re.sub(r'\s+', ' ', clean)
     return clean.strip()
 
-def text_to_speech(text):
+def text_to_speech(text, lang="en"):
     """Convert Allison's text response to speech using Deepgram TTS"""
     try:
         clean_text = clean_text_for_speech(text)
-
+        
         deepgram = DeepgramClient(DEEPGRAM_API_KEY)
-
+        
+        # Choose voice based on language
+        if lang == "fr":
+            voice_model = "aura-asteria-fr"
+        else:
+            voice_model = "aura-asteria-en"
+        
         options = {
-            "model": "aura-asteria-en",
+            "model": voice_model,
         }
-
+        
         response = deepgram.speak.v("1").save(
             "allison_audio.mp3",
             {"text": clean_text},
             options
         )
-
+        
         with open("allison_audio.mp3", "rb") as f:
             audio_bytes = f.read()
-
+        
         audio_b64 = base64.b64encode(audio_bytes).decode()
         return audio_b64
     except Exception as e:
@@ -1437,9 +1443,9 @@ if st.session_state.thinking:
         # Save chat history after each response
         save_chat_history(st.session_state.messages)
 
-        # ONLY generate TTS if the message came from voice
+        # ONLY generate TTS if the message came from voice - use current language
         if st.session_state.thinking_from_voice:
-            audio_b64 = text_to_speech(reply)
+            audio_b64 = text_to_speech(reply, st.session_state.lang)
             st.session_state.last_audio = audio_b64
         else:
             st.session_state.last_audio = None
