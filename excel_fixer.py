@@ -30,38 +30,46 @@ SHEET_PATTERNS = {
 }
 
 # ============================================================================
-# HARDCODED ROW MAPPING: Donnees Historiques row -> P&L labels to try
+# HARDCODED ROW MAPPING: Donnees Historiques row -> P&L labels
 # ============================================================================
-# ADJUST THESE ROW NUMBERS TO MATCH YOUR TEMPLATE
-# Row 1 = header formula, Row 8 = month names, Row 9 = years
+# Based on verified template structure:
+# Row 8 = month names (Janvier, Février...)
+# Row 9 = years (2026, 2026, 2026, 2026, 2025, 2025...)
 # Data rows start at Row 10
+#
+# EACH ENTRY: row_number -> [list of P&L labels to try, IN ORDER]
+# The code tries each label and stops at the first match with non-zero data.
 
 DH_ROW_TO_PNL = {
+    # =========================================================================
     # REVENUS section
-    10: ["Transient Revenue", "transient revenue", "revenus horaires"],
-    11: ["Monthly Revenues", "monthly revenues", "revenus mensuels"],
+    # =========================================================================
+    10: ["Transient Revenue", "transient revenue"],
+    11: ["Monthly Revenues", "monthly revenues"],
     12: ["Car-Wash Revenue", "car-wash revenue", "lave-auto", "car wash"],
     13: ["Hotel Revenue", "hotel revenue", "revenus hotel", "revenus hôtel"],
     14: ["Interests", "interests", "intérêts", "interets", "interest"],
     15: ["Miscellaneous", "miscellaneous", "autres revenus", "misc", "divers"],
-    # Row 16 = Total revenus Bruts (formula - skip)
-    17: ["Discount-Gratuities - Transient", "gratuities", "gratuités", "gratuites", "discount transient"],
+    # Row 16 = Total revenus Bruts (FORMULA - skip)
+    17: ["Discount-Gratuities - Transient", "gratuities transient"],
     # Row 18 = empty
-    19: ["Discount-Gratuities - Monthly", "rabais", "discount monthly", "escomptes"],
+    19: ["Discount-Gratuities - Monthly", "rabais", "discount monthly"],
     # Row 20-21 = Autres revenus / empty
-    # Row 22 = TOTAL REVENUS (formula - skip)
+    # Row 22 = TOTAL REVENUS (FORMULA - skip)
     # Row 23-25 = empty/headers
     
+    # =========================================================================
     # DÉPENSES section
-    26: ["Parking wages", "parking wages", "salaire stationnement", "salaires stationnement"],
-    27: ["Other wages", "other wages", "salaire superviseur", "supervisor wages", "superviseur"],
-    28: ["Training & Recr.", "training", "formation", "recrutement", "formation & recrutement"],
+    # =========================================================================
+    26: ["Parking wages", "parking wages", "salaire stationnement"],
+    27: ["Other wages", "other wages", "salaire superviseur", "supervisor"],
+    28: ["Training & Recr.", "training", "formation", "recrutement"],
     29: ["Uniforms", "uniforms", "uniformes"],
-    # Row 30 = Total Frais de personnel (formula - skip)
+    # Row 30 = Total Frais de personnel (FORMULA - skip)
     # Row 31 = empty
     
     32: ["R&M - Cleaning", "cleaning", "nettoyage stationnement", "nettoyage"],
-    33: ["R&M - General", "maintenance", "entretien stationnement", "general maintenance"],
+    33: ["R&M - General", "maintenance", "entretien stationnement"],
     34: ["R&M - Equipement", "equipment", "entretien équipement", "entretien equipement", "équipement"],
     35: ["R&M - Signs", "signs", "signalisation", "signage"],
     36: ["R&M - Lines", "lines", "lignage", "line painting"],
@@ -69,11 +77,11 @@ DH_ROW_TO_PNL = {
     38: ["Parking supplies", "parking supplies", "fournitures stationnement", "fournitures"],
     39: ["Misc. Re-Billing", "re-billing", "refacturations diverses", "refacturations", "rebilling"],
     40: ["R&M - General", "amenagement", "aménagement stationnement", "aménagement"],
-    # Row 41 = Total Entretien (formula - skip)
+    # Row 41 = Total Entretien - réparations (FORMULA - skip)
     # Row 42 = empty
     
     43: ["Public services", "public services", "services publics", "utilities"],
-    # Row 44 = Total Services Publics (formula - skip)
+    # Row 44 = Total Services Publics (FORMULA - skip)
     # Row 45 = empty
     
     46: ["Office expenses", "office expenses", "fournitures de bureau", "fournitures bureau"],
@@ -89,10 +97,10 @@ DH_ROW_TO_PNL = {
     56: ["Professional services", "accounting", "comptabilité", "comptabilite", "professional services"],
     57: ["Equipment rent", "equipment rent", "location d'équipement", "location d'equipement", "location équipement"],
     58: ["Ad. & Promotion", "advertising", "publicité et promotion", "publicite et promotion", "promotion"],
-    59: ["Percent Management fee", "management fee", "honoraires de gestion en pourcentage", "honoraires de gestion en %", "% management"],
+    59: ["Percent Management fee", "management fee", "honoraires de gestion en pourcentage", "honoraires de gestion en %"],
     60: ["Management Fees (Basic)", "management fees basic", "honoraires de gestion de base", "honoraires de base"],
     61: ["Incentives", "incentives", "incitatif annuel", "incitatif", "incentive"],
-    # Row 62 = Total Frais Généraux (formula - skip)
+    # Row 62 = Total Frais Généraux (FORMULA - skip)
     # Row 63 = empty
     
     64: ["Depreciation", "depreciation", "amortissement"],
@@ -105,11 +113,11 @@ DH_ROW_TO_PNL = {
     71: ["Dues & Subscription", "dues", "cotisations", "subscription"],
     72: ["Meal & Entertainment", "meal", "représentation repas", "representation repas", "repas", "entertainment"],
     73: ["Miscellaneous", "misc", "autres dépenses", "autres depenses"],
-    # Row 74 = Total Autres dépenses (formula - skip)
+    # Row 74 = Total Autres dépenses (FORMULA - skip)
     # Row 75-76 = empty
-    # Row 77 = TOTAL DÉPENSES (formula - skip)
+    # Row 77 = TOTAL DÉPENSES (FORMULA - skip)
     # Row 78 = empty
-    # Row 79 = REVENUS NETS (formula - skip)
+    # Row 79 = REVENUS NETS (FORMULA - skip)
 }
 
 FICHE_STATIONNEMENT_MAP = [
@@ -546,9 +554,18 @@ def find_pnl_value(pnl_data, label_alternatives):
     return 0
 
 def find_monthly_pnl_value(monthly_data, label_alternatives):
+    """
+    Search through P&L monthly data for a matching label.
+    IMPORTANT: Only returns data if the match is EXACT or VERY CLOSE.
+    Prevents "Transient Revenue" from matching "Monthly Revenues" etc.
+    Returns the monthly values dict or empty dict.
+    """
     if not monthly_data:
         return {}
+    
     clean_alts = [clean_text_for_matching(alt) for alt in label_alternatives]
+    
+    # FIRST PASS: Try exact match only (both directions)
     for alt_clean in clean_alts:
         if not alt_clean or len(alt_clean) < 3:
             continue
@@ -556,13 +573,20 @@ def find_monthly_pnl_value(monthly_data, label_alternatives):
             key_clean = clean_text_for_matching(key)
             if alt_clean == key_clean:
                 return monthly_data[key]
+    
+    # SECOND PASS: Try partial match but require significant overlap
     for alt_clean in clean_alts:
         if not alt_clean or len(alt_clean) < 3:
             continue
         for key in monthly_data:
             key_clean = clean_text_for_matching(key)
+            # Only match if one contains the other AND the shorter is at least 60% of the longer
             if alt_clean in key_clean or key_clean in alt_clean:
-                return monthly_data[key]
+                shorter = min(len(alt_clean), len(key_clean))
+                longer = max(len(alt_clean), len(key_clean))
+                if shorter >= 5 and (shorter / longer) >= 0.5:
+                    return monthly_data[key]
+    
     return {}
 
 def merge_monthly_data(current_year_data, previous_year_data, year_map):
@@ -660,6 +684,9 @@ def update_donnees_historiques(wb, merged_monthly_data, parking_code):
     SIMPLE APPROACH: Hardcoded row numbers for each label.
     Write P&L monthly data to columns B-M on those rows.
     Formulas handle totals automatically.
+    
+    IMPORTANT: Uses find_monthly_pnl_value with strict matching to prevent
+    wrong label matches (e.g., "Transient" matching "Monthly").
     """
     updates = []
     try:
@@ -686,22 +713,8 @@ def update_donnees_historiques(wb, merged_monthly_data, parking_code):
         rows_filled = []
         
         for dh_row, pnl_labels in DH_ROW_TO_PNL.items():
-            # Find matching monthly data in P&L
-            monthly_values = None
-            matched_key = None
-            
-            for pnl_label in pnl_labels:
-                clean_label = clean_text_for_matching(pnl_label)
-                if not clean_label or len(clean_label) < 3:
-                    continue
-                for key in merged_monthly_data:
-                    key_clean = clean_text_for_matching(key)
-                    if clean_label in key_clean or key_clean in clean_label:
-                        monthly_values = merged_monthly_data[key]
-                        matched_key = key
-                        break
-                if monthly_values:
-                    break
+            # Find matching monthly data in P&L using strict matching
+            monthly_values = find_monthly_pnl_value(merged_monthly_data, pnl_labels)
             
             if not monthly_values:
                 continue
@@ -724,7 +737,14 @@ def update_donnees_historiques(wb, merged_monthly_data, parking_code):
                         row_cells += 1
             
             if row_cells > 0:
-                rows_filled.append(f"  Row {dh_row}: {matched_key} ({row_cells} months)")
+                # Find which label matched for logging
+                matched_label = "unknown"
+                for lbl in pnl_labels:
+                    test = find_monthly_pnl_value(merged_monthly_data, [lbl])
+                    if test and test == monthly_values:
+                        matched_label = lbl
+                        break
+                rows_filled.append(f"  Row {dh_row}: {matched_label} ({row_cells} months)")
         
         if cells_updated > 0:
             updates.append(f"✅ Donnees Historiques: {cells_updated} cells updated in {len(rows_filled)} rows")
