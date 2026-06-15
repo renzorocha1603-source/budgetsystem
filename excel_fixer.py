@@ -27,88 +27,89 @@ SHEET_PATTERNS = {
     "Budget Initial": ["budget initial", "budget"],
     "Fiche Stationnement": ["fiche stationnement", "fiche de stationnement", "stationnement", "1. fiche"],
     "Donnees Historiques": ["donnees historiques", "données historiques", "historiques", "historique", "2. donnees", "2. données"],
-    "Actualisation": ["actualisation", "5-actualisation", "5 actualisation"],
 }
 
 # ============================================================================
-# MAPPING: Template French labels -> P&L English labels
+# HARDCODED ROW MAPPING: Donnees Historiques row -> P&L labels to try
 # ============================================================================
-# Based on the 5-Actualisation sheet structure
+# These row numbers match the template structure you provided.
+# The rows have French labels like "Revenus horaires", "Salaire Stationnement", etc.
+# We map each row to the corresponding P&L English label(s).
 
-TEMPLATE_LABEL_TO_PNL = {
+DH_ROW_TO_PNL = {
     # REVENUS section
-    "revenus horaires": ["Transient Revenue", "transient revenue", "revenus horaires"],
-    "revenus mensuels": ["Monthly Revenues", "monthly revenues", "revenus mensuels"],
-    "revenus lave-auto": ["Car-Wash Revenue", "car-wash revenue", "lave-auto", "car wash"],
-    "revenus lave auto": ["Car-Wash Revenue", "car-wash revenue", "lave-auto", "car wash"],
-    "revenus hôtel": ["Hotel Revenue", "hotel revenue", "revenus hotel", "hôtel"],
-    "revenus hotel": ["Hotel Revenue", "hotel revenue", "revenus hotel", "hôtel"],
-    "revenus d'intérêts": ["Interests", "interests", "intérêts", "interets"],
-    "revenus d'interets": ["Interests", "interests", "intérêts", "interets"],
-    "autres revenus": ["Miscellaneous", "miscellaneous", "autres revenus", "misc"],
-    "total revenus bruts": ["Parking Revenue", "parking revenue", "total revenus bruts"],
-    "gratuités": ["Discount-Gratuities - Transient", "gratuities", "gratuités", "gratuites"],
-    "gratuites": ["Discount-Gratuities - Transient", "gratuities", "gratuités", "gratuites"],
-    "rabais": ["Discount-Gratuities - Monthly", "rabais", "discount monthly"],
-    "total revenus": ["TOTAL REVENUE", "total revenue", "total revenus"],
+    11: ["Transient Revenue", "transient revenue", "revenus horaires"],
+    12: ["Monthly Revenues", "monthly revenues", "revenus mensuels"],
+    13: ["Car-Wash Revenue", "car-wash revenue", "lave-auto", "car wash"],
+    14: ["Hotel Revenue", "hotel revenue", "revenus hotel", "revenus hôtel"],
+    15: ["Interests", "interests", "intérêts", "interets", "interest"],
+    16: ["Miscellaneous", "miscellaneous", "autres revenus", "misc", "divers"],
+    # Row 17 = Total revenus Bruts (formula - skip)
+    18: ["Discount-Gratuities - Transient", "gratuities", "gratuités", "gratuites", "discount transient"],
+    # Row 19 = empty
+    20: ["Discount-Gratuities - Monthly", "rabais", "discount monthly", "escomptes"],
+    # Row 21-22 = Autres revenus / empty
+    # Row 23 = TOTAL REVENUS (formula - skip)
+    # Row 24-25 = empty/headers
+    
     # DÉPENSES section
-    "salaire stationnement": ["Parking wages", "parking wages", "salaire stationnement"],
-    "salaire superviseur": ["Other wages", "other wages", "salaire superviseur", "supervisor"],
-    "formation & recrutement": ["Training & Recr.", "training", "formation", "recrutement"],
-    "formation et recrutement": ["Training & Recr.", "training", "formation", "recrutement"],
-    "uniformes": ["Uniforms", "uniforms", "uniformes"],
-    "total frais de personnel": ["Total Operation expenses", "total frais de personnel"],
-    "nettoyage stationnement": ["R&M - Cleaning", "cleaning", "nettoyage"],
-    "entretien stationnement": ["R&M - General", "entretien stationnement", "maintenance"],
-    "entretien équipement": ["R&M - Equipement", "equipment", "entretien equipement", "équipement"],
-    "entretien equipement": ["R&M - Equipement", "equipment", "entretien equipement", "équipement"],
-    "signalisation": ["R&M - Signs", "signs", "signalisation", "signage"],
-    "lignage": ["R&M - Lines", "lines", "lignage", "line painting"],
-    "déneigement": ["Snow Removal", "snow removal", "deneigement", "snow"],
-    "deneigement": ["Snow Removal", "snow removal", "deneigement", "snow"],
-    "fournitures stationnement": ["Parking supplies", "parking supplies", "fournitures"],
-    "refacturations diverses": ["Misc. Re-Billing", "re-billing", "refacturations", "rebilling"],
-    "aménagement stationnement": ["R&M - General", "amenagement", "aménagement"],
-    "amenagement stationnement": ["R&M - General", "amenagement", "aménagement"],
-    "services publics": ["Public services", "public services", "utilities", "services publics"],
-    "fournitures de bureau": ["Office expenses", "office expenses", "fournitures bureau"],
-    "telecommunications": ["Telecommunication", "telecommunication", "telecom", "télécommunications"],
-    "télécommunications": ["Telecommunication", "telecommunication", "telecom", "télécommunications"],
-    "loyer": ["Rent", "rent", "loyer"],
-    "frais de déplacement": ["Travel expenses", "travel", "déplacement", "deplacement"],
-    "frais de deplacement": ["Travel expenses", "travel", "déplacement", "deplacement"],
-    "frais de cartes de crédit": ["Credit Card fees", "credit card", "cartes de credit", "cartes de crédit"],
-    "frais de cartes de credit": ["Credit Card fees", "credit card", "cartes de credit", "cartes de crédit"],
-    "intérêts et frais de banque": ["Bank fees", "bank fees", "intérêts", "interets", "banque"],
-    "interets et frais de banque": ["Bank fees", "bank fees", "intérêts", "interets", "banque"],
-    "transport de fonds": ["Cash transportation fees", "cash transportation", "transport fonds"],
-    "réclamations": ["Claims", "claims", "reclamations", "réclamations"],
-    "reclamations": ["Claims", "claims", "reclamations", "réclamations"],
-    "assurances et cautionnement": ["Insurance & Guarantee", "insurance", "assurance", "cautionnement"],
-    "taxes et permis": ["Tax & license", "tax", "taxes", "permis", "license"],
-    "comptabilité": ["Professional services", "accounting", "comptabilite", "comptabilité"],
-    "comptabilite": ["Professional services", "accounting", "comptabilite", "comptabilité"],
-    "location d'équipement": ["Equipment rent", "equipment rent", "location equipement", "location d'équipement"],
-    "location d'equipement": ["Equipment rent", "equipment rent", "location equipement", "location d'équipement"],
-    "publicité et promotion": ["Ad. & Promotion", "advertising", "promotion", "publicité", "publicite"],
-    "publicite et promotion": ["Ad. & Promotion", "advertising", "promotion", "publicité", "publicite"],
-    "honoraires de gestion en pourcentage": ["Percent Management fee", "management fee", "honoraires de gestion en %"],
-    "honoraires de gestion de base": ["Management Fees (Basic)", "management fees basic", "honoraires de base"],
-    "incitatif annuel": ["Incentives", "incentives", "incitatif", "incentive"],
-    "amortissement": ["Depreciation", "depreciation", "amortissement"],
-    "intérêts sur emprunts": ["Financial fees", "interest", "emprunts"],
-    "interets sur emprunts": ["Financial fees", "interest", "emprunts"],
-    "sécurité": ["Security", "security", "securite", "sécurité"],
-    "securite": ["Security", "security", "securite", "sécurité"],
-    "frais de copropriété": ["Co-ownership expenses", "co-ownership", "copropriete", "copropriété"],
-    "frais de copropriete": ["Co-ownership expenses", "co-ownership", "copropriete", "copropriété"],
-    "frais de navettes": ["Shuttle expenses", "shuttle", "navettes"],
-    "services informatiques": ["Computer services", "computer", "informatiques"],
-    "mauvaises créances": ["Bad debts", "bad debts", "créances", "creances"],
-    "mauvaises creances": ["Bad debts", "bad debts", "créances", "creances"],
-    "cotisations": ["Dues & Subscription", "dues", "subscription", "cotisations"],
-    "représentation repas": ["Meal & Entertainment", "meal", "repas", "representation", "représentation"],
-    "representation repas": ["Meal & Entertainment", "meal", "repas", "representation", "représentation"],
+    27: ["Parking wages", "parking wages", "salaire stationnement", "salaires stationnement"],
+    28: ["Other wages", "other wages", "salaire superviseur", "supervisor wages", "superviseur"],
+    29: ["Training & Recr.", "training", "formation", "recrutement", "formation & recrutement"],
+    30: ["Uniforms", "uniforms", "uniformes"],
+    # Row 31 = Total Frais de personnel (formula - skip)
+    # Row 32 = empty
+    
+    33: ["R&M - Cleaning", "cleaning", "nettoyage stationnement", "nettoyage"],
+    34: ["R&M - General", "maintenance", "entretien stationnement", "general maintenance"],
+    35: ["R&M - Equipement", "equipment", "entretien équipement", "entretien equipement", "équipement"],
+    36: ["R&M - Signs", "signs", "signalisation", "signage"],
+    37: ["R&M - Lines", "lines", "lignage", "line painting"],
+    38: ["Snow Removal", "snow removal", "déneigement", "deneigement", "snow"],
+    39: ["Parking supplies", "parking supplies", "fournitures stationnement", "fournitures"],
+    40: ["Misc. Re-Billing", "re-billing", "refacturations diverses", "refacturations", "rebilling"],
+    41: ["R&M - General", "amenagement", "aménagement stationnement", "aménagement"],
+    # Row 42 = Total Entretien (formula - skip)
+    # Row 43 = empty
+    
+    44: ["Public services", "public services", "services publics", "utilities"],
+    # Row 45 = Total Services Publics (formula - skip)
+    # Row 46 = empty
+    
+    47: ["Office expenses", "office expenses", "fournitures de bureau", "fournitures bureau"],
+    48: ["Telecommunication", "telecommunication", "telecommunications", "télécommunications", "telecom"],
+    49: ["Rent", "rent", "loyer"],
+    50: ["Travel expenses", "travel", "frais de déplacement", "frais de deplacement", "déplacement"],
+    51: ["Credit Card fees", "credit card", "frais de cartes de crédit", "frais de cartes de credit", "cartes de crédit"],
+    52: ["Bank fees", "bank fees", "intérêts et frais de banque", "interets et frais de banque", "frais de banque"],
+    53: ["Cash transportation fees", "cash transportation", "transport de fonds", "transport fonds"],
+    54: ["Claims", "claims", "réclamations", "reclamations"],
+    55: ["Insurance & Guarantee", "insurance", "assurances et cautionnement", "assurance", "cautionnement"],
+    56: ["Tax & license", "tax", "taxes et permis", "taxes", "permis", "license"],
+    57: ["Professional services", "accounting", "comptabilité", "comptabilite", "professional services"],
+    58: ["Equipment rent", "equipment rent", "location d'équipement", "location d'equipement", "location équipement"],
+    59: ["Ad. & Promotion", "advertising", "publicité et promotion", "publicite et promotion", "promotion"],
+    60: ["Percent Management fee", "management fee", "honoraires de gestion en pourcentage", "honoraires de gestion en %", "% management"],
+    61: ["Management Fees (Basic)", "management fees basic", "honoraires de gestion de base", "honoraires de base"],
+    62: ["Incentives", "incentives", "incitatif annuel", "incitatif", "incentive"],
+    # Row 63 = Total Frais Généraux (formula - skip)
+    # Row 64 = empty
+    
+    65: ["Depreciation", "depreciation", "amortissement"],
+    66: ["Financial fees", "interest", "intérêts sur emprunts", "interets sur emprunts", "emprunts"],
+    67: ["Security", "security", "sécurité", "securite"],
+    68: ["Co-ownership expenses", "co-ownership", "frais de copropriété", "frais de copropriete", "copropriété"],
+    69: ["Shuttle expenses", "shuttle", "frais de navettes", "navettes"],
+    70: ["Computer services", "computer", "services informatiques", "informatiques"],
+    71: ["Bad debts", "bad debts", "mauvaises créances", "mauvaises creances", "créances"],
+    72: ["Dues & Subscription", "dues", "cotisations", "subscription"],
+    73: ["Meal & Entertainment", "meal", "représentation repas", "representation repas", "repas", "entertainment"],
+    74: ["Miscellaneous", "misc", "autres dépenses", "autres depenses"],
+    # Row 75 = Total Autres dépenses (formula - skip)
+    # Row 76 = empty
+    # Row 77 = TOTAL DÉPENSES (formula - skip)
+    # Row 78 = empty
+    # Row 79 = REVENUS NETS (formula - skip)
 }
 
 FICHE_STATIONNEMENT_MAP = [
@@ -123,7 +124,7 @@ FICHE_STATIONNEMENT_MAP = [
 ]
 
 # ============================================================================
-# FILE TYPE HANDLERS
+# FILE TYPE HANDLERS - Accept ANY format
 # ============================================================================
 
 def is_excel_file(file_bytes_or_obj):
@@ -399,10 +400,6 @@ def clean_text_for_matching(text):
     return text
 
 def read_year_mapping_from_template(wb):
-    """
-    Read the year mapping from Donnees Historiques template.
-    From debug output: Row 9 has year values directly in cells: 2026, 2026, 2026, 2026, 2025, 2025...
-    """
     dh_sheet_name = find_sheet_by_pattern(wb, SHEET_PATTERNS["Donnees Historiques"])
     if not dh_sheet_name:
         current_year = datetime.now().year
@@ -415,7 +412,6 @@ def read_year_mapping_from_template(wb):
     
     ws = wb[dh_sheet_name]
     
-    # Search rows 1-20 for year values directly in cells
     for row_idx in range(1, 20):
         year_map = {}
         for col_idx in range(2, 14):
@@ -436,54 +432,8 @@ def read_year_mapping_from_template(wb):
         year_map[i] = current_year - 1
     return year_map
 
-def get_actualisation_labels(wb):
-    """
-    Read labels from the '5-Actualisation' sheet column A.
-    Returns dict: {actualisation_row_number: label_text}
-    """
-    act_sheet_name = find_sheet_by_pattern(wb, SHEET_PATTERNS["Actualisation"])
-    if not act_sheet_name:
-        return {}
-    
-    ws_act = wb[act_sheet_name]
-    labels = {}
-    
-    for row_idx in range(1, min(ws_act.max_row + 1, 100)):
-        cell_value = ws_act.cell(row=row_idx, column=1).value
-        if cell_value is not None and not (isinstance(cell_value, str) and str(cell_value).startswith('=')):
-            label_text = str(cell_value).strip()
-            if label_text and len(label_text) > 3:
-                labels[row_idx] = label_text
-    
-    return labels
-
-def get_dh_formula_mapping(wb, act_labels):
-    """
-    Read Donnees Historiques column A formulas like ='5-Actualisation'!A11
-    and map them to template rows.
-    Returns dict: {dh_row_number: actualisation_label_text}
-    """
-    dh_sheet_name = find_sheet_by_pattern(wb, SHEET_PATTERNS["Donnees Historiques"])
-    if not dh_sheet_name:
-        return {}
-    
-    ws = wb[dh_sheet_name]
-    mapping = {}
-    
-    for row_idx in range(1, min(ws.max_row + 1, 100)):
-        cell_val = ws.cell(row=row_idx, column=1).value
-        if cell_val is not None and isinstance(cell_val, str) and cell_val.startswith('='):
-            match = re.search(r"!([A-Z]+)(\d+)", cell_val)
-            if match:
-                col_letter = match.group(1)
-                ref_row = int(match.group(2))
-                if col_letter == "A" and ref_row in act_labels:
-                    mapping[row_idx] = act_labels[ref_row]
-    
-    return mapping
-
 # ============================================================================
-# P&L DATA EXTRACTION
+# P&L DATA EXTRACTION - Works with ANY file format
 # ============================================================================
 
 def extract_pnl_data_from_dataframe(df, sheet_name_hint=None):
@@ -707,11 +657,9 @@ def update_donnees_historiques(wb, merged_monthly_data, parking_code):
     """
     Update Donnees Historiques sheet.
     
-    Strategy:
-    1. Read labels from '5-Actualisation' sheet (they are hardcoded there)
-    2. Read Donnees Historiques column A formulas to map DH rows -> Actualisation labels
-    3. Match Actualisation labels to P&L data using TEMPLATE_LABEL_TO_PNL
-    4. Write P&L monthly data to the correct rows in Donnees Historiques
+    SIMPLE APPROACH: We know the exact row numbers for each label from the template.
+    Just write the P&L monthly data to columns B-M on those rows.
+    Formulas in total rows and other columns will auto-calculate.
     """
     updates = []
     try:
@@ -734,59 +682,41 @@ def update_donnees_historiques(wb, merged_monthly_data, parking_code):
             updates.append("⚠️ Donnees Historiques: No merged monthly data available")
             return updates
         
-        # Step 1: Get labels from Actualisation sheet
-        act_labels = get_actualisation_labels(wb)
-        updates.append(f"🔍 Actualisation labels found: {len(act_labels)} labels")
-        
-        if act_labels:
-            sample = [f"A{r}:{l[:40]}" for r, l in list(act_labels.items())[:5]]
-            updates.append(f"   Sample: {'; '.join(sample)}")
-        
-        # Step 2: Map DH formulas to Actualisation labels
-        dh_mapping = get_dh_formula_mapping(wb, act_labels)
-        updates.append(f"🔍 DH rows mapped to labels: {len(dh_mapping)} rows")
-        
-        if dh_mapping:
-            sample = [f"DH_R{r}:{l[:40]}" for r, l in list(dh_mapping.items())[:5]]
-            updates.append(f"   Sample: {'; '.join(sample)}")
-        
-        # Step 3 & 4: Match and write data
         cells_updated = 0
         rows_filled = []
         
-        for dh_row, template_label in dh_mapping.items():
-            # Clean the template label for matching
-            template_clean = clean_text_for_matching(template_label)
+        for dh_row, pnl_labels in DH_ROW_TO_PNL.items():
+            # Find matching monthly data in P&L
+            monthly_values = None
+            matched_key = None
             
-            # Find P&L labels that match this template label
-            pnl_labels_to_try = []
-            for tpl_key, pnl_list in TEMPLATE_LABEL_TO_PNL.items():
-                tpl_key_clean = clean_text_for_matching(tpl_key)
-                if tpl_key_clean in template_clean or template_clean in tpl_key_clean:
-                    pnl_labels_to_try.extend(pnl_list)
-            
-            # Also try the template label itself
-            pnl_labels_to_try.append(template_label)
-            
-            if not pnl_labels_to_try:
-                continue
-            
-            # Find monthly data for these labels
-            monthly_values = find_monthly_pnl_value(merged_monthly_data, pnl_labels_to_try)
+            for pnl_label in pnl_labels:
+                clean_label = clean_text_for_matching(pnl_label)
+                if not clean_label or len(clean_label) < 3:
+                    continue
+                for key in merged_monthly_data:
+                    key_clean = clean_text_for_matching(key)
+                    if clean_label in key_clean or key_clean in clean_label:
+                        monthly_values = merged_monthly_data[key]
+                        matched_key = key
+                        break
+                if monthly_values:
+                    break
             
             if not monthly_values:
                 continue
             
+            # Skip if all zeros
             if all(v == 0 for v in monthly_values.values()):
                 continue
             
-            # Write data to the DH row
+            # Write monthly data to columns B-M
             row_cells = 0
             for month_idx, month_name in enumerate(MONTHS_EN):
                 if month_name in monthly_values:
                     val = monthly_values[month_name]
                     if val != 0:
-                        col_letter = get_column_letter(month_idx + 2)
+                        col_letter = get_column_letter(month_idx + 2)  # B=2, C=3, etc.
                         cell_ref = f"{col_letter}{dh_row}"
                         ws[cell_ref] = val
                         ws[cell_ref].number_format = '#,##0.00'
@@ -794,19 +724,16 @@ def update_donnees_historiques(wb, merged_monthly_data, parking_code):
                         row_cells += 1
             
             if row_cells > 0:
-                rows_filled.append(f"  Row {dh_row}: {template_label[:50]} ({row_cells} months)")
+                rows_filled.append(f"  Row {dh_row}: {matched_key} ({row_cells} months)")
         
         if cells_updated > 0:
             updates.append(f"✅ Donnees Historiques: {cells_updated} cells updated in {len(rows_filled)} rows")
-            for row_info in rows_filled[:25]:
+            for row_info in rows_filled:
                 updates.append(row_info)
-            if len(rows_filled) > 25:
-                updates.append(f"  ... and {len(rows_filled) - 25} more rows")
         else:
-            updates.append("⚠️ Donnees Historiques: No cells updated")
-            updates.append(f"   P&L data has {len(merged_monthly_data)} labels")
-            # Show available P&L labels for debugging
-            pnl_sample = list(merged_monthly_data.keys())[:15]
+            updates.append("⚠️ Donnees Historiques: No cells updated - label matching failed")
+            updates.append(f"   P&L data has {len(merged_monthly_data)} labels available")
+            pnl_sample = list(merged_monthly_data.keys())[:20]
             updates.append(f"   Available P&L labels: {pnl_sample}")
     except Exception as e:
         updates.append(f"❌ Donnees Historiques: {str(e)}")
@@ -825,8 +752,17 @@ def fix_excel(
     parking_code=None,
     word_data=None
 ):
+    """
+    Main function to process the Excel template with P&L data from MULTIPLE years.
+    
+    Year Usage per Sheet:
+        - Budget Initial: Previous year total (year - 1)
+        - Fiche Stationnement: 2 years ago data (year - 2)
+        - Donnees Historiques: Jan-Apr = current year, May-Dec = previous year
+    """
     updates = []
     
+    # ── Extract parking code ────────────────────────────────────────────
     if not parking_code and hasattr(excel_file, 'name'):
         parking_code = extract_parking_code_from_filename(excel_file.name)
     
@@ -835,6 +771,7 @@ def fix_excel(
     
     updates.append(f"🔍 Processing: {parking_code}")
     
+    # ── Detect years from uploaded files ────────────────────────────────
     current_year_name = "?"
     previous_year_name = "?"
     two_years_ago_name = "?"
@@ -860,6 +797,7 @@ def fix_excel(
         f"2YA={two_years_ago_name}"
     )
     
+    # ── Extract data from P&L files (any format!) ───────────────────────
     current_year_data, current_file_type = extract_pnl_data(pnl_current_year, parking_code)
     previous_year_data, prev_file_type = (None, None)
     two_years_ago_data, two_ya_file_type = (None, None)
@@ -885,6 +823,7 @@ def fix_excel(
         keys = list(two_years_ago_data['yearly'].keys())[:10]
         updates.append(f"📊 2YA keys ({two_ya_file_type}): {keys}")
     
+    # ── Read template ───────────────────────────────────────────────────
     try:
         excel_file.seek(0) if hasattr(excel_file, 'seek') else None
         file_bytes = excel_file.read()
@@ -894,8 +833,10 @@ def fix_excel(
     except Exception as e:
         return None, [f"❌ Error reading template: {str(e)}"]
     
+    # ── Read year mapping from Donnees Historiques ──────────────────────
     year_map = read_year_mapping_from_template(wb_read)
     
+    # ── Merge monthly data based on year mapping ────────────────────────
     merged_monthly = {}
     if year_map and current_year_data and previous_year_data:
         merged_monthly = merge_monthly_data(current_year_data, previous_year_data, year_map)
@@ -903,6 +844,7 @@ def fix_excel(
     if not merged_monthly and current_year_data:
         merged_monthly = current_year_data['monthly']
     
+    # ── Determine which data to use for each sheet ──────────────────────
     budget_initial_data = previous_year_data if previous_year_data else current_year_data
     
     fiche_data = two_years_ago_data
@@ -915,14 +857,18 @@ def fix_excel(
     if not dh_data and current_year_data:
         dh_data = current_year_data['monthly']
     
+    # ── Update all sheets ───────────────────────────────────────────────
     updates.extend(update_budget_initial(wb_write, budget_initial_data, parking_code))
     updates.extend(update_fiche_stationnement(wb_write, fiche_data, parking_code, word_data))
     updates.extend(update_donnees_historiques(wb_write, dh_data, parking_code))
     
+    # ── Summary ─────────────────────────────────────────────────────────
     success_count = sum(1 for u in updates if u.startswith("✅"))
+    
     if success_count == 0:
         updates.append("💡 No updates were made.")
     
+    # ── Reset file pointers ─────────────────────────────────────────────
     if hasattr(pnl_current_year, 'seek'):
         pnl_current_year.seek(0)
     if pnl_previous_year and hasattr(pnl_previous_year, 'seek'):
@@ -930,6 +876,7 @@ def fix_excel(
     if pnl_two_years_ago and hasattr(pnl_two_years_ago, 'seek'):
         pnl_two_years_ago.seek(0)
     
+    # ── Save output ─────────────────────────────────────────────────────
     output = io.BytesIO()
     wb_write.save(output)
     output.seek(0)
