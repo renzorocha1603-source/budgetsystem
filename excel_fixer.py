@@ -2,23 +2,67 @@ import io
 import re
 import pandas as pd
 from openpyxl import load_workbook
-from openpyxl.utils import get_column_letter
 from datetime import datetime
 
 # ============================================================================
 # CONFIGURATION
 # ============================================================================
 
-SEASONAL_MULTIPLIERS = {
-    "SC": [1.2, 1.2, 1.2, 1.1, 0.8, 0.8, 0.8, 0.8, 1.1, 1.1, 1.2, 1.2],
-    "RG": [0.8, 0.8, 0.9, 0.9, 1.3, 1.3, 1.3, 1.2, 1.0, 1.0, 0.8, 0.8]
+MONTHS_FR = ["Janvier", "Février", "Mars", "Avril", "Mai", "Juin",
+             "Juillet", "Août", "Septembre", "Octobre", "Novembre", "Décembre"]
+
+MONTHS_EN = ["January", "February", "March", "April", "May", "June",
+             "July", "August", "September", "October", "November", "December"]
+
+# Template row mapping for Donnees Historiques
+# Maps P&L row labels to template row numbers
+TEMPLATE_ROW_MAP = {
+    # Revenue section
+    "Revenus horaires": 42,
+    "Revenus mensuels": 43,
+    "Revenus Lave-auto": 45,
+    "Revenus hôtel": 46,
+    "Revenus d'intérêts": 48,
+    "Autres revenus": 49,
+    "Total revenus Bruts": 50,
+    "(Gratuités)": 52,
+    "(Rabais)": 54,
+    "TOTAL REVENUS": 58,
+    # Expense section
+    "Salaire Stationnement": 61,
+    "Salaire Superviseur": 62,
+    "Formation & Recrutement": 63,
+    "Uniformes": 64,
+    "Total Frais de personnel": 65,
+    "Nettoyage stationnement": 67,
+    "Entretien stationnement": 68,
+    "Entretien équipement": 69,
+    "Signalisation": 70,
+    "Lignage": 71,
+    "Déneigement": 72,
+    "Fournitures stationnement": 73,
+    "Total Entretien - réparations": 74,
 }
 
-MONTHS = ["January", "February", "March", "April", "May", "June",
-          "July", "August", "September", "October", "November", "December"]
-
-MONTHS_ABBR = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
-               "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+# P&L row labels to match against template categories
+PNL_CATEGORY_MAP = {
+    # Revenue mappings (P&L label -> template category)
+    "Parking Revenue": "Total revenus Bruts",
+    "Monthly Revenues": "Revenus mensuels",
+    "Transient Revenue": "Revenus horaires",
+    "Hotel Revenue": "Revenus hôtel",
+    "Car-Wash Revenue": "Revenus Lave-auto",
+    "Interests": "Revenus d'intérêts",
+    "Miscellaneous": "Autres revenus",
+    "Discount-Gratuities - Transient": "(Gratuités)",
+    "Discount-Gratuities - Monthly": "(Rabais)",
+    "TOTAL REVENUE": "TOTAL REVENUS",
+    # Expense mappings
+    "Parking wages": "Salaire Stationnement",
+    "Total Operation expenses": "Total Entretien - réparations",
+    "OPERATION SURPLUS": None,  # Skip - not needed in template
+    "NET INCOME": None,  # Skip
+}
 
 SHEET_PATTERNS = {
     "Budget Initial": ["budget initial", "budget"],
@@ -31,24 +75,19 @@ SHEET_PATTERNS = {
 # ============================================================================
 
 def extract_parking_code_from_filename(filename):
-    """Extract parking code from template filename."""
     if not filename:
         return None
     name = filename.rsplit('.', 1)[0]
-    # Try CMO pattern first
     match = re.search(r'(CMO\d+)', name, re.IGNORECASE)
     if match:
         return match.group(1).upper()
-    # Try LUNA
     if 'LUNA' in name.upper():
         return 'LUNA'
-    # Fallback
     parts = name.replace('(', ' ').replace(')', ' ').split('_')[0].split()[0]
     return parts.upper()
 
 
 def find_sheet_by_pattern(wb, patterns):
-    """Find a sheet in the workbook matching patterns."""
     for sheet_name in wb.sheetnames:
         sheet_lower = sheet_name.lower().replace('.', ' ').replace('-', ' ').replace('_', ' ')
         for pattern in patterns:
@@ -58,11 +97,8 @@ def find_sheet_by_pattern(wb, patterns):
     return None
 
 
-def find_pnl_sheet_for_code(pnl_file, parking_code):
-    """
-    Find the P&L sheet for a specific parking code.
-    Each parking code has its own sheet named after the code (e.g., "CMO142").
-    """
+def find_pnl_sheet(pnl_file, parking_code):
+    """Find the P&L sheet for a specific parking code."""
     pnl_file.seek(0) if hasattr(pnl_file, 'seek') else None
     file_bytes = pnl_file.read() if hasattr(pnl_file, 'read') else None
     pnl_file.seek(0) if hasattr(pnl_file, 'seek') else None
@@ -73,43 +109,25 @@ def find_pnl_sheet_for_code(pnl_file, parking_code):
     try:
         xl = pd.ExcelFile(io.BytesIO(file_bytes), engine='openpyxl')
         
-        # First try exact match
+        # Exact match first
         for sheet_name in xl.sheet_names:
             if sheet_name.upper().strip() == parking_code.upper().strip():
                 df = pd.read_excel(xl, sheet_name=sheet_name, engine='openpyxl')
-                print(f"Found exact sheet match: '{sheet_name}'")
                 return df, sheet_name
         
-        # Try partial match (parking code in sheet name)
+        # Partial match
         for sheet_name in xl.sheet_names:
             if parking_code.upper() in sheet_name.upper():
                 df = pd.read_excel(xl, sheet_name=sheet_name, engine='openpyxl')
-                print(f"Found partial sheet match: '{sheet_name}'")
                 return df, sheet_name
         
-        # Try searching ALL sheets for the parking code in cells
-        for sheet_name in xl.sheet_names:
-            try:
-                df = pd.read_excel(xl, sheet_name=sheet_name, engine='openpyxl')
-                for col_idx in range(min(5, len(df.columns))):
-                    for row_idx in range(min(20, len(df))):
-                        value = df.iloc[row_idx, col_idx]
-                        if pd.notna(value) and parking_code.upper() in str(value).upper():
-                            print(f"Found code in sheet '{sheet_name}' at row {row_idx}")
-                            return df, sheet_name
-            except:
-                pass
-        
-        print(f"Could not find sheet for {parking_code}")
         return None, None
-    
     except Exception as e:
         print(f"Error reading P&L: {e}")
         return None, None
 
 
 def safe_float(value, default=0.0):
-    """Safely convert a value to float."""
     try:
         if pd.isna(value) or value is None:
             return default
@@ -123,209 +141,66 @@ def safe_float(value, default=0.0):
         return default
 
 
-def is_parking_code(value):
-    """Check if a value looks like a parking code (e.g., CMO142)."""
-    if pd.isna(value) or value is None:
-        return False
-    return bool(re.match(r'^[A-Z]{2,5}\d{2,6}$', str(value).strip().upper()))
-
-
-# ============================================================================
-# DATA EXTRACTION FUNCTIONS
-# ============================================================================
-
-def extract_budget_initial_total(pnl_file, parking_code):
-    """
-    Extract total for Budget Initial.
-    Looks in the parking code's sheet for a total value in the last numeric column.
-    """
-    df, sheet_name = find_pnl_sheet_for_code(pnl_file, parking_code)
-    if df is None:
-        return None
-    
-    print(f"Budget Initial: Using sheet '{sheet_name}'")
-    
-    # Find the row with the parking code label
-    code_row = None
-    for col_idx in range(min(5, len(df.columns))):
-        for row_idx in range(min(20, len(df))):
-            value = df.iloc[row_idx, col_idx]
-            if pd.notna(value) and parking_code.upper() in str(value).upper():
-                code_row = row_idx
-                break
-        if code_row is not None:
-            break
-    
-    if code_row is None:
-        # Try to find any row with data
-        for row_idx in range(len(df)):
-            for col_idx in range(min(5, len(df.columns))):
-                if pd.notna(df.iloc[row_idx, col_idx]):
-                    code_row = row_idx
-                    break
-            if code_row is not None:
-                break
-    
-    if code_row is None:
-        return None
-    
-    # Look for "Total" or "Grand Total" in Column A
-    total_value = None
-    for row_idx in range(len(df)):
-        if pd.notna(df.iloc[row_idx, 0]):
-            label = str(df.iloc[row_idx, 0]).strip().lower()
-            if 'total' in label or 'grand total' in label:
-                # Get value from the last numeric column
-                for col_idx in range(len(df.columns) - 1, 0, -1):
-                    val = safe_float(df.iloc[row_idx, col_idx])
-                    if val > 0:
-                        total_value = val
-                        print(f"Found total at row {row_idx}: ${total_value:,.2f}")
-                        return total_value
-    
-    # Fallback: sum all values in Column B (since revenue data is in A-B columns)
-    if total_value is None:
-        total = 0
-        for row_idx in range(len(df)):
-            val = safe_float(df.iloc[row_idx, 1])  # Column B
-            if val > 0:
-                total += val
-        if total > 0:
-            print(f"Summed all values: ${total:,.2f}")
-            return total
-    
+def find_row_by_label(df, label, col_idx=0, max_rows=100):
+    """Find a row by its label in a specific column."""
+    label_lower = label.lower().strip()
+    for row_idx in range(min(max_rows, len(df))):
+        cell = str(df.iloc[row_idx, col_idx]).strip().lower() if pd.notna(df.iloc[row_idx, col_idx]) else ""
+        if label_lower in cell:
+            return row_idx
     return None
 
 
-def extract_revenue_categories(pnl_file, parking_code):
-    """
-    Extract revenue categories from the P&L sheet.
-    Data is in Column A (category name) and Column B (value).
-    """
-    df, sheet_name = find_pnl_sheet_for_code(pnl_file, parking_code)
-    if df is None:
-        return {}
-    
-    print(f"Revenue: Using sheet '{sheet_name}'")
-    print(f"Revenue: Sheet has {len(df)} rows, {len(df.columns)} columns")
-    
-    revenue_data = {}
-    
-    # Skip header rows and find where actual data starts
-    data_start = 0
-    for row_idx in range(len(df)):
-        col_a = str(df.iloc[row_idx, 0]).strip() if pd.notna(df.iloc[row_idx, 0]) else ""
-        col_b = safe_float(df.iloc[row_idx, 1])
-        
-        # Skip rows that are clearly headers
-        if col_a.lower() in ['code', 'profit & loss', 'profit and loss', '']:
-            continue
-        
-        # Skip rows with dates or filters
-        if re.search(r'\d{2}-\d{2}-\d{2}', col_a):
-            continue
-        
-        if col_b > 0 and not is_parking_code(col_a):
-            data_start = row_idx
-            break
-    
-    print(f"Revenue: Data starts at row {data_start}")
-    
-    # Extract all revenue categories
-    for row_idx in range(data_start, len(df)):
-        category = str(df.iloc[row_idx, 0]).strip() if pd.notna(df.iloc[row_idx, 0]) else ""
-        value = safe_float(df.iloc[row_idx, 1])
-        
-        # Stop conditions
-        if category.lower() in ['total', 'grand total']:
-            break
-        
-        if not category and value == 0:
-            # Check if next rows are also empty
-            all_empty = True
-            for check in range(row_idx, min(row_idx + 3, len(df))):
-                c = str(df.iloc[check, 0]).strip() if pd.notna(df.iloc[check, 0]) else ""
-                v = safe_float(df.iloc[check, 1])
-                if c or v > 0:
-                    all_empty = False
-                    break
-            if all_empty:
-                break
-            continue
-        
-        if category and value > 0 and not is_parking_code(category):
-            # Skip filter/header rows
-            if not re.search(r'\d{2}-\d{2}-\d{2}', category):
-                revenue_data[category] = value
-                print(f"  {category}: ${value:,.2f}")
-    
-    print(f"Revenue: Found {len(revenue_data)} categories")
-    return revenue_data
+# ============================================================================
+# DATA EXTRACTION
+# ============================================================================
 
-
-def extract_monthly_data(pnl_file, parking_code):
+def extract_pnl_data(pnl_file, parking_code):
     """
-    Extract monthly data from the P&L sheet.
-    Looks for rows with month names or month abbreviations in Column A,
-    with values in Column B.
+    Extract ALL data from the P&L sheet into a structured format.
+    Returns dict with:
+    - 'monthly': {row_label: {month_name: value}}
+    - 'yearly': {row_label: total_value}
     """
-    df, sheet_name = find_pnl_sheet_for_code(pnl_file, parking_code)
+    df, sheet_name = find_pnl_sheet(pnl_file, parking_code)
     if df is None:
-        return {}
+        return None
     
-    print(f"Monthly: Using sheet '{sheet_name}'")
+    result = {'monthly': {}, 'yearly': {}}
     
-    monthly_data = {}
+    # The P&L has: Col A = labels, Col B-M = Jan-Dec, Col N = Year Total
+    # Data starts around row 8-9
     
-    # Look for rows that contain month names
     for row_idx in range(len(df)):
-        category = str(df.iloc[row_idx, 0]).strip() if pd.notna(df.iloc[row_idx, 0]) else ""
-        value = safe_float(df.iloc[row_idx, 1])
-        
-        if not category or value <= 0:
+        label = str(df.iloc[row_idx, 0]).strip() if pd.notna(df.iloc[row_idx, 0]) else ""
+        if not label:
             continue
         
-        # Check if this row contains a month reference
-        cat_lower = category.lower()
-        for i, month in enumerate(MONTHS):
-            if month.lower() in cat_lower:
-                monthly_data[MONTHS[i]] = value
-                print(f"  {MONTHS[i]}: ${value:,.2f}")
-                break
+        # Extract monthly data (columns B-M = indices 1-12)
+        monthly = {}
+        for month_idx in range(12):
+            if month_idx + 1 < len(df.columns):
+                val = safe_float(df.iloc[row_idx, month_idx + 1])
+                monthly[MONTHS_EN[month_idx]] = val
         
-        for i, month in enumerate(MONTHS_ABBR):
-            if month.lower() in cat_lower and len(cat_lower) <= 10:
-                monthly_data[MONTHS[i]] = value
-                print(f"  {MONTHS[i]}: ${value:,.2f}")
-                break
-    
-    # If no month data found, try to split "Monthly" rows into 12 equal parts
-    if not monthly_data:
-        monthly_rows = []
-        for row_idx in range(len(df)):
-            category = str(df.iloc[row_idx, 0]).strip() if pd.notna(df.iloc[row_idx, 0]) else ""
-            value = safe_float(df.iloc[row_idx, 1])
-            if 'monthly' in category.lower() and value > 0:
-                monthly_rows.append((category, value))
+        # Extract yearly total (column N = index 13)
+        yearly_total = safe_float(df.iloc[row_idx, 13]) if len(df.columns) > 13 else 0
         
-        if monthly_rows:
-            # Take the first monthly total and divide by 12
-            for cat, val in monthly_rows[:1]:
-                monthly_value = val / 12
-                for month in MONTHS:
-                    monthly_data[month] = monthly_value
-                print(f"  Divided '{cat}' (${val:,.2f}) into 12 months of ${monthly_value:,.2f}")
-                break
+        # Only store if there's actual data
+        has_data = any(v != 0 for v in monthly.values()) or yearly_total != 0
+        if has_data:
+            result['monthly'][label] = monthly
+            result['yearly'][label] = yearly_total
     
-    print(f"Monthly: Found {len(monthly_data)} months")
-    return monthly_data
+    return result
 
 
 # ============================================================================
 # SHEET UPDATE FUNCTIONS
 # ============================================================================
 
-def update_budget_initial(wb, pnl_file, parking_code):
+def update_budget_initial(wb, pnl_data, parking_code):
+    """Update Budget Initial - cell S8 with TOTAL REVENUE yearly total."""
     updates = []
     try:
         sheet_name = find_sheet_by_pattern(wb, SHEET_PATTERNS["Budget Initial"])
@@ -333,20 +208,26 @@ def update_budget_initial(wb, pnl_file, parking_code):
             return ["Budget Initial: Sheet not found"]
         
         ws = wb[sheet_name]
-        total = extract_budget_initial_total(pnl_file, parking_code)
         
-        if total and total > 0:
+        # Get TOTAL REVENUE from P&L
+        total = pnl_data['yearly'].get('TOTAL REVENUE', 0)
+        
+        if total > 0:
             ws["S8"] = total
             ws["S8"].number_format = '#,##0.00'
             updates.append(f"✅ Budget Initial: S8 = ${total:,.2f}")
         else:
-            updates.append(f"⚠️ Budget Initial: No total found for {parking_code}")
+            updates.append(f"⚠️ Budget Initial: No TOTAL REVENUE found")
     except Exception as e:
         updates.append(f"❌ Budget Initial: {e}")
     return updates
 
 
-def update_fiche_stationnement(wb, pnl_file, parking_code, word_data=None):
+def update_fiche_stationnement(wb, pnl_data, parking_code, word_data=None):
+    """
+    Update Fiche Stationnement - K17-K26 with yearly totals.
+    Maps specific P&L categories to K17-K25.
+    """
     updates = []
     try:
         sheet_name = find_sheet_by_pattern(wb, SHEET_PATTERNS["Fiche Stationnement"])
@@ -354,26 +235,33 @@ def update_fiche_stationnement(wb, pnl_file, parking_code, word_data=None):
             return ["Fiche Stationnement: Sheet not found"]
         
         ws = wb[sheet_name]
-        revenue_data = extract_revenue_categories(pnl_file, parking_code)
         
-        if not revenue_data:
-            return [f"⚠️ Fiche Stationnement: No revenue data for {parking_code}"]
-        
-        sorted_categories = sorted(revenue_data.items(), key=lambda x: x[1], reverse=True)
+        # Define which P&L categories go to which cells (in order of importance)
+        cell_mapping = [
+            ("Parking Revenue", "K17"),
+            ("TOTAL REVENUE", "K18"),
+            ("Monthly Revenues", "K19"),
+            ("Transient Revenue", "K20"),
+            ("Total Operation expenses", "K21"),
+            ("Parking wages", "K22"),
+            ("OPERATION SURPLUS", "K23"),
+            ("Percent Management fee", "K24"),
+            ("NET INCOME", "K25"),
+        ]
         
         total_revenue = 0
-        for i, (category, value) in enumerate(sorted_categories):
-            if i >= 9:
-                break
-            cell = f"K{17 + i}"
-            ws[cell] = value
-            ws[cell].number_format = '#,##0.00'
-            total_revenue += value
-            updates.append(f"✅ {cell} = {category}: ${value:,.2f}")
+        for pnl_label, cell in cell_mapping:
+            value = pnl_data['yearly'].get(pnl_label, 0)
+            if value != 0:
+                ws[cell] = value
+                ws[cell].number_format = '#,##0.00'
+                total_revenue += value if value > 0 else 0
+                updates.append(f"✅ {cell} = {pnl_label}: ${value:,.2f}")
         
-        ws["K26"] = total_revenue
+        # K26 = Sum of all positive values or TOTAL REVENUE
+        ws["K26"] = pnl_data['yearly'].get('TOTAL REVENUE', total_revenue)
         ws["K26"].number_format = '#,##0.00'
-        updates.append(f"✅ K26 = Total: ${total_revenue:,.2f}")
+        updates.append(f"✅ K26 = Total Revenue: ${pnl_data['yearly'].get('TOTAL REVENUE', 0):,.2f}")
         
         if word_data:
             for row in range(43, 56):
@@ -390,7 +278,11 @@ def update_fiche_stationnement(wb, pnl_file, parking_code, word_data=None):
     return updates
 
 
-def update_donnees_historiques(wb, pnl_file, parking_code):
+def update_donnees_historiques(wb, pnl_data, parking_code):
+    """
+    Update Donnees Historiques with monthly data.
+    Maps P&L monthly values to the correct template rows.
+    """
     updates = []
     try:
         sheet_name = find_sheet_by_pattern(wb, SHEET_PATTERNS["Donnees Historiques"])
@@ -398,28 +290,37 @@ def update_donnees_historiques(wb, pnl_file, parking_code):
             return ["Donnees Historiques: Sheet not found"]
         
         ws = wb[sheet_name]
-        monthly_data = extract_monthly_data(pnl_file, parking_code)
         
-        if not monthly_data:
-            return [f"⚠️ Donnees Historiques: No monthly data for {parking_code}"]
-        
-        yellow_rows = [r for r in range(36, 77) if r not in [44, 47, 65]]
-        columns = ['B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M']
-        
+        # Map P&L data to template rows using PNL_CATEGORY_MAP
         cells_updated = 0
-        for row in yellow_rows:
-            for col_idx, col_letter in enumerate(columns):
-                month_name = MONTHS[col_idx] if col_idx < len(MONTHS) else None
-                if month_name and month_name in monthly_data and monthly_data[month_name] > 0:
-                    cell = f"{col_letter}{row}"
-                    ws[cell] = monthly_data[month_name]
+        
+        for pnl_label, template_label in PNL_CATEGORY_MAP.items():
+            if template_label is None:
+                continue
+            
+            # Get the template row for this label
+            template_row = TEMPLATE_ROW_MAP.get(template_label)
+            if template_row is None:
+                continue
+            
+            # Get monthly data from P&L
+            monthly_values = pnl_data['monthly'].get(pnl_label, {})
+            if not monthly_values:
+                continue
+            
+            # Fill each month column (B-M = columns 1-12 in template)
+            for month_idx, month_name in enumerate(MONTHS_EN):
+                if month_name in monthly_values and monthly_values[month_name] != 0:
+                    col_letter = chr(ord('B') + month_idx)  # B, C, D, ... M
+                    cell = f"{col_letter}{template_row}"
+                    ws[cell] = monthly_values[month_name]
                     ws[cell].number_format = '#,##0.00'
                     cells_updated += 1
         
         if cells_updated > 0:
-            updates.append(f"✅ Updated {cells_updated} monthly cells")
+            updates.append(f"✅ Donnees Historiques: Updated {cells_updated} monthly cells")
         else:
-            updates.append("⚠️ No monthly data to update")
+            updates.append("⚠️ Donnees Historiques: No matching data found")
     except Exception as e:
         updates.append(f"❌ Donnees Historiques: {e}")
     return updates
@@ -453,6 +354,15 @@ def fix_excel(excel_file, pnl_file, parking_code=None, word_data=None):
     
     updates.append(f"🔍 Processing: {parking_code}")
     
+    # Extract ALL data from P&L file
+    pnl_data = extract_pnl_data(pnl_file, parking_code)
+    if pnl_data is None:
+        return None, [f"❌ Could not find P&L data for {parking_code}"]
+    
+    yearly_count = sum(1 for v in pnl_data['yearly'].values() if v != 0)
+    monthly_count = sum(1 for m in pnl_data['monthly'].values() if any(v != 0 for v in m.values()))
+    updates.append(f"📊 Found {yearly_count} yearly totals, {monthly_count} monthly breakdowns")
+    
     # Read the Excel template
     try:
         wb = load_workbook(io.BytesIO(excel_file.read()))
@@ -460,17 +370,15 @@ def fix_excel(excel_file, pnl_file, parking_code=None, word_data=None):
     except Exception as e:
         return None, [f"❌ Error reading template: {e}"]
     
-    updates.append(f"📋 Template has {len(wb.sheetnames)} sheets")
-    
     # Process each sheet
-    updates.extend(update_budget_initial(wb, pnl_file, parking_code))
-    updates.extend(update_fiche_stationnement(wb, pnl_file, parking_code, word_data))
-    updates.extend(update_donnees_historiques(wb, pnl_file, parking_code))
+    updates.extend(update_budget_initial(wb, pnl_data, parking_code))
+    updates.extend(update_fiche_stationnement(wb, pnl_data, parking_code, word_data))
+    updates.extend(update_donnees_historiques(wb, pnl_data, parking_code))
     
     # Count successes
     success_count = sum(1 for u in updates if u.startswith("✅"))
     if success_count == 0:
-        updates.append("💡 No updates were made. Check if the parking code exists in the P&L file.")
+        updates.append("💡 No updates were made.")
     
     # Reset P&L file pointer
     pnl_file.seek(0) if hasattr(pnl_file, 'seek') else None
