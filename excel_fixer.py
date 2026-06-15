@@ -22,6 +22,25 @@ MONTHS = ["January", "February", "March", "April", "May", "June",
 MONTHS_ABBR = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
                "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
 
+# Sheet name patterns to match (order matters - first match wins)
+SHEET_PATTERNS = {
+    "Budget Initial": ["budget initial", "budget"],
+    "Fiche Stationnement": ["fiche stationnement", "fiche de stationnement", "stationnement"],
+    "Donnees Historiques": ["donnees historiques", "données historiques", "historiques", "historique"],
+    "Revenu Depense": ["revenu depense", "revenu-depense", "revenu dépense", "revenu"],
+    "Calcul Salaire": ["calcul salaire", "calcul-salaire", "salaire"],
+}
+
+def find_sheet_by_pattern(wb, patterns):
+    """Find a sheet in the workbook that matches any of the given patterns."""
+    for sheet_name in wb.sheetnames:
+        sheet_lower = sheet_name.lower().replace('.', ' ').replace('-', ' ').replace('_', ' ')
+        for pattern in patterns:
+            pattern_clean = pattern.lower().replace('.', ' ').replace('-', ' ').replace('_', ' ')
+            if pattern_clean in sheet_lower:
+                return sheet_name
+    return None
+
 # ============================================================================
 # HELPER FUNCTIONS
 # ============================================================================
@@ -64,37 +83,30 @@ def find_parking_data(df, parking_code, column_search_range=5):
     Searches first few columns for the code.
     Now does partial matching (e.g., "CMO142" matches "CMO142 (LUNA)")
     """
-    # Normalize the parking code for matching
     code_clean = parking_code.upper().strip()
     
     for col_idx in range(min(column_search_range, len(df.columns))):
         for row_idx, value in enumerate(df.iloc[:, col_idx]):
             if pd.notna(value):
                 cell_str = str(value).upper().strip()
-                # Check if the parking code is IN the cell (partial match)
                 if code_clean in cell_str:
                     return row_idx
-                # Also check if the cell is IN the parking code
                 if cell_str in code_clean:
                     return row_idx
     return None
 
 
 def find_all_parking_codes(df, column_search_range=3):
-    """
-    Find all parking codes in the P&L file.
-    Returns a list of all found codes.
-    """
+    """Find all parking codes in the P&L file."""
     codes = []
     for col_idx in range(min(column_search_range, len(df.columns))):
         for row_idx, value in enumerate(df.iloc[:, col_idx]):
             if pd.notna(value):
                 cell_str = str(value).strip()
-                # Look for CMO pattern
                 match = re.search(r'(CMO\d+)', cell_str, re.IGNORECASE)
                 if match:
                     codes.append(match.group(1).upper())
-    return list(set(codes))  # Remove duplicates
+    return list(set(codes))
 
 
 def safe_float(value, default=0.0):
@@ -114,20 +126,15 @@ def safe_float(value, default=0.0):
 # ============================================================================
 
 def extract_budget_initial_data(pnl_file, parking_code):
-    """
-    Extract previous year total for Budget Initial (cell S8).
-    Looks for the parking code and gets the TOTAL/Sum from the previous year column.
-    """
+    """Extract previous year total for Budget Initial (cell S8)."""
     try:
         df = pd.read_excel(io.BytesIO(pnl_file.read()) if hasattr(pnl_file, 'read') else pnl_file, engine='openpyxl')
         pnl_file.seek(0) if hasattr(pnl_file, 'seek') else None
         
-        # Print available codes for debugging
         available_codes = find_all_parking_codes(df)
         print(f"Available parking codes in P&L: {available_codes}")
         print(f"Looking for: {parking_code}")
         
-        # Find the row for this parking code
         parking_row = find_parking_data(df, parking_code)
         if parking_row is None:
             print(f"Parking code '{parking_code}' not found in P&L file")
@@ -135,10 +142,9 @@ def extract_budget_initial_data(pnl_file, parking_code):
         
         print(f"Found parking code at row {parking_row}")
         
-        # Look for "Total" or "Grand Total" row near this parking's section
         total_value = None
         
-        # Search for total in last few columns (N, O, P etc for yearly totals)
+        # Search for total in last few columns
         for col_idx in range(len(df.columns) - 1, max(len(df.columns) - 10, 0), -1):
             for row_idx in range(parking_row, min(parking_row + 50, len(df))):
                 if pd.notna(df.iloc[row_idx, 0]):
@@ -151,7 +157,6 @@ def extract_budget_initial_data(pnl_file, parking_code):
             if total_value:
                 break
         
-        # If no explicit total found, use the last numeric value in the parking's data
         if total_value is None:
             for col_idx in range(len(df.columns) - 1, 0, -1):
                 val = safe_float(df.iloc[parking_row, col_idx])
@@ -166,9 +171,7 @@ def extract_budget_initial_data(pnl_file, parking_code):
 
 
 def extract_fiche_stationnement_data(pnl_file, parking_code):
-    """
-    Extract revenue data for 1. Fiche Stationnement (K17-K26).
-    """
+    """Extract revenue data for Fiche Stationnement (K17-K26)."""
     try:
         df = pd.read_excel(io.BytesIO(pnl_file.read()) if hasattr(pnl_file, 'read') else pnl_file, engine='openpyxl')
         pnl_file.seek(0) if hasattr(pnl_file, 'seek') else None
@@ -179,7 +182,7 @@ def extract_fiche_stationnement_data(pnl_file, parking_code):
         
         revenue_data = {}
         
-        # Find the column with revenue data (look for year headers like "2024", "2025", etc.)
+        # Find revenue column (look for year headers)
         revenue_col = None
         for col_idx in range(1, len(df.columns)):
             for row_idx in range(min(5, len(df))):
@@ -191,7 +194,6 @@ def extract_fiche_stationnement_data(pnl_file, parking_code):
                 break
         
         if revenue_col is None:
-            # Fallback: use the last numeric column
             for col_idx in range(len(df.columns) - 1, 0, -1):
                 if pd.api.types.is_numeric_dtype(df.iloc[:, col_idx]):
                     revenue_col = col_idx
@@ -200,16 +202,14 @@ def extract_fiche_stationnement_data(pnl_file, parking_code):
         if revenue_col is None:
             return {}
         
-        # Extract categories and values
+        # Extract categories
         for row_idx in range(parking_row, min(parking_row + 100, len(df))):
             category = str(df.iloc[row_idx, 0]).strip() if pd.notna(df.iloc[row_idx, 0]) else ""
             value = safe_float(df.iloc[row_idx, revenue_col])
             
-            # Skip header rows, empty rows, and total rows
             if not category or category.lower() in ['total', 'grand total', 'sum', 'parking code', '']:
                 continue
             
-            # Skip rows that are just parking codes
             if re.match(r'^[A-Z]{2,4}\d{2,6}$', category.upper()):
                 continue
             
@@ -223,9 +223,7 @@ def extract_fiche_stationnement_data(pnl_file, parking_code):
 
 
 def extract_donnees_historiques_data(pnl_file, parking_code):
-    """
-    Extract monthly data for 2. Donnees Historiques.
-    """
+    """Extract monthly data for Donnees Historiques."""
     try:
         df = pd.read_excel(io.BytesIO(pnl_file.read()) if hasattr(pnl_file, 'read') else pnl_file, engine='openpyxl')
         pnl_file.seek(0) if hasattr(pnl_file, 'seek') else None
@@ -236,7 +234,6 @@ def extract_donnees_historiques_data(pnl_file, parking_code):
         
         monthly_data = {}
         
-        # Find monthly columns (B-M usually)
         month_cols = {}
         for col_idx in range(1, min(14, len(df.columns))):
             for row_idx in range(min(5, len(df))):
@@ -250,12 +247,10 @@ def extract_donnees_historiques_data(pnl_file, parking_code):
                         month_cols[i] = col_idx
                         break
         
-        # If no month headers found, assume columns B-M are Jan-Dec
         if not month_cols:
             for i in range(12):
                 month_cols[i] = i + 1
         
-        # Extract data for each month
         for month_idx, col_idx in month_cols.items():
             value = safe_float(df.iloc[parking_row, col_idx]) if parking_row < len(df) else 0
             monthly_data[MONTHS[month_idx]] = value
@@ -271,21 +266,23 @@ def extract_donnees_historiques_data(pnl_file, parking_code):
 # ============================================================================
 
 def update_budget_initial(wb, pnl_file, parking_code):
-    """Update Budget Initial sheet - cell S8 with previous year total."""
+    """Update Budget Initial sheet - cell S8."""
     updates = []
     try:
-        if "Budget Initial" not in wb.sheetnames:
+        sheet_name = find_sheet_by_pattern(wb, SHEET_PATTERNS["Budget Initial"])
+        if not sheet_name:
+            updates.append("Budget Initial: Sheet not found in template")
             return updates
         
-        ws = wb["Budget Initial"]
+        ws = wb[sheet_name]
         total = extract_budget_initial_data(pnl_file, parking_code)
         
         if total and total > 0:
             ws["S8"] = total
             ws["S8"].number_format = '#,##0.00'
-            updates.append(f"Budget Initial: Updated S8 with ${total:,.2f}")
+            updates.append(f"Budget Initial ({sheet_name}): Updated S8 with ${total:,.2f}")
         else:
-            updates.append(f"Budget Initial: No total found for {parking_code}")
+            updates.append(f"Budget Initial ({sheet_name}): No total found for {parking_code}")
     except Exception as e:
         updates.append(f"Budget Initial: Error - {e}")
     
@@ -293,49 +290,36 @@ def update_budget_initial(wb, pnl_file, parking_code):
 
 
 def update_fiche_stationnement(wb, pnl_file, parking_code, word_data=None):
-    """Update 1. Fiche Stationnement - K17-K26 and H-M rows 43-55."""
+    """Update Fiche Stationnement - K17-K26."""
     updates = []
     try:
-        if "1. Fiche Stationnement" not in wb.sheetnames:
+        sheet_name = find_sheet_by_pattern(wb, SHEET_PATTERNS["Fiche Stationnement"])
+        if not sheet_name:
+            updates.append("Fiche Stationnement: Sheet not found in template")
             return updates
         
-        ws = wb["1. Fiche Stationnement"]
+        ws = wb[sheet_name]
         revenue_data = extract_fiche_stationnement_data(pnl_file, parking_code)
         
         if not revenue_data:
-            updates.append(f"Fiche Stationnement: No revenue data found for {parking_code}")
+            updates.append(f"Fiche Stationnement ({sheet_name}): No revenue data found for {parking_code}")
             return updates
         
-        # Sort categories by value (largest first)
         sorted_categories = sorted(revenue_data.items(), key=lambda x: x[1], reverse=True)
         
-        # Fill K17 to K25 with categories
         total_revenue = 0
         for i, (category, value) in enumerate(sorted_categories):
-            if i >= 9:  # K17 to K25 = 9 slots
+            if i >= 9:
                 break
             cell = f"K{17 + i}"
             ws[cell] = value
             ws[cell].number_format = '#,##0.00'
             total_revenue += value
-            updates.append(f"Fiche Stationnement: {cell} = {category}: ${value:,.2f}")
+            updates.append(f"Fiche Stationnement ({sheet_name}): {cell} = {category}: ${value:,.2f}")
         
-        # K26 = Total Revenue
         ws["K26"] = total_revenue
         ws["K26"].number_format = '#,##0.00'
-        updates.append(f"Fiche Stationnement: K26 = Total Revenue: ${total_revenue:,.2f}")
-        
-        # H-M, rows 43-55 from word_data if provided
-        if word_data:
-            for row in range(43, 56):
-                if "Nb abonnés" in word_data:
-                    ws[f"H{row}"] = word_data["Nb abonnés"]
-                if "Informations" in word_data:
-                    ws[f"I{row}"] = word_data["Informations"]
-                if "Avant taxes" in word_data:
-                    ws[f"J{row}"] = word_data["Avant taxes"]
-                    ws[f"L{row}"] = word_data["Avant taxes"]
-            updates.append("Fiche Stationnement: Updated H-M rows 43-55 with word data")
+        updates.append(f"Fiche Stationnement ({sheet_name}): K26 = Total Revenue: ${total_revenue:,.2f}")
     
     except Exception as e:
         updates.append(f"Fiche Stationnement: Error - {e}")
@@ -344,22 +328,22 @@ def update_fiche_stationnement(wb, pnl_file, parking_code, word_data=None):
 
 
 def update_donnees_historiques(wb, pnl_file, parking_code):
-    """Update 2. Donnees Historiques - yellow cells only."""
+    """Update Donnees Historiques - yellow cells."""
     updates = []
     try:
-        if "2. Donnees Historiques" not in wb.sheetnames:
+        sheet_name = find_sheet_by_pattern(wb, SHEET_PATTERNS["Donnees Historiques"])
+        if not sheet_name:
+            updates.append("Donnees Historiques: Sheet not found in template")
             return updates
         
-        ws = wb["2. Donnees Historiques"]
+        ws = wb[sheet_name]
         monthly_data = extract_donnees_historiques_data(pnl_file, parking_code)
         
         if not monthly_data:
-            updates.append(f"Donnees Historiques: No monthly data found for {parking_code}")
+            updates.append(f"Donnees Historiques ({sheet_name}): No monthly data found for {parking_code}")
             return updates
         
-        # Yellow rows: 36-76, skip 44, 47, 65 (white/formula cells)
         yellow_rows = [r for r in range(36, 77) if r not in [44, 47, 65]]
-        # Columns B-M
         columns = ['B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M']
         
         cells_updated = 0
@@ -374,9 +358,9 @@ def update_donnees_historiques(wb, pnl_file, parking_code):
                         cells_updated += 1
         
         if cells_updated > 0:
-            updates.append(f"Donnees Historiques: Updated {cells_updated} cells with monthly data")
+            updates.append(f"Donnees Historiques ({sheet_name}): Updated {cells_updated} cells")
         else:
-            updates.append(f"Donnees Historiques: No monthly data to update")
+            updates.append(f"Donnees Historiques ({sheet_name}): No monthly data to update")
     
     except Exception as e:
         updates.append(f"Donnees Historiques: Error - {e}")
@@ -410,7 +394,7 @@ def fix_excel(excel_file, pnl_file, parking_code=None, word_data=None):
     if not parking_code:
         return None, ["Error: Could not determine parking code from filename. Please rename your template to include the parking code (e.g., CMO142_template.xlsx)"]
     
-    updates.append(f"Processing parking code: {parking_code}")
+    updates.append(f"🔍 Processing parking code: {parking_code}")
     
     # Read the Excel template
     try:
@@ -419,25 +403,12 @@ def fix_excel(excel_file, pnl_file, parking_code=None, word_data=None):
     except Exception as e:
         return None, [f"Error reading template: {e}"]
     
-    # Get available sheets
-    available_sheets = wb.sheetnames
-    updates.append(f"Found sheets: {', '.join(available_sheets)}")
+    updates.append(f"📋 Template sheets: {', '.join(wb.sheetnames)}")
     
-    # Process each sheet based on what's available in the template
-    if "Budget Initial" in available_sheets:
-        updates.extend(update_budget_initial(wb, pnl_file, parking_code))
-    else:
-        updates.append("Budget Initial: Sheet not found in template")
-    
-    if "1. Fiche Stationnement" in available_sheets:
-        updates.extend(update_fiche_stationnement(wb, pnl_file, parking_code, word_data))
-    else:
-        updates.append("1. Fiche Stationnement: Sheet not found in template")
-    
-    if "2. Donnees Historiques" in available_sheets:
-        updates.extend(update_donnees_historiques(wb, pnl_file, parking_code))
-    else:
-        updates.append("2. Donnees Historiques: Sheet not found in template")
+    # Process each sheet
+    updates.extend(update_budget_initial(wb, pnl_file, parking_code))
+    updates.extend(update_fiche_stationnement(wb, pnl_file, parking_code, word_data))
+    updates.extend(update_donnees_historiques(wb, pnl_file, parking_code))
     
     # Reset P&L file pointer
     pnl_file.seek(0) if hasattr(pnl_file, 'seek') else None
