@@ -44,44 +44,39 @@ stop_requested = False
 def ask_mistral(history: list) -> str:
     global stop_requested
     stop_requested = False
-    
+
     system = {
         "role": "system",
         "content": (
-            You are Allison, a senior budget analyst and operations specialist at Only Solutions Inc.
-
-Your expertise covers parking operations, budget forecasting, traffic data analysis, and 
-inflation modeling with deep, specific knowledge of the province of Quebec and the 
-greater Montreal metropolitan area (boroughs, traffic corridors, seasonal patterns, 
-municipal context, and local operators).
-
-You also have broad knowledge of the private parking industry in Canada,including how 
-major private operators are typically structured, how they approach budgeting, staffing, 
-and facility management, and how the competitive landscape works in markets like Montreal. 
-You speak about this in general, industry-level terms rather than referencing any specific 
-company's internal data.
-
-Your personality:
-- You are warm, direct, and collegial, a trusted co-worker, not a formal consultant
-- You speak like a sharp colleague who genuinely wants to help, not like a report generator
-- You keep answers precise and actionable, but never cold or robotic
-- You use natural conversational language — short paragraphs, no unnecessary filler
-
-Your rules — non-negotiable:
-- If you don't know something, say so clearly and honestly: "I don't have that data" 
-  or "I'm not sure about that one" — never guess, never fill gaps with assumptions
-- If revenue or operational figures are present in the conversation, reference them 
-  directly and specifically in your analysis — never speak in generalities when 
-  real numbers are available
-- Never fabricate statistics, benchmarks, or regulatory details — Quebec parking 
-  regulations, SAAQ rules, municipal bylaws, or industry practices must only be cited 
-  if you are certain they are accurate
-- Never claim to have insider or proprietary knowledge of any specific company's 
-  internal operations — speak only in general industry terms
-- If asked something outside your domain, say so and redirect helpfully
-
-You are Allison. You know your stuff, you're here to make the work easier, 
-and you treat every question like it deserves a real answer.
+            "You are Allison, a senior budget analyst and operations specialist at Only Solutions Inc.\n\n"
+            "Your expertise covers parking operations, budget forecasting, traffic data analysis, and "
+            "inflation modeling with deep, specific knowledge of the province of Quebec and the "
+            "greater Montreal metropolitan area (boroughs, traffic corridors, seasonal patterns, "
+            "municipal context, and local operators).\n\n"
+            "You also have broad knowledge of the private parking industry in Canada, including how "
+            "major private operators are typically structured, how they approach budgeting, staffing, "
+            "and facility management, and how the competitive landscape works in markets like Montreal. "
+            "You speak about this in general, industry-level terms rather than referencing any specific "
+            "company's internal data.\n\n"
+            "Your personality:\n"
+            "- You are warm, direct, and collegial, a trusted co-worker, not a formal consultant\n"
+            "- You speak like a sharp colleague who genuinely wants to help, not like a report generator\n"
+            "- You keep answers precise and actionable, but never cold or robotic\n"
+            "- You use natural conversational language — short paragraphs, no unnecessary filler\n\n"
+            "Your rules — non-negotiable:\n"
+            "- If you don't know something, say so clearly and honestly: \"I don't have that data\" "
+            "or \"I'm not sure about that one\" — never guess, never fill gaps with assumptions\n"
+            "- If revenue or operational figures are present in the conversation, reference them "
+            "directly and specifically in your analysis — never speak in generalities when "
+            "real numbers are available\n"
+            "- Never fabricate statistics, benchmarks, or regulatory details — Quebec parking "
+            "regulations, SAAQ rules, municipal bylaws, or industry practices must only be cited "
+            "if you are certain they are accurate\n"
+            "- Never claim to have insider or proprietary knowledge of any specific company's "
+            "internal operations — speak only in general industry terms\n"
+            "- If asked something outside your domain, say so and redirect helpfully\n\n"
+            "You are Allison. You know your stuff, you're here to make the work easier, "
+            "and you treat every question like it deserves a real answer."
         ),
     }
     try:
@@ -119,25 +114,25 @@ def transcribe_with_deepgram(audio_bytes):
     """Transcribe audio using Deepgram SDK v7"""
     if not DEEPGRAM_API_KEY:
         return None
-    
+
     try:
         deepgram = DeepgramClient(DEEPGRAM_API_KEY)
-        
+
         payload = {
             "buffer": audio_bytes,
         }
-        
+
         options = {
             "model": "nova-2",
             "smart_format": True,
             "language": "en",
         }
-        
+
         response = deepgram.listen.prerecorded.v("1").transcribe_file(
             payload,
             options
         )
-        
+
         transcript = response["results"]["channels"][0]["alternatives"][0]["transcript"]
         return transcript
     except Exception as e:
@@ -163,22 +158,22 @@ def text_to_speech(text):
     """Convert Allison's text response to speech using Deepgram TTS"""
     try:
         clean_text = clean_text_for_speech(text)
-        
+
         deepgram = DeepgramClient(DEEPGRAM_API_KEY)
-        
+
         options = {
             "model": "aura-asteria-en",
         }
-        
+
         response = deepgram.speak.v("1").save(
             "allison_audio.mp3",
             {"text": clean_text},
             options
         )
-        
+
         with open("allison_audio.mp3", "rb") as f:
             audio_bytes = f.read()
-        
+
         audio_b64 = base64.b64encode(audio_bytes).decode()
         return audio_b64
     except Exception as e:
@@ -255,7 +250,7 @@ def process_any_file(uploaded_file):
     """Process any uploaded file and return extracted content"""
     file_name = uploaded_file.name.lower()
     file_bytes = uploaded_file.read()
-    
+
     if file_name.endswith('.xlsx') or file_name.endswith('.xls'):
         return extract_text_from_excel(file_bytes), "excel", file_bytes
     elif file_name.endswith('.csv'):
@@ -1001,7 +996,7 @@ def inject_css():
 # ─────────────────────────────────────────────────────────────────
 def page_login():
     inject_css()
-    
+
     r1, r2, r3, r4 = st.columns([8, 0.75, 0.55, 0.55])
     with r2:
         theme_label = T("theme_light") if st.session_state.theme == "dark" else T("theme_dark")
@@ -1025,12 +1020,12 @@ def page_login():
             <div class="login-sub">{T('brand_sub')}</div>
         </div>
         """, unsafe_allow_html=True)
-        
+
         with st.form("login_form", clear_on_submit=False):
             email = st.text_input(T("email_lbl"), placeholder="admin@onlys.com")
             password = st.text_input(T("pass_lbl"), type="password", placeholder="••••••••")
             submit = st.form_submit_button(T("login_btn"), use_container_width=True)
-            
+
             if submit:
                 user = authenticate(email, password)
                 if user:
@@ -1043,7 +1038,7 @@ def page_login():
                     st.rerun()
                 else:
                     st.error(T("wrong_creds"))
-        
+
         st.markdown(f'<div class="db-footer">{T("footer")}</div>', unsafe_allow_html=True)
 
 # ─────────────────────────────────────────────────────────────────
@@ -1054,9 +1049,9 @@ def render_settings_menu():
         with st.expander(f"⚙️ {T('settings')}", expanded=True):
             st.markdown(f"**{T('profile')}**")
             st.info(f"**{st.session_state.user_name}**  \n`{st.session_state.user_email}`  \nRole: **{st.session_state.user_role.upper()}**")
-            
+
             st.markdown("---")
-            
+
             st.markdown(f"**{T('appearance')}**")
             col1, col2 = st.columns(2)
             with col1:
@@ -1067,7 +1062,7 @@ def render_settings_menu():
                 if st.button(T("theme_light"), use_container_width=True, key="theme_light_settings"):
                     st.session_state.theme = "light"
                     st.rerun()
-            
+
             st.markdown(f"**{T('language')}**")
             col1, col2 = st.columns(2)
             with col1:
@@ -1078,12 +1073,12 @@ def render_settings_menu():
                 if st.button("Français", use_container_width=True, key="fr_settings"):
                     st.session_state.lang = "fr"
                     st.rerun()
-            
+
             st.markdown("---")
-            
+
             if st.button(T("logout_btn"), use_container_width=True, key="logout_settings"):
                 do_logout()
-            
+
             if st.session_state.user_role == "admin":
                 st.markdown("---")
                 st.markdown("### 👑 Admin Management")
@@ -1096,7 +1091,7 @@ def render_settings_menu():
                         new_email = st.text_input(T("new_email_lbl"), placeholder="user@example.com")
                     new_password = st.text_input(T("new_pass_lbl"), type="password", placeholder="••••••••")
                     new_role = st.selectbox(T("role_lbl"), ["user", "admin"])
-                    
+
                     if st.form_submit_button("➕ " + T("create_btn"), type="primary"):
                         if new_email and new_name and new_password:
                             if create_user(new_email, new_name, new_password, new_role):
@@ -1106,7 +1101,7 @@ def render_settings_menu():
                                 st.error(f"❌ {T('user_exists')}")
                         else:
                             st.warning("All fields required")
-                
+
                 with st.expander("📋 " + T("users_title")):
                     users = load_users()
                     for ue, ud in users.items():
@@ -1120,7 +1115,7 @@ def render_settings_menu():
                                     delete_user(ue)
                                     st.rerun()
                         st.markdown("---")
-                
+
                 with st.expander("🔑 " + T("reset_title")):
                     users = load_users()
                     sel = st.selectbox(T("select_user"), list(users.keys()), key="reset_select")
@@ -1135,7 +1130,7 @@ def render_settings_menu():
 # ─────────────────────────────────────────────────────────────────
 def page_dashboard():
     inject_css()
-    
+
     # Navbar - only ONE settings icon
     n1, n2 = st.columns([6, 0.65])
     with n1:
@@ -1162,7 +1157,7 @@ def page_dashboard():
 
     # ============ AI CHAT - FULL WIDTH TOP ============
     st.markdown(f'<div class="scard"><div class="scard-title">{T("ai_title")}</div>', unsafe_allow_html=True)
-    
+
     # Top row: File upload + Clear chat
     col_upload_area, col_clear_area = st.columns([1.5, 0.8])
     with col_upload_area:
@@ -1181,7 +1176,7 @@ def page_dashboard():
             st.session_state.last_processed_text = ""
             clear_chat_history()
             st.rerun()
-    
+
     # Process uploaded file for AI context
     if uploaded_file_for_ai and not st.session_state.ai_file_data:
         try:
@@ -1193,31 +1188,31 @@ def page_dashboard():
             st.rerun()
         except Exception as e:
             st.error(f"Could not read file: {e}")
-    
+
     # Show indicator if file is loaded
     if st.session_state.ai_file_data:
         file_name = st.session_state.ai_file_name
         file_type = st.session_state.ai_file_type
         st.markdown(f'<div style="font-size:0.6rem;color:{TK()["highlight"]};margin-bottom:0.5rem;">📎 {file_name} ({file_type}) {T("ai_file_loaded")}</div>', unsafe_allow_html=True)
-    
+
     # SCROLLABLE MESSAGES AREA
     st.markdown('<div class="chat-messages">', unsafe_allow_html=True)
-    
+
     if not st.session_state.messages:
         st.markdown(f'<div class="no-msgs">— {T("no_msgs")} —</div>', unsafe_allow_html=True)
-    
+
     for msg in st.session_state.messages:
         if msg["role"] == "user":
             st.markdown(f'<div class="bubble-user"><div class="bubble-lbl">You</div>{msg["content"]}</div>', unsafe_allow_html=True)
         else:
             st.markdown(f'<div class="bubble-bot"><div class="bubble-lbl">Allison</div>{msg["content"]}</div>', unsafe_allow_html=True)
-    
+
     # THINKING INDICATOR - Toast notification that ALWAYS shows
     if st.session_state.thinking:
         st.toast(f"🤖 {T('thinking_msg')}", icon="🤖")
-    
+
     st.markdown('</div>', unsafe_allow_html=True)
-    
+
     # CHAT INPUT USING FORM - THIS ELIMINATES THE GAP
     with st.form(key="chat_form", clear_on_submit=True):
         col_input, col_send = st.columns([5, 1])
@@ -1238,14 +1233,14 @@ def page_dashboard():
             else:
                 submitted = st.form_submit_button("➤ " + T("send"), use_container_width=True)
                 stop_clicked = False
-    
+
     st.markdown('</div>', unsafe_allow_html=True)  # close scard
-    
+
     # Handle STOP button
     if stop_clicked:
         st.session_state.thinking = False
         st.rerun()
-    
+
     if submitted and user_input and user_input.strip() and user_input != st.session_state.last_processed_text:
         st.session_state.last_processed_text = user_input
         st.session_state.messages.append({"role": "user", "content": user_input})
@@ -1255,21 +1250,21 @@ def page_dashboard():
 
     # ============ LOGO + STATUS + MIC - BETWEEN AI CARD AND FILE UPLOAD ============
     col_status_gap, col_logo_gap, col_mic_gap = st.columns([1.5, 1, 1.5])
-    
+
     with col_status_gap:
         st.markdown(f"""
         <div style="text-align:right; padding-top: 12px; font-family: 'IBM Plex Mono', monospace; font-size: 0.7rem; color: {TK()['highlight']};">
             {T("allison_online")}
         </div>
         """, unsafe_allow_html=True)
-    
+
     with col_logo_gap:
         st.markdown(f"""
         <div style="text-align:center; padding: 0; margin: 0;">
             <img src="https://i.ibb.co/0yfv7KCS/image-1.jpg" width="130" style="border-radius: 8px; opacity: 0.9;">
         </div>
         """, unsafe_allow_html=True)
-    
+
     with col_mic_gap:
         audio_bytes = audio_recorder(
             text=T("speak_now"),
@@ -1282,7 +1277,7 @@ def page_dashboard():
             sample_rate=16000,
             energy_threshold=0.001
         )
-    
+
     # Handle voice input - auto sends on second press
     if audio_bytes:
         transcript = transcribe_with_deepgram(audio_bytes)
@@ -1298,16 +1293,16 @@ def page_dashboard():
 
     with col_files:
         st.markdown(f'<div class="scard"><div class="scard-title">{T("files_title")}</div>', unsafe_allow_html=True)
-        
+
         # ACCEPT ANY FILE TYPE
         excel_file = st.file_uploader(T("excel_lbl"), type=None, key="xl")
         pdf_file = st.file_uploader(T("pdf_lbl"), type=None, key="pd")
-        
+
         if excel_file and pdf_file and not st.session_state.files_ready:
             with st.spinner(T("processing")):
                 excel_bytes_read = excel_file.read()
                 pdf_bytes_read = pdf_file.read()
-                
+
                 if pdf_file.name.lower().endswith('.pdf'):
                     rev = extract_pdf_revenue(pdf_bytes_read)
                 else:
@@ -1316,28 +1311,28 @@ def page_dashboard():
                         rev = {"transient": 24000, "monthly": 16000, "total": 40000}
                     except:
                         rev = {"transient": 24000, "monthly": 16000, "total": 40000}
-                
+
                 st.session_state.extracted_rev = rev
                 st.session_state.excel_bytes = excel_bytes_read
                 st.session_state.files_ready = True
                 st.session_state.fixed_excel = None
             st.success(T("files_ok"))
             st.rerun()
-        
+
         st.markdown('</div>', unsafe_allow_html=True)
 
     with col_wf:
         st.markdown(f'<div class="scard"><div class="scard-title">{T("config_title")}</div>', unsafe_allow_html=True)
-        
+
         if not st.session_state.files_ready:
             st.markdown(f'<div style="font-size:0.78rem;color:{TK()["text_secondary"]};padding:1rem 0;">{T("upload_first")}</div>', unsafe_allow_html=True)
         else:
             parking = st.selectbox(T("parking_lbl"), ["CMO142 (LUNA)", "CMO143", "CMO144"])
             p_type = st.selectbox(T("type_lbl"), ["SC (School)", "RG (Tourism)"])
             hours = st.number_input(T("hours_lbl"), min_value=0, max_value=24, value=1, step=1)
-            
+
             st.markdown('<div class="hr"></div>', unsafe_allow_html=True)
-            
+
             col_run, col_clear_wf = st.columns([1, 1])
             with col_run:
                 if st.button("🚀 " + T("run_btn"), use_container_width=True, type="primary"):
@@ -1351,7 +1346,7 @@ def page_dashboard():
                             )
                             st.session_state.fixed_excel = output
                             st.session_state.workflow_log = log
-                            
+
                             rev = st.session_state.extracted_rev
                             st.markdown(f"""
                             <div class="metric-row">
@@ -1369,13 +1364,13 @@ def page_dashboard():
                                 </div>
                             </div>
                             """, unsafe_allow_html=True)
-                            
+
                             for line in log:
                                 st.markdown(f'<div class="log-line">{line}</div>', unsafe_allow_html=True)
                             st.success(T("run_ok"))
                         except Exception as e:
                             st.error(f"Workflow error: {e}")
-            
+
             with col_clear_wf:
                 if st.button("🔄 " + T("clear_workflow"), use_container_width=True):
                     st.session_state.extracted_rev = {}
@@ -1384,7 +1379,7 @@ def page_dashboard():
                     st.session_state.fixed_excel = None
                     st.session_state.workflow_log = []
                     st.rerun()
-            
+
             if st.session_state.fixed_excel:
                 st.markdown('<div class="hr"></div>', unsafe_allow_html=True)
                 pclean = parking.replace(" ", "_").replace("(", "").replace(")", "")
@@ -1395,9 +1390,9 @@ def page_dashboard():
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                     use_container_width=True,
                 )
-        
+
         st.markdown('</div>', unsafe_allow_html=True)
-    
+
     st.markdown(f'<div class="db-footer">{T("footer")}</div>', unsafe_allow_html=True)
 
 # ─────────────────────────────────────────────────────────────────
@@ -1407,9 +1402,9 @@ if st.session_state.thinking:
     user_messages = [m for m in st.session_state.messages if m["role"] == "user"]
     if user_messages:
         last_user_msg = user_messages[-1]["content"]
-        
+
         ctx_suffix = ""
-        
+
         if st.session_state.ai_file_data:
             file_data = st.session_state.ai_file_data
             file_name = st.session_state.ai_file_name
@@ -1422,33 +1417,33 @@ if st.session_state.thinking:
             else:
                 ctx_suffix += f"Content:\n{str(file_data)[:3000]}\n"
             ctx_suffix += f"\n[End of {file_name}]\n"
-        
+
         if st.session_state.extracted_rev:
             rev = st.session_state.extracted_rev
             ctx_suffix += f" [Budget: Transient ${rev['transient']:,.0f}, Monthly ${rev['monthly']:,.0f}, Total ${rev['total']:,.0f}]"
-        
+
         recent_history = st.session_state.messages[-12:] if len(st.session_state.messages) > 12 else st.session_state.messages
-        
+
         history_for_mistral = []
         for msg in recent_history[:-1]:
             history_for_mistral.append({"role": msg["role"], "content": msg["content"]})
-        
+
         history_for_mistral.append({"role": "user", "content": last_user_msg + ctx_suffix})
-        
+
         reply = ask_mistral(history_for_mistral)
         st.session_state.messages.append({"role": "assistant", "content": reply})
         st.session_state.thinking = False
-        
+
         # Save chat history after each response
         save_chat_history(st.session_state.messages)
-        
+
         # ONLY generate TTS if the message came from voice
         if st.session_state.thinking_from_voice:
             audio_b64 = text_to_speech(reply)
             st.session_state.last_audio = audio_b64
         else:
             st.session_state.last_audio = None
-        
+
         st.rerun()
 
 # Play Allison's audio if available
