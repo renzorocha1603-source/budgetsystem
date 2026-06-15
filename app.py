@@ -299,9 +299,11 @@ T_DATA = {
         "no_msgs": "No messages yet — start a conversation with Allison.",
         "files_title": "File Upload",
         "excel_lbl": "Upload Excel Template",
-        "pdf_lbl": "Upload P&L File",
+        "pnl_current_lbl": "Upload P&L CURRENT Year (e.g., 2026)",
+        "pnl_previous_lbl": "Upload P&L PREVIOUS Year (e.g., 2025)",
         "processing": "Processing files…",
-        "files_ok": "✅ Files ready — you can now run the workflow.",
+        "files_ready": "✅ Files ready — you can now run the workflow.",
+        "files_ready_single": "✅ Template + Current Year P&L ready. Previous year P&L optional but recommended for Donnees Historiques.",
         "transient": "Transient",
         "monthly": "Monthly",
         "total": "Total",
@@ -313,7 +315,7 @@ T_DATA = {
         "running": "Processing your budget...",
         "run_ok": "Done — file ready to download.",
         "dl_btn": "Download Budget File",
-        "upload_first": "Upload Excel Template + P&L File to unlock workflow.",
+        "upload_first": "Upload Excel Template + Current Year P&L File to unlock workflow.",
         "admin_title": "Admin Panel",
         "new_user_title": "Create New User",
         "nm_lbl": "Full name",
@@ -362,9 +364,11 @@ T_DATA = {
         "no_msgs": "Aucun message — commencez une conversation avec Allison.",
         "files_title": "Fichiers",
         "excel_lbl": "Téléverser le modèle Excel",
-        "pdf_lbl": "Téléverser le fichier P&L",
+        "pnl_current_lbl": "Téléverser P&L année EN COURS (ex: 2026)",
+        "pnl_previous_lbl": "Téléverser P&L année PRÉCÉDENTE (ex: 2025)",
         "processing": "Traitement…",
-        "files_ok": "✅ Fichiers prêts — vous pouvez exécuter le workflow.",
+        "files_ready": "✅ Fichiers prêts — vous pouvez exécuter le workflow.",
+        "files_ready_single": "✅ Modèle + P&L année courante prêts. P&L année précédente optionnel mais recommandé pour Données Historiques.",
         "transient": "Transitoire",
         "monthly": "Mensuel",
         "total": "Total",
@@ -376,7 +380,7 @@ T_DATA = {
         "running": "Traitement de votre budget...",
         "run_ok": "Terminé — fichier prêt.",
         "dl_btn": "Télécharger le fichier",
-        "upload_first": "Téléversez le modèle Excel + fichier P&L pour débloquer.",
+        "upload_first": "Téléversez le modèle Excel + fichier P&L année courante pour débloquer.",
         "admin_title": "Admin",
         "new_user_title": "Créer un utilisateur",
         "nm_lbl": "Nom complet",
@@ -512,7 +516,8 @@ _D = dict(
     theme="dark",
     messages=[],
     excel_bytes=None,
-    pnl_bytes=None,
+    pnl_current_bytes=None,
+    pnl_previous_bytes=None,
     word_bytes=None,
     extracted_rev={},
     files_ready=False,
@@ -1270,29 +1275,50 @@ def page_dashboard():
             st.session_state.thinking_from_voice = True
             st.rerun()
 
-    # ============ FILE UPLOAD + WORKFLOW - NEW EXCEL FIXER ============
+    # ============ FILE UPLOAD + WORKFLOW - MULTI-YEAR P&L SUPPORT ============
     col_files, col_wf = st.columns([1, 1])
 
     with col_files:
         st.markdown(f'<div class="scard"><div class="scard-title">{T("files_title")}</div>', unsafe_allow_html=True)
 
-        # Upload Excel Template
+        # Upload Excel Template (REQUIRED)
         excel_file = st.file_uploader(T("excel_lbl"), type=["xlsx"], key="xl")
         
-        # Upload P&L File
-        pnl_file = st.file_uploader(T("pdf_lbl"), type=["xlsx"], key="pd")
+        # Upload P&L CURRENT Year (REQUIRED) - e.g., 2026 for 2027 budget
+        pnl_current_file = st.file_uploader(T("pnl_current_lbl"), type=["xlsx"], key="pnl_current")
+        
+        # Upload P&L PREVIOUS Year (OPTIONAL but recommended) - e.g., 2025 for 2027 budget
+        pnl_previous_file = st.file_uploader(T("pnl_previous_lbl"), type=["xlsx"], key="pnl_previous")
         
         # Optional Word Data
         word_file = st.file_uploader(T("word_data_upload"), type=["xlsx", "csv"], key="wd")
 
-        if excel_file and pnl_file and not st.session_state.files_ready:
+        # Check if minimum required files are ready
+        if excel_file and pnl_current_file:
+            # Update session state
             st.session_state.excel_bytes = excel_file
-            st.session_state.pnl_bytes = pnl_file
+            st.session_state.pnl_current_bytes = pnl_current_file
+            
+            if pnl_previous_file:
+                st.session_state.pnl_previous_bytes = pnl_previous_file
+            else:
+                st.session_state.pnl_previous_bytes = None
+                
             if word_file:
                 st.session_state.word_bytes = word_file
+            else:
+                st.session_state.word_bytes = None
+                
             st.session_state.files_ready = True
-            st.success(T("files_ok"))
-            st.rerun()
+            
+            if pnl_previous_file:
+                st.success(T("files_ready"))
+            else:
+                st.info(T("files_ready_single"))
+                
+        elif excel_file and not pnl_current_file:
+            st.warning("⚠️ Current Year P&L file is required to run the workflow.")
+            st.session_state.files_ready = False
 
         st.markdown('</div>', unsafe_allow_html=True)
 
@@ -1302,9 +1328,18 @@ def page_dashboard():
         if not st.session_state.files_ready:
             st.markdown(f'<div style="font-size:0.78rem;color:{TK()["text_secondary"]};padding:1rem 0;">{T("upload_first")}</div>', unsafe_allow_html=True)
         else:
-            # Show filename of uploaded template
+            # Show filenames of uploaded files
             template_name = st.session_state.excel_bytes.name if hasattr(st.session_state.excel_bytes, 'name') else "Template"
+            pnl_current_name = st.session_state.pnl_current_bytes.name if hasattr(st.session_state.pnl_current_bytes, 'name') else "Current Year P&L"
+            
             st.markdown(f"**Template:** {template_name}")
+            st.markdown(f"**Current Year P&L:** {pnl_current_name}")
+            
+            if st.session_state.pnl_previous_bytes:
+                pnl_previous_name = st.session_state.pnl_previous_bytes.name if hasattr(st.session_state.pnl_previous_bytes, 'name') else "Previous Year P&L"
+                st.markdown(f"**Previous Year P&L:** {pnl_previous_name}")
+            else:
+                st.markdown("**Previous Year P&L:** Not provided (optional)")
             
             st.markdown('<div class="hr"></div>', unsafe_allow_html=True)
 
@@ -1313,12 +1348,20 @@ def page_dashboard():
                 if st.button("🚀 " + T("run_btn"), use_container_width=True, type="primary"):
                     with st.spinner(T("running")):
                         try:
-                            # Call the new excel_fixer
+                            # Extract Word data if provided
+                            word_data = None
+                            if st.session_state.word_bytes:
+                                # Try to extract relevant data from Word file
+                                # This can be enhanced based on actual Word data format
+                                pass
+                            
+                            # Call the new excel_fixer with multi-year support
                             fixed_excel, updates = fix_excel(
-                                st.session_state.excel_bytes,
-                                st.session_state.pnl_bytes,
+                                excel_file=st.session_state.excel_bytes,
+                                pnl_current_year=st.session_state.pnl_current_bytes,
+                                pnl_previous_year=st.session_state.pnl_previous_bytes,
                                 parking_code=None,  # Auto-extract from filename
-                                word_data=None  # Can add later
+                                word_data=word_data
                             )
                             
                             st.session_state.fixed_excel = fixed_excel
@@ -1328,16 +1371,28 @@ def page_dashboard():
                             if updates:
                                 for update in updates:
                                     st.markdown(f'<div class="log-line">{update}</div>', unsafe_allow_html=True)
-                                st.success(T("run_ok"))
+                                
+                                # Count successes
+                                success_count = sum(1 for u in updates if "✅" in u)
+                                warning_count = sum(1 for u in updates if "⚠️" in u)
+                                
+                                if fixed_excel:
+                                    if warning_count > 0 and success_count == 0:
+                                        st.warning("Workflow completed with warnings. Download available but some data may be missing.")
+                                    else:
+                                        st.success(T("run_ok"))
+                                else:
+                                    st.error("Workflow failed - no output file generated.")
                             else:
-                                st.warning("No updates were made. Check if the parking code exists in the P&L file.")
+                                st.warning("No updates were made. Check if the parking code exists in the P&L files.")
                         except Exception as e:
                             st.error(f"Workflow error: {str(e)}")
 
             with col_clear_wf:
                 if st.button("🔄 " + T("clear_workflow"), use_container_width=True):
                     st.session_state.excel_bytes = None
-                    st.session_state.pnl_bytes = None
+                    st.session_state.pnl_current_bytes = None
+                    st.session_state.pnl_previous_bytes = None
                     st.session_state.word_bytes = None
                     st.session_state.files_ready = False
                     st.session_state.fixed_excel = None
