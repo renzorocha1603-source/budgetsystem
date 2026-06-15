@@ -28,18 +28,26 @@ SHEET_PATTERNS = {
 # VERIFIED ROW MAPPING: Donnees Historiques row -> P&L labels
 # ============================================================================
 DH_ROW_MAPPING = {
+    # REVENUS section
     12: ["Transient Revenue", "transient revenue"],
     13: ["Monthly Revenues", "monthly revenues"],
     14: ["Car-Wash Revenue", "car-wash revenue", "lave-auto"],
     15: ["Hotel Revenue", "hotel revenue", "revenus hotel"],
     16: ["Interests", "interests", "intérêts", "interets"],
-    17: ["Miscellaneous", "miscellaneous", "autres revenus"],
+    17: ["Miscellaneous", "miscellaneous", "autres revenus", "Other Monthly revenue", "other monthly revenue", "other revenue", "Violation", "violation"],
+    # 18 = Total revenus Bruts (FORMULA: SUM 12-17)
     20: ["Discount-Gratuities - Transient", "gratuities transient"],
     22: ["Discount-Gratuities - Monthly", "rabais", "discount monthly"],
+    # 24 = Autres revenus
+    # 26 = TOTAL REVENUS (FORMULA)
+
+    # DÉPENSES section
     29: ["Parking wages", "parking wages", "salaire stationnement"],
     30: ["Other wages", "other wages", "salaire superviseur", "supervisor"],
     31: ["Training & Recr.", "training", "formation", "recrutement"],
     32: ["Uniforms", "uniforms", "uniformes"],
+    # 33 = Total Frais de personnel (FORMULA)
+
     35: ["R&M - Cleaning", "cleaning", "nettoyage"],
     36: ["R&M - General", "maintenance", "entretien stationnement"],
     37: ["R&M - Equipement", "equipment", "entretien équipement", "entretien equipement"],
@@ -49,7 +57,11 @@ DH_ROW_MAPPING = {
     41: ["Parking supplies", "parking supplies", "fournitures stationnement", "fournitures"],
     42: ["Misc. Re-Billing", "re-billing", "refacturations diverses", "refacturations", "rebilling"],
     43: ["R&M - General", "amenagement", "aménagement stationnement", "aménagement"],
+    # 44 = Total Entretien (FORMULA)
+
     46: ["Public services", "public services", "services publics", "utilities"],
+    # 47 = Total Services Publics (FORMULA)
+
     49: ["Office expenses", "office expenses", "fournitures de bureau", "fournitures bureau"],
     50: ["Telecommunication", "telecommunication", "telecommunications", "télécommunications", "telecom"],
     51: ["Rent", "rent", "loyer"],
@@ -66,6 +78,8 @@ DH_ROW_MAPPING = {
     62: ["Percent Management fee", "management fee", "honoraires de gestion en pourcentage", "honoraires de gestion en %"],
     63: ["Management Fees (Basic)", "management fees basic", "honoraires de gestion de base", "honoraires de base"],
     64: ["Incentives", "incentives", "incitatif annuel", "incitatif", "incentive"],
+    # 65 = Total Frais Généraux (FORMULA)
+
     67: ["Depreciation", "depreciation", "amortissement"],
     68: ["Financial fees", "interest", "intérêts sur emprunts", "interets sur emprunts", "emprunts"],
     69: ["Security", "security", "sécurité", "securite"],
@@ -299,36 +313,25 @@ def extract_parking_code_from_filename(filename):
     return parts.upper()
 
 def get_parking_codes_from_pnl(pnl_file):
-    """
-    Extract all parking codes from a P&L file.
-    Returns a list of parking codes found in sheet names.
-    """
     sheets_dict, file_type = read_any_file_to_dataframes(pnl_file)
     if sheets_dict is None:
         return []
-    
     codes = []
     for sheet_name in sheets_dict.keys():
-        # Look for CMO codes
         match = re.search(r'(CMO\d+)', sheet_name, re.IGNORECASE)
         if match:
             codes.append(match.group(1).upper())
-        # Also check for LUNA
         if 'LUNA' in sheet_name.upper():
             codes.append('LUNA')
-        # Any other uppercase codes
         if sheet_name.upper().strip() not in [c.upper() for c in codes]:
             if re.match(r'^[A-Z0-9]{3,10}$', sheet_name.strip()):
                 codes.append(sheet_name.strip().upper())
-    
-    # Remove duplicates, keep order
     seen = set()
     unique_codes = []
     for code in codes:
         if code not in seen:
             seen.add(code)
             unique_codes.append(code)
-    
     return unique_codes
 
 def find_sheet_by_pattern(wb, patterns):
@@ -407,9 +410,7 @@ def read_year_mapping_from_template(wb):
         for i in range(4, 12):
             year_map[i] = current_year - 1
         return year_map
-    
     ws = wb[dh_sheet_name]
-    
     for row_idx in range(1, 20):
         year_map = {}
         for col_idx in range(2, 14):
@@ -421,7 +422,6 @@ def read_year_mapping_from_template(wb):
                     year_map[col_idx - 2] = int(year_match.group(1))
         if len(year_map) >= 6:
             return year_map
-    
     current_year = datetime.now().year
     year_map = {}
     for i in range(4):
@@ -438,7 +438,6 @@ def extract_pnl_data_from_dataframe(df, sheet_name_hint=None):
     result = {'monthly': {}, 'yearly': {}}
     if df is None or len(df) == 0:
         return result
-    
     header_row = None
     for row_idx in range(min(20, len(df))):
         for col_idx in range(min(14, len(df.columns))):
@@ -451,18 +450,14 @@ def extract_pnl_data_from_dataframe(df, sheet_name_hint=None):
                 continue
         if header_row is not None:
             break
-    
     data_start = (header_row + 1) if header_row else 1
-    
     for row_idx in range(data_start, len(df)):
         try:
             label = str(df.iloc[row_idx, 0]).strip() if pd.notna(df.iloc[row_idx, 0]) else ""
         except Exception:
             continue
-        
         if not label:
             continue
-        
         label_lower = label.lower()
         if label_lower in ['code', 'profit & loss', '', 'nan', 'none']:
             continue
@@ -470,7 +465,6 @@ def extract_pnl_data_from_dataframe(df, sheet_name_hint=None):
             continue
         if re.search(r'\d{2}[-/]\d{2}[-/]\d{2}', label):
             continue
-        
         has_any_data = False
         for col_idx in range(1, min(14, len(df.columns))):
             if safe_float(df.iloc[row_idx, col_idx]) != 0:
@@ -478,24 +472,20 @@ def extract_pnl_data_from_dataframe(df, sheet_name_hint=None):
                 break
         if not has_any_data:
             continue
-        
         monthly = {}
         for month_idx in range(12):
             col_idx = month_idx + 1
             if col_idx < len(df.columns):
                 val = safe_float(df.iloc[row_idx, col_idx])
                 monthly[MONTHS_EN[month_idx]] = val
-        
         yearly_total = 0
         if len(df.columns) > 13:
             yearly_total = safe_float(df.iloc[row_idx, 13])
         elif len(df.columns) > 1:
             yearly_total = safe_float(df.iloc[row_idx, -1])
-        
         clean_label = label.strip().replace('  ', ' ')
         result['monthly'][clean_label] = monthly
         result['yearly'][clean_label] = yearly_total
-    
     return result
 
 def extract_pnl_data(uploaded_file, parking_code):
@@ -660,31 +650,23 @@ def update_donnees_historiques(wb, merged_monthly_data, parking_code):
         dh_sheet_name = find_sheet_by_pattern(wb, SHEET_PATTERNS["Donnees Historiques"])
         if not dh_sheet_name:
             return ["❌ Donnees Historiques: Sheet not found"]
-        
         ws_dh = wb[dh_sheet_name]
-        
         year_map = read_year_mapping_from_template(wb)
         updates.append(
             f"📅 Year mapping: Jan={year_map.get(0)}, Apr={year_map.get(3)}, "
             f"May={year_map.get(4)}, Dec={year_map.get(11)}"
         )
-        
         if not merged_monthly_data:
             updates.append("⚠️ Donnees Historiques: No merged monthly data available")
             return updates
-        
         cells_updated = 0
         rows_filled = []
-        
         for dh_row, pnl_labels in DH_ROW_MAPPING.items():
             monthly_values = find_monthly_pnl_value(merged_monthly_data, pnl_labels)
-            
             if not monthly_values:
                 continue
-            
             if all(v == 0 for v in monthly_values.values()):
                 continue
-            
             row_cells = 0
             for month_idx, month_name in enumerate(MONTHS_EN):
                 if month_name in monthly_values:
@@ -696,10 +678,8 @@ def update_donnees_historiques(wb, merged_monthly_data, parking_code):
                         ws_dh[cell_ref].number_format = '#,##0.00'
                         cells_updated += 1
                         row_cells += 1
-            
             if row_cells > 0:
                 rows_filled.append(f"  Row {dh_row}: {pnl_labels[0]} ({row_cells} months)")
-        
         if cells_updated > 0:
             updates.append(f"✅ Donnees Historiques: {cells_updated} cells in {len(rows_filled)} rows")
             for row_info in rows_filled:
@@ -709,7 +689,6 @@ def update_donnees_historiques(wb, merged_monthly_data, parking_code):
             updates.append(f"   P&L data has {len(merged_monthly_data)} labels available")
             pnl_sample = list(merged_monthly_data.keys())[:20]
             updates.append(f"   Available P&L labels: {pnl_sample}")
-    
     except Exception as e:
         updates.append(f"❌ Donnees Historiques: {str(e)}")
     return updates
@@ -727,80 +706,46 @@ def fix_excel(
     parking_code=None,
     word_data=None
 ):
-    """
-    Main function to process the Excel template with P&L data from MULTIPLE years.
-    
-    Year Usage per Sheet:
-        - Budget Initial: Previous year total (year - 1)
-        - Fiche Stationnement: 2 years ago data (year - 2) - ONLY if uploaded
-        - Donnees Historiques: Jan-Apr = current year, May-Dec = previous year
-    
-    If parking_code is None, it will be extracted from the template filename.
-    """
     updates = []
-    
-    # ── Extract parking code ────────────────────────────────────────────
     if not parking_code and hasattr(excel_file, 'name'):
         parking_code = extract_parking_code_from_filename(excel_file.name)
-    
     if not parking_code:
         return None, ["❌ Could not determine parking code. Please select a parking code."]
-    
     updates.append(f"🔍 Processing: {parking_code}")
-    
-    # ── Detect years from uploaded files ────────────────────────────────
     current_year_name = "?"
     previous_year_name = "?"
     two_years_ago_name = "?"
-    
     if hasattr(pnl_current_year, 'name'):
         detected = detect_year_from_filename(pnl_current_year.name)
         if detected:
             current_year_name = str(detected)
-    
     if pnl_previous_year and hasattr(pnl_previous_year, 'name'):
         detected = detect_year_from_filename(pnl_previous_year.name)
         if detected:
             previous_year_name = str(detected)
-    
     if pnl_two_years_ago and hasattr(pnl_two_years_ago, 'name'):
         detected = detect_year_from_filename(pnl_two_years_ago.name)
         if detected:
             two_years_ago_name = str(detected)
-    
-    updates.append(
-        f"📂 Files: Current={current_year_name} | "
-        f"Previous={previous_year_name} | "
-        f"2YA={two_years_ago_name}"
-    )
-    
-    # ── Extract data from P&L files (any format!) ───────────────────────
+    updates.append(f"📂 Files: Current={current_year_name} | Previous={previous_year_name} | 2YA={two_years_ago_name}")
     current_year_data, current_file_type = extract_pnl_data(pnl_current_year, parking_code)
     previous_year_data, prev_file_type = (None, None)
     two_years_ago_data, two_ya_file_type = (None, None)
-    
     if pnl_previous_year:
         previous_year_data, prev_file_type = extract_pnl_data(pnl_previous_year, parking_code)
-    
     if pnl_two_years_ago:
         two_years_ago_data, two_ya_file_type = extract_pnl_data(pnl_two_years_ago, parking_code)
-    
     if current_year_data is None and previous_year_data is None and two_years_ago_data is None:
         return None, [f"❌ Could not find P&L data for {parking_code} in any uploaded file."]
-    
     if current_year_data:
         keys = list(current_year_data['yearly'].keys())[:10]
         updates.append(f"📊 Current year keys ({current_file_type}): {keys}")
-    
     if previous_year_data:
         keys = list(previous_year_data['yearly'].keys())[:10]
         updates.append(f"📊 Previous year keys ({prev_file_type}): {keys}")
-    
     if two_years_ago_data:
         keys = list(two_years_ago_data['yearly'].keys())[:10]
         updates.append(f"📊 2YA keys ({two_ya_file_type}): {keys}")
-    
-    # ── Read template ───────────────────────────────────────────────────
     try:
         excel_file.seek(0) if hasattr(excel_file, 'seek') else None
         file_bytes = excel_file.read()
@@ -809,53 +754,32 @@ def fix_excel(
         wb_read = load_workbook(io.BytesIO(file_bytes), data_only=True)
     except Exception as e:
         return None, [f"❌ Error reading template: {str(e)}"]
-    
-    # ── Read year mapping from Donnees Historiques ──────────────────────
     year_map = read_year_mapping_from_template(wb_read)
-    
-    # ── Merge monthly data based on year mapping ────────────────────────
     merged_monthly = {}
     if year_map and current_year_data and previous_year_data:
         merged_monthly = merge_monthly_data(current_year_data, previous_year_data, year_map)
-    
     if not merged_monthly and current_year_data:
         merged_monthly = current_year_data['monthly']
-    
-    # ── Determine which data to use for each sheet ──────────────────────
-    # Budget Initial = previous year (year - 1)
     budget_initial_data = previous_year_data if previous_year_data else current_year_data
-    
-    # Fiche Stationnement = 2 years ago (year - 2) - ONLY if uploaded
     fiche_data = None
     if pnl_two_years_ago and two_years_ago_data:
         fiche_data = two_years_ago_data
-    
-    # Donnees Historiques = merged (current + previous)
     dh_data = merged_monthly if merged_monthly else {}
     if not dh_data and current_year_data:
         dh_data = current_year_data['monthly']
-    
-    # ── Update all sheets ───────────────────────────────────────────────
     updates.extend(update_budget_initial(wb_write, budget_initial_data, parking_code))
     updates.extend(update_fiche_stationnement(wb_write, fiche_data, parking_code, word_data))
     updates.extend(update_donnees_historiques(wb_write, dh_data, parking_code))
-    
-    # ── Summary ─────────────────────────────────────────────────────────
     success_count = sum(1 for u in updates if u.startswith("✅"))
     if success_count == 0:
         updates.append("💡 No updates were made.")
-    
-    # ── Reset file pointers ─────────────────────────────────────────────
     if hasattr(pnl_current_year, 'seek'):
         pnl_current_year.seek(0)
     if pnl_previous_year and hasattr(pnl_previous_year, 'seek'):
         pnl_previous_year.seek(0)
     if pnl_two_years_ago and hasattr(pnl_two_years_ago, 'seek'):
         pnl_two_years_ago.seek(0)
-    
-    # ── Save output ─────────────────────────────────────────────────────
     output = io.BytesIO()
     wb_write.save(output)
     output.seek(0)
-    
     return output, updates
