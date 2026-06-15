@@ -161,17 +161,18 @@ def clean_text_for_speech(text):
     return clean.strip()
 
 def text_to_speech(text, lang="en"):
-    """Convert Allison's text response to speech using Deepgram TTS"""
+    """Convert Allison's text response to speech using Deepgram TTS (Aura-2)"""
     try:
         clean_text = clean_text_for_speech(text)
         
         deepgram = DeepgramClient(DEEPGRAM_API_KEY)
         
         # Choose voice based on language
+        # Aura-2 voices: agathe-fr (feminine French), asteria-en (feminine English)
         if lang == "fr":
-            voice_model = "aura-asteria-fr"
+            voice_model = "aura-2-agathe-fr"  # French feminine voice
         else:
-            voice_model = "aura-asteria-en"
+            voice_model = "aura-2-asteria-en"  # English feminine voice
         
         options = {
             "model": voice_model,
@@ -717,6 +718,42 @@ def inject_css():
         background: {C['run_bg2']};
     }}
     
+    /* THINKING DOTS - TRIGGERED BY THINKING STATE */
+    .thinking-container {{
+        display: inline-flex !important;
+        align-items: center;
+        gap: 6px;
+        padding: 0.5rem 0.8rem;
+        background: {C['bubble_bot']};
+        border: 1px solid {C['border']};
+        border-left: 2px solid {C['accent2']};
+        border-radius: 2px 8px 8px 8px;
+        margin-bottom: 0.5rem;
+    }}
+    
+    .robot-icon {{
+        font-size: 1.1rem;
+        line-height: 1;
+    }}
+    
+    .dot {{
+        display: inline-block;
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        background: {C['highlight']};
+        animation: dot-bounce 1.4s infinite ease-in-out both;
+    }}
+    
+    .dot:nth-child(2) {{ animation-delay: -0.32s; }}
+    .dot:nth-child(3) {{ animation-delay: -0.16s; }}
+    .dot:nth-child(4) {{ animation-delay: 0s; }}
+    
+    @keyframes dot-bounce {{
+        0%, 80%, 100% {{ transform: scale(0.6); opacity: 0.4; }}
+        40% {{ transform: scale(1); opacity: 1; }}
+    }}
+    
     /* GREEN PULSING DOT - ALIVE INDICATOR */
     @keyframes pulse-green {{
         0%, 100% {{ 
@@ -1219,9 +1256,16 @@ def page_dashboard():
         else:
             st.markdown(f'<div class="bubble-bot"><div class="bubble-lbl">Allison</div>{msg["content"]}</div>', unsafe_allow_html=True)
 
-    # THINKING INDICATOR - Toast notification that ALWAYS shows
+    # THINKING INDICATOR - Shows dots animation when thinking
     if st.session_state.thinking:
-        st.toast(f"🤖 {T('thinking_msg')}", icon="🤖")
+        st.markdown(f"""
+        <div class="thinking-container">
+            <span class="robot-icon">🤖</span>
+            <span class="dot"></span>
+            <span class="dot"></span>
+            <span class="dot"></span>
+        </div>
+        """, unsafe_allow_html=True)
 
     st.markdown('</div>', unsafe_allow_html=True)
 
