@@ -110,7 +110,7 @@ def ask_mistral(history: list) -> str:
 # ─────────────────────────────────────────────────────────────────
 # VOICE: Speech-to-Text (transcription)
 # ─────────────────────────────────────────────────────────────────
-def transcribe_with_deepgram(audio_bytes):
+def transcribe_with_deepgram(audio_bytes, lang="en"):
     """Transcribe audio using Deepgram SDK v7"""
     if not DEEPGRAM_API_KEY:
         return None
@@ -122,10 +122,16 @@ def transcribe_with_deepgram(audio_bytes):
             "buffer": audio_bytes,
         }
 
+        # Switch language based on app setting
+        if lang == "fr":
+            speech_language = "fr"
+        else:
+            speech_language = "en"
+
         options = {
             "model": "nova-2",
             "smart_format": True,
-            "language": "en",
+            "language": speech_language,
         }
 
         response = deepgram.listen.prerecorded.v("1").transcribe_file(
@@ -1284,9 +1290,9 @@ def page_dashboard():
             energy_threshold=0.001
         )
 
-    # Handle voice input - auto sends on second press
+    # Handle voice input - auto sends on second press with correct language
     if audio_bytes:
-        transcript = transcribe_with_deepgram(audio_bytes)
+        transcript = transcribe_with_deepgram(audio_bytes, st.session_state.lang)
         if transcript and transcript.strip() and transcript != st.session_state.last_processed_text:
             st.session_state.last_processed_text = transcript
             st.session_state.messages.append({"role": "user", "content": transcript})
