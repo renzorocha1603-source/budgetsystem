@@ -18,142 +18,85 @@ MONTHS_EN = [
     "July", "August", "September", "October", "November", "December"
 ]
 
-MONTHS_FR = [
-    "janvier", "février", "fevrier", "mars", "avril", "mai", "juin",
-    "juillet", "août", "aout", "septembre", "octobre", "novembre", "décembre", "decembre"
-]
-
 SHEET_PATTERNS = {
     "Budget Initial": ["budget initial", "budget"],
     "Fiche Stationnement": ["fiche stationnement", "fiche de stationnement", "stationnement", "1. fiche"],
     "Donnees Historiques": ["donnees historiques", "données historiques", "historiques", "historique", "2. donnees", "2. données"],
-    "Actualisation": ["actualisation", "5-actualisation", "5 actualisation"],
 }
 
 # ============================================================================
-# HARDCODED ROW MAPPING (fallback)
+# VERIFIED ROW MAPPING: Donnees Historiques row -> P&L labels
 # ============================================================================
+# These are the ACTUAL row numbers from the template (mapped manually).
+# FORMULA rows are NOT included - we only write to data rows.
+
 DH_ROW_MAPPING = {
-    11: ["Transient Revenue", "transient revenue"],
-    12: ["Monthly Revenues", "monthly revenues"],
-    13: ["Car-Wash Revenue", "car-wash revenue", "lave-auto"],
-    14: ["Hotel Revenue", "hotel revenue", "revenus hotel"],
-    15: ["Interests", "interests", "intérêts", "interets"],
-    16: ["Miscellaneous", "miscellaneous", "autres revenus"],
-    19: ["Discount-Gratuities - Transient", "gratuities transient"],
-    21: ["Discount-Gratuities - Monthly", "rabais", "discount monthly"],
-    27: ["Parking wages", "parking wages", "salaire stationnement"],
-    28: ["Other wages", "other wages", "salaire superviseur", "supervisor"],
-    29: ["Training & Recr.", "training", "formation", "recrutement"],
-    30: ["Uniforms", "uniforms", "uniformes"],
-    33: ["R&M - Cleaning", "cleaning", "nettoyage"],
-    34: ["R&M - General", "maintenance", "entretien stationnement"],
-    35: ["R&M - Equipement", "equipment", "entretien équipement", "entretien equipement"],
-    36: ["R&M - Signs", "signs", "signalisation", "signage"],
-    37: ["R&M - Lines", "lines", "lignage", "line painting"],
-    38: ["Snow Removal", "snow removal", "déneigement", "deneigement", "snow"],
-    39: ["Parking supplies", "parking supplies", "fournitures stationnement", "fournitures"],
-    40: ["Misc. Re-Billing", "re-billing", "refacturations diverses", "refacturations", "rebilling"],
-    41: ["R&M - General", "amenagement", "aménagement stationnement", "aménagement"],
-    44: ["Public services", "public services", "services publics", "utilities"],
-    47: ["Office expenses", "office expenses", "fournitures de bureau", "fournitures bureau"],
-    48: ["Telecommunication", "telecommunication", "telecommunications", "télécommunications", "telecom"],
-    49: ["Rent", "rent", "loyer"],
-    50: ["Travel expenses", "travel", "frais de déplacement", "frais de deplacement", "déplacement"],
-    51: ["Credit Card fees", "credit card", "frais de cartes de crédit", "frais de cartes de credit", "cartes de crédit"],
-    52: ["Bank fees", "bank fees", "intérêts et frais de banque", "interets et frais de banque", "frais de banque"],
-    53: ["Cash transportation fees", "cash transportation", "transport de fonds", "transport fonds"],
-    54: ["Claims", "claims", "réclamations", "reclamations"],
-    55: ["Insurance & Guarantee", "insurance", "assurances et cautionnement", "assurance", "cautionnement"],
-    56: ["Tax & license", "tax", "taxes et permis", "taxes", "permis", "license"],
-    57: ["Professional services", "accounting", "comptabilité", "comptabilite", "professional services"],
-    58: ["Equipment rent", "equipment rent", "location d'équipement", "location d'equipement", "location équipement"],
-    59: ["Ad. & Promotion", "advertising", "publicité et promotion", "publicite et promotion", "promotion"],
-    60: ["Percent Management fee", "management fee", "honoraires de gestion en pourcentage", "honoraires de gestion en %"],
-    61: ["Management Fees (Basic)", "management fees basic", "honoraires de gestion de base", "honoraires de base"],
-    62: ["Incentives", "incentives", "incitatif annuel", "incitatif", "incentive"],
-    65: ["Depreciation", "depreciation", "amortissement"],
-    66: ["Financial fees", "interest", "intérêts sur emprunts", "interets sur emprunts", "emprunts"],
-    67: ["Security", "security", "sécurité", "securite"],
-    68: ["Co-ownership expenses", "co-ownership", "frais de copropriété", "frais de copropriete", "copropriété"],
-    69: ["Shuttle expenses", "shuttle", "frais de navettes", "navettes"],
-    70: ["Computer services", "computer", "services informatiques", "informatiques"],
-    71: ["Bad debts", "bad debts", "mauvaises créances", "mauvaises creances", "créances"],
-    72: ["Dues & Subscription", "dues", "cotisations", "subscription"],
-    73: ["Meal & Entertainment", "meal", "représentation repas", "representation repas", "repas", "entertainment"],
-}
+    # REVENUS section
+    12: ["Transient Revenue", "transient revenue"],
+    13: ["Monthly Revenues", "monthly revenues"],
+    14: ["Car-Wash Revenue", "car-wash revenue", "lave-auto"],
+    15: ["Hotel Revenue", "hotel revenue", "revenus hotel"],
+    16: ["Interests", "interests", "intérêts", "interets"],
+    17: ["Miscellaneous", "miscellaneous", "autres revenus"],
+    # 18 = Total revenus Bruts (FORMULA: SUM 12-17)
+    20: ["Discount-Gratuities - Transient", "gratuities transient"],
+    22: ["Discount-Gratuities - Monthly", "rabais", "discount monthly"],
+    # 24 = Autres revenus
+    # 26 = TOTAL REVENUS (FORMULA: SUM 18-25)
 
-# ============================================================================
-# LABEL MAPPING: French label -> P&L labels (for name-based matching)
-# ============================================================================
-DH_LABEL_MAPPING_FULL = [
-    ("Revenus horaires", ["Transient Revenue", "transient revenue"]),
-    ("Revenus mensuels", ["Monthly Revenues", "monthly revenues"]),
-    ("Revenus Lave-auto", ["Car-Wash Revenue", "car-wash revenue"]),
-    ("Revenus hôtel", ["Hotel Revenue", "hotel revenue"]),
-    ("Revenus d'intérêts", ["Interests", "interests"]),
-    ("Autres revenus", ["Miscellaneous", "miscellaneous"]),
-    ("(Gratuités)", ["Discount-Gratuities - Transient", "gratuities transient"]),
-    ("Gratuités", ["Discount-Gratuities - Transient", "gratuities transient"]),
-    ("(Rabais)", ["Discount-Gratuities - Monthly", "rabais"]),
-    ("Rabais", ["Discount-Gratuities - Monthly", "rabais"]),
-    ("Salaire Stationnement", ["Parking wages", "parking wages"]),
-    ("Salaire Superviseur", ["Other wages", "other wages"]),
-    ("Formation & Recrutement", ["Training & Recr.", "training"]),
-    ("Formation et Recrutement", ["Training & Recr.", "training"]),
-    ("Uniformes", ["Uniforms", "uniforms"]),
-    ("Nettoyage stationnement", ["R&M - Cleaning", "cleaning"]),
-    ("Entretien stationnement", ["R&M - General", "maintenance"]),
-    ("Entretien équipement", ["R&M - Equipement", "equipment"]),
-    ("Entretien equipement", ["R&M - Equipement", "equipment"]),
-    ("Signalisation", ["R&M - Signs", "signs"]),
-    ("Lignage", ["R&M - Lines", "lines"]),
-    ("Déneigement", ["Snow Removal", "snow removal"]),
-    ("Deneigement", ["Snow Removal", "snow removal"]),
-    ("Fournitures stationnement", ["Parking supplies", "parking supplies"]),
-    ("Refacturations diverses", ["Misc. Re-Billing", "re-billing"]),
-    ("Aménagement stationnement", ["R&M - General", "amenagement"]),
-    ("Amenagement stationnement", ["R&M - General", "amenagement"]),
-    ("Services Publics", ["Public services", "public services"]),
-    ("Fournitures de bureau", ["Office expenses", "office expenses"]),
-    ("Telecommunications", ["Telecommunication", "telecommunication"]),
-    ("Télécommunications", ["Telecommunication", "telecommunication"]),
-    ("Loyer", ["Rent", "rent"]),
-    ("Frais de déplacement", ["Travel expenses", "travel"]),
-    ("Frais de deplacement", ["Travel expenses", "travel"]),
-    ("Frais de cartes de crédit", ["Credit Card fees", "credit card"]),
-    ("Frais de cartes de credit", ["Credit Card fees", "credit card"]),
-    ("Intérêts et frais de banque", ["Bank fees", "bank fees"]),
-    ("Interets et frais de banque", ["Bank fees", "bank fees"]),
-    ("Transport de fonds", ["Cash transportation fees", "cash transportation"]),
-    ("Réclamations", ["Claims", "claims"]),
-    ("Reclamations", ["Claims", "claims"]),
-    ("Assurances et cautionnement", ["Insurance & Guarantee", "insurance"]),
-    ("Taxes et permis", ["Tax & license", "tax"]),
-    ("Comptabilité", ["Professional services", "accounting"]),
-    ("Comptabilite", ["Professional services", "accounting"]),
-    ("Location d'équipement", ["Equipment rent", "equipment rent"]),
-    ("Location d'equipement", ["Equipment rent", "equipment rent"]),
-    ("Publicité et promotion", ["Ad. & Promotion", "advertising"]),
-    ("Publicite et promotion", ["Ad. & Promotion", "advertising"]),
-    ("Honoraires de gestion en pourcentage", ["Percent Management fee", "management fee"]),
-    ("Honoraires de gestion de base", ["Management Fees (Basic)", "management fees basic"]),
-    ("Incitatif annuel", ["Incentives", "incentives"]),
-    ("Amortissement", ["Depreciation", "depreciation"]),
-    ("Intérêts sur emprunts", ["Financial fees", "interest"]),
-    ("Interets sur emprunts", ["Financial fees", "interest"]),
-    ("Sécurité", ["Security", "security"]),
-    ("Securite", ["Security", "security"]),
-    ("Frais de copropriété", ["Co-ownership expenses", "co-ownership"]),
-    ("Frais de copropriete", ["Co-ownership expenses", "co-ownership"]),
-    ("Frais de Navettes", ["Shuttle expenses", "shuttle"]),
-    ("Services Informatiques", ["Computer services", "computer"]),
-    ("Mauvaises créances", ["Bad debts", "bad debts"]),
-    ("Mauvaises creances", ["Bad debts", "bad debts"]),
-    ("Cotisations", ["Dues & Subscription", "dues"]),
-    ("Représentation repas", ["Meal & Entertainment", "meal"]),
-    ("Representation repas", ["Meal & Entertainment", "meal"]),
-]
+    # DÉPENSES section
+    29: ["Parking wages", "parking wages", "salaire stationnement"],
+    30: ["Other wages", "other wages", "salaire superviseur", "supervisor"],
+    31: ["Training & Recr.", "training", "formation", "recrutement"],
+    32: ["Uniforms", "uniforms", "uniformes"],
+    # 33 = Total Frais de personnel (FORMULA: SUM 29-32)
+
+    35: ["R&M - Cleaning", "cleaning", "nettoyage"],
+    36: ["R&M - General", "maintenance", "entretien stationnement"],
+    37: ["R&M - Equipement", "equipment", "entretien équipement", "entretien equipement"],
+    38: ["R&M - Signs", "signs", "signalisation", "signage"],
+    39: ["R&M - Lines", "lines", "lignage", "line painting"],
+    40: ["Snow Removal", "snow removal", "déneigement", "deneigement", "snow"],
+    41: ["Parking supplies", "parking supplies", "fournitures stationnement", "fournitures"],
+    42: ["Misc. Re-Billing", "re-billing", "refacturations diverses", "refacturations", "rebilling"],
+    43: ["R&M - General", "amenagement", "aménagement stationnement", "aménagement"],
+    # 44 = Total Entretien - réparations (FORMULA: SUM 35-43)
+
+    46: ["Public services", "public services", "services publics", "utilities"],
+    # 47 = Total Services Publics (FORMULA: =row 46)
+
+    49: ["Office expenses", "office expenses", "fournitures de bureau", "fournitures bureau"],
+    50: ["Telecommunication", "telecommunication", "telecommunications", "télécommunications", "telecom"],
+    51: ["Rent", "rent", "loyer"],
+    52: ["Travel expenses", "travel", "frais de déplacement", "frais de deplacement", "déplacement"],
+    53: ["Credit Card fees", "credit card", "frais de cartes de crédit", "frais de cartes de credit", "cartes de crédit"],
+    54: ["Bank fees", "bank fees", "intérêts et frais de banque", "interets et frais de banque", "frais de banque"],
+    55: ["Cash transportation fees", "cash transportation", "transport de fonds", "transport fonds"],
+    56: ["Claims", "claims", "réclamations", "reclamations"],
+    57: ["Insurance & Guarantee", "insurance", "assurances et cautionnement", "assurance", "cautionnement"],
+    58: ["Tax & license", "tax", "taxes et permis", "taxes", "permis", "license"],
+    59: ["Professional services", "accounting", "comptabilité", "comptabilite", "professional services"],
+    60: ["Equipment rent", "equipment rent", "location d'équipement", "location d'equipement", "location équipement"],
+    61: ["Ad. & Promotion", "advertising", "publicité et promotion", "publicite et promotion", "promotion"],
+    62: ["Percent Management fee", "management fee", "honoraires de gestion en pourcentage", "honoraires de gestion en %"],
+    63: ["Management Fees (Basic)", "management fees basic", "honoraires de gestion de base", "honoraires de base"],
+    64: ["Incentives", "incentives", "incitatif annuel", "incitatif", "incentive"],
+    # 65 = Total Frais Généraux (FORMULA: SUM 49-64)
+
+    # AUTRES DÉPENSES
+    67: ["Depreciation", "depreciation", "amortissement"],
+    68: ["Financial fees", "interest", "intérêts sur emprunts", "interets sur emprunts", "emprunts"],
+    69: ["Security", "security", "sécurité", "securite"],
+    70: ["Co-ownership expenses", "co-ownership", "frais de copropriété", "frais de copropriete", "copropriété"],
+    71: ["Shuttle expenses", "shuttle", "frais de navettes", "navettes"],
+    72: ["Computer services", "computer", "services informatiques", "informatiques"],
+    73: ["Bad debts", "bad debts", "mauvaises créances", "mauvaises creances", "créances"],
+    74: ["Dues & Subscription", "dues", "cotisations", "subscription"],
+    76: ["Meal & Entertainment", "meal", "représentation repas", "representation repas", "repas", "entertainment"],
+    # 82 = Total Autres dépenses (FORMULA: SUM 67-80)
+    # 84 = TOTAL DÉPENSES (FORMULA: 82 + 65 + 47 + 44 + 33)
+    # 86 = REVENUS NETS (FORMULA: 26 - 84)
+}
 
 FICHE_STATIONNEMENT_MAP = [
     ("Parking Revenue", "K17"),
@@ -700,10 +643,6 @@ def update_fiche_stationnement(wb, year_minus_2_data, parking_code, word_data=No
     return updates
 
 def update_donnees_historiques(wb, merged_monthly_data, parking_code):
-    """
-    Update Donnees Historiques sheet using hardcoded row mapping.
-    All Actualisation sheet cells are formulas, so we use the verified row numbers.
-    """
     updates = []
     try:
         dh_sheet_name = find_sheet_by_pattern(wb, SHEET_PATTERNS["Donnees Historiques"])
