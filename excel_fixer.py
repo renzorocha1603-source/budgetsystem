@@ -32,81 +32,81 @@ SHEET_PATTERNS = {
 # ============================================================================
 # HARDCODED ROW MAPPING: Donnees Historiques row -> P&L labels to try
 # ============================================================================
-# These row numbers match the template structure you provided.
-# The rows have French labels like "Revenus horaires", "Salaire Stationnement", etc.
-# We map each row to the corresponding P&L English label(s).
+# ADJUST THESE ROW NUMBERS TO MATCH YOUR TEMPLATE
+# Row 1 = header formula, Row 8 = month names, Row 9 = years
+# Data rows start at Row 10
 
 DH_ROW_TO_PNL = {
     # REVENUS section
-    11: ["Transient Revenue", "transient revenue", "revenus horaires"],
-    12: ["Monthly Revenues", "monthly revenues", "revenus mensuels"],
-    13: ["Car-Wash Revenue", "car-wash revenue", "lave-auto", "car wash"],
-    14: ["Hotel Revenue", "hotel revenue", "revenus hotel", "revenus hôtel"],
-    15: ["Interests", "interests", "intérêts", "interets", "interest"],
-    16: ["Miscellaneous", "miscellaneous", "autres revenus", "misc", "divers"],
-    # Row 17 = Total revenus Bruts (formula - skip)
-    18: ["Discount-Gratuities - Transient", "gratuities", "gratuités", "gratuites", "discount transient"],
-    # Row 19 = empty
-    20: ["Discount-Gratuities - Monthly", "rabais", "discount monthly", "escomptes"],
-    # Row 21-22 = Autres revenus / empty
-    # Row 23 = TOTAL REVENUS (formula - skip)
-    # Row 24-25 = empty/headers
+    10: ["Transient Revenue", "transient revenue", "revenus horaires"],
+    11: ["Monthly Revenues", "monthly revenues", "revenus mensuels"],
+    12: ["Car-Wash Revenue", "car-wash revenue", "lave-auto", "car wash"],
+    13: ["Hotel Revenue", "hotel revenue", "revenus hotel", "revenus hôtel"],
+    14: ["Interests", "interests", "intérêts", "interets", "interest"],
+    15: ["Miscellaneous", "miscellaneous", "autres revenus", "misc", "divers"],
+    # Row 16 = Total revenus Bruts (formula - skip)
+    17: ["Discount-Gratuities - Transient", "gratuities", "gratuités", "gratuites", "discount transient"],
+    # Row 18 = empty
+    19: ["Discount-Gratuities - Monthly", "rabais", "discount monthly", "escomptes"],
+    # Row 20-21 = Autres revenus / empty
+    # Row 22 = TOTAL REVENUS (formula - skip)
+    # Row 23-25 = empty/headers
     
     # DÉPENSES section
-    27: ["Parking wages", "parking wages", "salaire stationnement", "salaires stationnement"],
-    28: ["Other wages", "other wages", "salaire superviseur", "supervisor wages", "superviseur"],
-    29: ["Training & Recr.", "training", "formation", "recrutement", "formation & recrutement"],
-    30: ["Uniforms", "uniforms", "uniformes"],
-    # Row 31 = Total Frais de personnel (formula - skip)
-    # Row 32 = empty
+    26: ["Parking wages", "parking wages", "salaire stationnement", "salaires stationnement"],
+    27: ["Other wages", "other wages", "salaire superviseur", "supervisor wages", "superviseur"],
+    28: ["Training & Recr.", "training", "formation", "recrutement", "formation & recrutement"],
+    29: ["Uniforms", "uniforms", "uniformes"],
+    # Row 30 = Total Frais de personnel (formula - skip)
+    # Row 31 = empty
     
-    33: ["R&M - Cleaning", "cleaning", "nettoyage stationnement", "nettoyage"],
-    34: ["R&M - General", "maintenance", "entretien stationnement", "general maintenance"],
-    35: ["R&M - Equipement", "equipment", "entretien équipement", "entretien equipement", "équipement"],
-    36: ["R&M - Signs", "signs", "signalisation", "signage"],
-    37: ["R&M - Lines", "lines", "lignage", "line painting"],
-    38: ["Snow Removal", "snow removal", "déneigement", "deneigement", "snow"],
-    39: ["Parking supplies", "parking supplies", "fournitures stationnement", "fournitures"],
-    40: ["Misc. Re-Billing", "re-billing", "refacturations diverses", "refacturations", "rebilling"],
-    41: ["R&M - General", "amenagement", "aménagement stationnement", "aménagement"],
-    # Row 42 = Total Entretien (formula - skip)
-    # Row 43 = empty
+    32: ["R&M - Cleaning", "cleaning", "nettoyage stationnement", "nettoyage"],
+    33: ["R&M - General", "maintenance", "entretien stationnement", "general maintenance"],
+    34: ["R&M - Equipement", "equipment", "entretien équipement", "entretien equipement", "équipement"],
+    35: ["R&M - Signs", "signs", "signalisation", "signage"],
+    36: ["R&M - Lines", "lines", "lignage", "line painting"],
+    37: ["Snow Removal", "snow removal", "déneigement", "deneigement", "snow"],
+    38: ["Parking supplies", "parking supplies", "fournitures stationnement", "fournitures"],
+    39: ["Misc. Re-Billing", "re-billing", "refacturations diverses", "refacturations", "rebilling"],
+    40: ["R&M - General", "amenagement", "aménagement stationnement", "aménagement"],
+    # Row 41 = Total Entretien (formula - skip)
+    # Row 42 = empty
     
-    44: ["Public services", "public services", "services publics", "utilities"],
-    # Row 45 = Total Services Publics (formula - skip)
-    # Row 46 = empty
+    43: ["Public services", "public services", "services publics", "utilities"],
+    # Row 44 = Total Services Publics (formula - skip)
+    # Row 45 = empty
     
-    47: ["Office expenses", "office expenses", "fournitures de bureau", "fournitures bureau"],
-    48: ["Telecommunication", "telecommunication", "telecommunications", "télécommunications", "telecom"],
-    49: ["Rent", "rent", "loyer"],
-    50: ["Travel expenses", "travel", "frais de déplacement", "frais de deplacement", "déplacement"],
-    51: ["Credit Card fees", "credit card", "frais de cartes de crédit", "frais de cartes de credit", "cartes de crédit"],
-    52: ["Bank fees", "bank fees", "intérêts et frais de banque", "interets et frais de banque", "frais de banque"],
-    53: ["Cash transportation fees", "cash transportation", "transport de fonds", "transport fonds"],
-    54: ["Claims", "claims", "réclamations", "reclamations"],
-    55: ["Insurance & Guarantee", "insurance", "assurances et cautionnement", "assurance", "cautionnement"],
-    56: ["Tax & license", "tax", "taxes et permis", "taxes", "permis", "license"],
-    57: ["Professional services", "accounting", "comptabilité", "comptabilite", "professional services"],
-    58: ["Equipment rent", "equipment rent", "location d'équipement", "location d'equipement", "location équipement"],
-    59: ["Ad. & Promotion", "advertising", "publicité et promotion", "publicite et promotion", "promotion"],
-    60: ["Percent Management fee", "management fee", "honoraires de gestion en pourcentage", "honoraires de gestion en %", "% management"],
-    61: ["Management Fees (Basic)", "management fees basic", "honoraires de gestion de base", "honoraires de base"],
-    62: ["Incentives", "incentives", "incitatif annuel", "incitatif", "incentive"],
-    # Row 63 = Total Frais Généraux (formula - skip)
-    # Row 64 = empty
+    46: ["Office expenses", "office expenses", "fournitures de bureau", "fournitures bureau"],
+    47: ["Telecommunication", "telecommunication", "telecommunications", "télécommunications", "telecom"],
+    48: ["Rent", "rent", "loyer"],
+    49: ["Travel expenses", "travel", "frais de déplacement", "frais de deplacement", "déplacement"],
+    50: ["Credit Card fees", "credit card", "frais de cartes de crédit", "frais de cartes de credit", "cartes de crédit"],
+    51: ["Bank fees", "bank fees", "intérêts et frais de banque", "interets et frais de banque", "frais de banque"],
+    52: ["Cash transportation fees", "cash transportation", "transport de fonds", "transport fonds"],
+    53: ["Claims", "claims", "réclamations", "reclamations"],
+    54: ["Insurance & Guarantee", "insurance", "assurances et cautionnement", "assurance", "cautionnement"],
+    55: ["Tax & license", "tax", "taxes et permis", "taxes", "permis", "license"],
+    56: ["Professional services", "accounting", "comptabilité", "comptabilite", "professional services"],
+    57: ["Equipment rent", "equipment rent", "location d'équipement", "location d'equipement", "location équipement"],
+    58: ["Ad. & Promotion", "advertising", "publicité et promotion", "publicite et promotion", "promotion"],
+    59: ["Percent Management fee", "management fee", "honoraires de gestion en pourcentage", "honoraires de gestion en %", "% management"],
+    60: ["Management Fees (Basic)", "management fees basic", "honoraires de gestion de base", "honoraires de base"],
+    61: ["Incentives", "incentives", "incitatif annuel", "incitatif", "incentive"],
+    # Row 62 = Total Frais Généraux (formula - skip)
+    # Row 63 = empty
     
-    65: ["Depreciation", "depreciation", "amortissement"],
-    66: ["Financial fees", "interest", "intérêts sur emprunts", "interets sur emprunts", "emprunts"],
-    67: ["Security", "security", "sécurité", "securite"],
-    68: ["Co-ownership expenses", "co-ownership", "frais de copropriété", "frais de copropriete", "copropriété"],
-    69: ["Shuttle expenses", "shuttle", "frais de navettes", "navettes"],
-    70: ["Computer services", "computer", "services informatiques", "informatiques"],
-    71: ["Bad debts", "bad debts", "mauvaises créances", "mauvaises creances", "créances"],
-    72: ["Dues & Subscription", "dues", "cotisations", "subscription"],
-    73: ["Meal & Entertainment", "meal", "représentation repas", "representation repas", "repas", "entertainment"],
-    74: ["Miscellaneous", "misc", "autres dépenses", "autres depenses"],
-    # Row 75 = Total Autres dépenses (formula - skip)
-    # Row 76 = empty
+    64: ["Depreciation", "depreciation", "amortissement"],
+    65: ["Financial fees", "interest", "intérêts sur emprunts", "interets sur emprunts", "emprunts"],
+    66: ["Security", "security", "sécurité", "securite"],
+    67: ["Co-ownership expenses", "co-ownership", "frais de copropriété", "frais de copropriete", "copropriété"],
+    68: ["Shuttle expenses", "shuttle", "frais de navettes", "navettes"],
+    69: ["Computer services", "computer", "services informatiques", "informatiques"],
+    70: ["Bad debts", "bad debts", "mauvaises créances", "mauvaises creances", "créances"],
+    71: ["Dues & Subscription", "dues", "cotisations", "subscription"],
+    72: ["Meal & Entertainment", "meal", "représentation repas", "representation repas", "repas", "entertainment"],
+    73: ["Miscellaneous", "misc", "autres dépenses", "autres depenses"],
+    # Row 74 = Total Autres dépenses (formula - skip)
+    # Row 75-76 = empty
     # Row 77 = TOTAL DÉPENSES (formula - skip)
     # Row 78 = empty
     # Row 79 = REVENUS NETS (formula - skip)
@@ -657,9 +657,9 @@ def update_donnees_historiques(wb, merged_monthly_data, parking_code):
     """
     Update Donnees Historiques sheet.
     
-    SIMPLE APPROACH: We know the exact row numbers for each label from the template.
-    Just write the P&L monthly data to columns B-M on those rows.
-    Formulas in total rows and other columns will auto-calculate.
+    SIMPLE APPROACH: Hardcoded row numbers for each label.
+    Write P&L monthly data to columns B-M on those rows.
+    Formulas handle totals automatically.
     """
     updates = []
     try:
