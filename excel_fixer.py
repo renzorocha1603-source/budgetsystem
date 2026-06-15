@@ -23,6 +23,13 @@ MONTHS_FR = [
     "juillet", "août", "aout", "septembre", "octobre", "novembre", "décembre", "decembre"
 ]
 
+# Month mapping: English month name -> template column index (0=January/Janvier)
+MONTH_TO_COL = {
+    "January": 0, "February": 1, "March": 2, "April": 3,
+    "May": 4, "June": 5, "July": 6, "August": 7,
+    "September": 8, "October": 9, "November": 10, "December": 11
+}
+
 SHEET_PATTERNS = {
     "Budget Initial": [
         "budget initial",
@@ -44,109 +51,301 @@ SHEET_PATTERNS = {
     ],
 }
 
-DONNEES_HISTORIQUES_LABELS = {
-    "Transient Revenue": [
+# ============================================================================
+# DONNEES HISTORIQUES LABEL MAPPING
+# ============================================================================
+# Maps P&L data labels (English) to template French labels
+# Format: (pnl_label_english, [french_labels_to_match_in_template])
+DONNEES_HISTORIQUES_MAP = [
+    # REVENUS section
+    ("Transient Revenue", [
         "revenus horaires",
+        "revenus horaire",
         "transient",
         "transitoire",
         "stationnement horaire"
-    ],
-    "Monthly Revenues": [
+    ]),
+    ("Monthly Revenues", [
         "revenus mensuels",
+        "revenus mensuel",
         "monthly",
         "mensuels",
         "stationnement mensuel"
-    ],
-    "Car-Wash Revenue": [
+    ]),
+    ("Car-Wash Revenue", [
         "revenus lave-auto",
+        "revenus lave auto",
         "lave-auto",
+        "lave auto",
         "car-wash",
         "car wash",
         "lavage"
-    ],
-    "Hotel Revenue": [
+    ]),
+    ("Hotel Revenue", [
         "revenus hôtel",
         "revenus hotel",
+        "revenus d'hôtel",
         "hôtel",
         "hotel",
         "hotelier"
-    ],
-    "Interests": [
+    ]),
+    ("Interests", [
         "revenus d'intérêts",
         "revenus d'interets",
+        "revenus d'intérêt",
         "intérêts",
         "interets",
         "interests",
         "interest"
-    ],
-    "Miscellaneous": [
+    ]),
+    ("Miscellaneous", [
         "autres revenus",
+        "autre revenus",
         "miscellaneous",
         "misc",
         "divers"
-    ],
-    "Parking Revenue": [
-        "total revenus bruts",
-        "revenus bruts",
-        "parking revenue",
-        "total revenus",
-        "revenus stationnement"
-    ],
-    "Discount-Gratuities - Transient": [
+    ]),
+    # Gratuités / Discounts
+    ("Discount-Gratuities - Transient", [
         "gratuités",
         "gratuites",
+        "gratuités",
         "gratuities",
         "discount",
         "escomptes",
         "courtoisies"
-    ],
-    "Discount-Gratuities - Monthly": [
+    ]),
+    ("Discount-Gratuities - Monthly", [
         "rabais",
         "discount monthly",
         "escomptes mensuels",
         "rabais mensuel"
-    ],
-    "TOTAL REVENUE": [
-        "total revenus",
-        "total revenue",
-        "revenu total",
-        "total des revenus",
-        "total revenu"
-    ],
-    "Parking wages": [
+    ]),
+    # DÉPENSES section
+    ("Parking wages", [
         "salaire stationnement",
         "parking wages",
-        "salaires",
+        "salaires stationnement",
         "main d'oeuvre",
         "main d'œuvre",
         "masse salariale"
-    ],
-    "Total Operation expenses": [
-        "total operation expenses",
+    ]),
+    ("Total Operation expenses", [
         "total dépenses",
         "total depenses",
+        "total operation expenses",
         "operation expenses",
         "dépenses d'opération",
         "depenses d'operation",
-        "total des dépenses"
-    ],
-    "OPERATION SURPLUS": [
-        "operation surplus",
-        "surplus d'opération",
-        "surplus d'operation",
-        "bénéfice",
-        "benefice",
-        "excédent",
-        "excedent"
-    ],
-    "Percent Management fee": [
+        "total des dépenses",
+        "total dépenses"
+    ]),
+    ("Percent Management fee", [
+        "honoraires de gestion en pourcentage",
         "percent management fee",
-        "frais de gestion",
+        "frais de gestion en %",
         "% management",
         "management fee",
         "honoraires de gestion"
-    ],
-}
+    ]),
+]
+
+# Additional labels to check for Donnees Historiques
+# These are extra rows in the template that may also need filling
+DONNEES_HISTORIQUES_EXTRA = [
+    ("Other wages", [
+        "salaire superviseur",
+        "supervisor wages",
+        "salaire supervision"
+    ]),
+    ("Training & Recr.", [
+        "formation & recrutement",
+        "formation et recrutement",
+        "training",
+        "recrutement"
+    ]),
+    ("Uniforms", [
+        "uniformes",
+        "uniforms",
+        "uniformes"
+    ]),
+    ("R&M - Cleaning", [
+        "nettoyage stationnement",
+        "nettoyage",
+        "cleaning"
+    ]),
+    ("R&M - Equipement", [
+        "entretien stationnement",
+        "entretien équipement",
+        "entretien equipement",
+        "equipment maintenance"
+    ]),
+    ("R&M - Signs", [
+        "signalisation",
+        "signs",
+        "signage"
+    ]),
+    ("R&M - Lines", [
+        "lignage",
+        "lines",
+        "line painting"
+    ]),
+    ("Snow Removal", [
+        "déneigement",
+        "deneigement",
+        "snow removal",
+        "snow"
+    ]),
+    ("Parking supplies", [
+        "fournitures stationnement",
+        "parking supplies",
+        "fournitures"
+    ]),
+    ("Misc. Re-Billing", [
+        "refacturations diverses",
+        "refacturations",
+        "re-billing",
+        "rebilling"
+    ]),
+    ("R&M - General", [
+        "aménagement stationnement",
+        "amenagement stationnement",
+        "general maintenance"
+    ]),
+    ("Public services", [
+        "services publics",
+        "public services",
+        "utilities"
+    ]),
+    ("Office expenses", [
+        "fournitures de bureau",
+        "office expenses",
+        "fournitures bureau"
+    ]),
+    ("Telecommunication", [
+        "telecommunications",
+        "télécommunications",
+        "telecom"
+    ]),
+    ("Rent", [
+        "loyer",
+        "rent",
+        "loyer"
+    ]),
+    ("Travel expenses", [
+        "frais de déplacement",
+        "frais de deplacement",
+        "travel",
+        "déplacement"
+    ]),
+    ("Credit Card fees", [
+        "frais de cartes de crédit",
+        "frais de cartes de credit",
+        "credit card fees",
+        "cartes de crédit"
+    ]),
+    ("Bank fees", [
+        "intérêts et frais de banque",
+        "interets et frais de banque",
+        "bank fees",
+        "frais de banque"
+    ]),
+    ("Cash transportation fees", [
+        "transport de fonds",
+        "cash transportation",
+        "transport fonds"
+    ]),
+    ("Claims", [
+        "réclamations",
+        "reclamations",
+        "claims"
+    ]),
+    ("Insurance & Guarantee", [
+        "assurances et cautionnement",
+        "assurance",
+        "insurance",
+        "cautionnement"
+    ]),
+    ("Tax & license", [
+        "taxes et permis",
+        "taxes",
+        "tax",
+        "permis"
+    ]),
+    ("Professional services", [
+        "comptabilité",
+        "comptabilite",
+        "professional services",
+        "accounting"
+    ]),
+    ("Equipment rent", [
+        "location d'équipement",
+        "location d'equipement",
+        "equipment rent",
+        "location équipement"
+    ]),
+    ("Ad. & Promotion", [
+        "publicité et promotion",
+        "publicite et promotion",
+        "advertising",
+        "promotion"
+    ]),
+    ("Management Fees (Basic)", [
+        "honoraires de gestion de base",
+        "management fees basic",
+        "frais de gestion de base",
+        "honoraires de base"
+    ]),
+    ("Incentives", [
+        "incitatif annuel",
+        "incitatif",
+        "incentives",
+        "incentive"
+    ]),
+    ("Depreciation", [
+        "amortissement",
+        "depreciation",
+        "amortissement"
+    ]),
+    ("Security", [
+        "sécurité",
+        "securite",
+        "security"
+    ]),
+    ("Co-ownership expenses", [
+        "frais de copropriété",
+        "frais de copropriete",
+        "co-ownership",
+        "copropriété"
+    ]),
+    ("Shuttle expenses", [
+        "frais de navettes",
+        "navettes",
+        "shuttle"
+    ]),
+    ("Computer services", [
+        "services informatiques",
+        "computer services",
+        "informatiques"
+    ]),
+    ("Dues & Subscription", [
+        "cotisations",
+        "cotisations",
+        "dues",
+        "subscription"
+    ]),
+    ("Meal & Entertainment", [
+        "représentation repas",
+        "representation repas",
+        "meal",
+        "repas",
+        "entertainment"
+    ]),
+]
+
+# Combined mapping: first try the main map, then the extra map
+ALL_DONNEES_MAP = DONNEES_HISTORIQUES_MAP + DONNEES_HISTORIQUES_EXTRA
+
 
 FICHE_STATIONNEMENT_MAP = [
     ("Parking Revenue", "K17"),
@@ -324,7 +523,6 @@ def read_txt_to_dataframe(uploaded_file):
         if not lines:
             return None
         
-        # Try tab-separated
         if '\t' in lines[0]:
             reader = csv.reader(io.StringIO(text), delimiter='\t')
             data = list(reader)
@@ -333,7 +531,6 @@ def read_txt_to_dataframe(uploaded_file):
                 df = pd.DataFrame(data[1:], columns=headers)
                 return {"Sheet1": df}
         
-        # Try comma-separated
         if ',' in lines[0]:
             reader = csv.reader(io.StringIO(text))
             data = list(reader)
@@ -355,37 +552,31 @@ def read_any_file_to_dataframes(uploaded_file):
     if uploaded_file is None:
         return None, None
     
-    # Try Excel first
     if is_excel_file(uploaded_file):
         result = read_excel_to_dataframe(uploaded_file)
         if result:
             return result, "excel"
     
-    # Try CSV
     if is_csv_file(uploaded_file):
         result = read_csv_to_dataframe(uploaded_file)
         if result:
             return result, "csv"
     
-    # Try PDF
     if is_pdf_file(uploaded_file):
         result = read_pdf_to_dataframe(uploaded_file)
         if result:
             return result, "pdf"
     
-    # Try DOCX
     if is_docx_file(uploaded_file):
         result = read_docx_to_dataframe(uploaded_file)
         if result:
             return result, "docx"
     
-    # Try TXT
     if is_txt_file(uploaded_file):
         result = read_txt_to_dataframe(uploaded_file)
         if result:
             return result, "txt"
     
-    # Last resort: try Excel anyway (some files don't have proper extension)
     try:
         result = read_excel_to_dataframe(uploaded_file)
         if result:
@@ -393,7 +584,6 @@ def read_any_file_to_dataframes(uploaded_file):
     except Exception:
         pass
     
-    # Try CSV anyway
     try:
         result = read_csv_to_dataframe(uploaded_file)
         if result:
@@ -441,17 +631,14 @@ def find_sheet_in_dict(sheets_dict, parking_code):
     if not sheets_dict:
         return None
     
-    # Exact match first
     for sheet_name in sheets_dict:
         if sheet_name.upper().strip() == parking_code.upper().strip():
             return sheet_name
     
-    # Partial match
     for sheet_name in sheets_dict:
         if parking_code.upper() in sheet_name.upper():
             return sheet_name
     
-    # If no match, return the sheet with the most rows
     if sheets_dict:
         best_sheet = None
         max_rows = 0
@@ -474,27 +661,6 @@ def detect_year_from_filename(filename):
     return None
 
 
-def detect_year_from_data(df):
-    """Try to detect year from DataFrame content by searching for year references"""
-    if df is None:
-        return None
-    
-    for col_idx in range(min(20, len(df.columns))):
-        for row_idx in range(min(5, len(df))):
-            try:
-                cell = str(df.iloc[row_idx, col_idx])
-                years = re.findall(r'(20\d{2})', cell)
-                if years:
-                    from collections import Counter
-                    year_counts = Counter(years)
-                    most_common_year = year_counts.most_common(1)[0][0]
-                    return int(most_common_year)
-            except Exception:
-                continue
-    
-    return None
-
-
 def safe_float(value, default=0.0):
     """Safely convert a value to float, handling strings, None, and special characters"""
     try:
@@ -502,7 +668,7 @@ def safe_float(value, default=0.0):
             return default
         if isinstance(value, str):
             value = value.replace('$', '').replace(',', '').replace(' ', '').replace('€', '')
-            value = value.replace('(', '').replace(')', '')
+            value = value.replace('(', '').replace(')', '').replace('\xa0', '')
             if value.startswith('-'):
                 value = value[1:]
                 return -safe_float(value, default)
@@ -511,20 +677,45 @@ def safe_float(value, default=0.0):
         return default
 
 
+def clean_text_for_matching(text):
+    """
+    Clean text for label matching: lowercase, remove accents, remove special chars,
+    normalize whitespace.
+    """
+    if not text:
+        return ""
+    text = text.lower().strip()
+    # Replace common French accents
+    text = text.replace('é', 'e').replace('è', 'e').replace('ê', 'e').replace('ë', 'e')
+    text = text.replace('à', 'a').replace('â', 'a').replace('ä', 'a')
+    text = text.replace('î', 'i').replace('ï', 'i')
+    text = text.replace('ô', 'o').replace('ö', 'o')
+    text = text.replace('û', 'u').replace('ü', 'u')
+    text = text.replace('ù', 'u')
+    text = text.replace('ç', 'c')
+    text = text.replace('œ', 'oe')
+    # Remove all non-alphanumeric except spaces
+    text = re.sub(r'[^a-z0-9 ]', ' ', text)
+    # Normalize whitespace
+    text = re.sub(r'\s+', ' ', text).strip()
+    return text
+
+
 def get_cell_display_value(ws, row, col):
     """
     Get the cell value from an openpyxl worksheet.
     If it's a formula, try to get the computed value.
     For data_only workbooks, this returns the cached value.
+    Returns empty string for formulas or None.
     """
     try:
         cell = ws.cell(row=row, column=col)
         val = cell.value
         
-        if val is None or (isinstance(val, str) and not val.strip()):
+        if val is None:
             return ""
         
-        # If it's a formula (starts with =), return empty as we can't compute it
+        # Skip formulas
         if isinstance(val, str) and val.startswith('='):
             return ""
         
@@ -536,6 +727,7 @@ def get_cell_display_value(ws, row, col):
 def find_template_rows_by_label(ws, french_labels, max_rows=100):
     """
     Search Column A of a worksheet for French labels.
+    Uses cleaned text matching (removes accents, special chars).
     Returns list of matching row numbers.
     """
     matching_rows = []
@@ -546,17 +738,18 @@ def find_template_rows_by_label(ws, french_labels, max_rows=100):
         if not cell_value:
             continue
         
-        cell_lower = cell_value.lower()
-        # Clean: remove special characters, keep letters/numbers/spaces
-        cell_clean = re.sub(r'[^a-zéèêëàâîïôûùç0-9 ]', ' ', cell_lower)
-        cell_clean = re.sub(r'\s+', ' ', cell_clean).strip()
+        cell_clean = clean_text_for_matching(cell_value)
+        
+        if not cell_clean or len(cell_clean) < 3:
+            continue
         
         for french_label in french_labels:
-            label_lower = french_label.lower()
-            label_clean = re.sub(r'[^a-zéèêëàâîïôûùç0-9 ]', ' ', label_lower)
-            label_clean = re.sub(r'\s+', ' ', label_clean).strip()
+            label_clean = clean_text_for_matching(french_label)
             
-            # Check if the cell contains the label (partial match either way)
+            if not label_clean or len(label_clean) < 3:
+                continue
+            
+            # Check if the cell contains the label or vice versa
             if label_clean in cell_clean or cell_clean in label_clean:
                 matching_rows.append(row_idx)
                 break
@@ -567,21 +760,43 @@ def find_template_rows_by_label(ws, french_labels, max_rows=100):
 def read_year_mapping_from_template(ws):
     """
     Read the year mapping from Donnees Historiques template.
-    Looks for a row that has years like 2026, 2025, etc. in columns B-M.
+    Looks for the "Année" row that has years like 2026, 2025, etc. in columns B-M.
     Returns dict: {month_index: year} or fallback if not found.
     """
-    for row_idx in range(35, 55):
+    # First, find the "Année" row
+    annee_row = None
+    for row_idx in range(1, 55):
+        cell_value = get_cell_display_value(ws, row_idx, 1)
+        cell_clean = clean_text_for_matching(cell_value)
+        if cell_clean == "annee" or cell_clean == "année":
+            annee_row = row_idx
+            break
+    
+    if annee_row:
+        # Read years from this row, columns B-M
         year_map = {}
         for col_idx in range(2, 14):  # Columns B through M
+            cell_value = get_cell_display_value(ws, annee_row, col_idx)
+            year_match = re.search(r'(20\d{2})', cell_value)
+            if year_match:
+                year_map[col_idx - 2] = int(year_match.group(1))
+        
+        if len(year_map) >= 6:
+            return year_map
+    
+    # Fallback: search rows 35-55 for year mapping
+    for row_idx in range(35, 55):
+        year_map = {}
+        for col_idx in range(2, 14):
             cell_value = get_cell_display_value(ws, row_idx, col_idx)
             year_match = re.search(r'(20\d{2})', cell_value)
             if year_match:
-                year_map[col_idx - 2] = int(year_match.group(1))  # 0-based month index
+                year_map[col_idx - 2] = int(year_match.group(1))
         
-        if len(year_map) >= 6:  # If we found at least 6 months with years
+        if len(year_map) >= 6:
             return year_map
     
-    # Fallback: current year for Jan-Apr, previous year for May-Dec
+    # Ultimate fallback
     current_year = datetime.now().year
     year_map = {}
     for i in range(4):
@@ -591,13 +806,16 @@ def read_year_mapping_from_template(ws):
     return year_map
 
 
-def get_template_labels_for_debug(ws, max_rows=100):
-    """Debug helper to get all non-empty labels from column A"""
+def get_all_template_labels(ws, max_rows=100):
+    """
+    Get all non-empty, non-formula labels from column A of the template.
+    Returns list of (row_number, label_text) tuples.
+    """
     labels = []
     for row_idx in range(1, max_rows + 1):
         val = get_cell_display_value(ws, row_idx, 1)
-        if val and len(val) > 2:
-            labels.append(f"R{row_idx}:{val[:80]}")
+        if val and len(val.strip()) > 2:
+            labels.append((row_idx, val.strip()))
     return labels
 
 
@@ -608,7 +826,6 @@ def get_template_labels_for_debug(ws, max_rows=100):
 def extract_pnl_data_from_dataframe(df, sheet_name_hint=None):
     """
     Extract P&L data from a pandas DataFrame.
-    Handles different P&L layouts (labels in column A, monthly data in B-M, yearly in N).
     Returns dict with 'monthly' and 'yearly' data.
     """
     result = {
@@ -619,7 +836,7 @@ def extract_pnl_data_from_dataframe(df, sheet_name_hint=None):
     if df is None or len(df) == 0:
         return result
     
-    # Try to find header row (where month names are)
+    # Find header row (where month names are)
     header_row = None
     for row_idx in range(min(20, len(df))):
         for col_idx in range(min(14, len(df.columns))):
@@ -633,7 +850,6 @@ def extract_pnl_data_from_dataframe(df, sheet_name_hint=None):
         if header_row is not None:
             break
     
-    # Start searching from after header row (or from row 1 if no header found)
     data_start = (header_row + 1) if header_row else 1
     
     for row_idx in range(data_start, len(df)):
@@ -646,10 +862,16 @@ def extract_pnl_data_from_dataframe(df, sheet_name_hint=None):
             continue
         
         label_lower = label.lower()
+        
+        # Skip obvious non-data rows
         if label_lower in ['code', 'profit & loss', '', 'nan', 'none']:
             continue
         
-        # Skip date rows like "01-01-2025"
+        # Skip rows that are section headers or date filters
+        if any(skip in label_lower for skip in ['date filter', 'uc filter', 'currency', 'code']):
+            continue
+        
+        # Skip date rows
         if re.search(r'\d{2}[-/]\d{2}[-/]\d{2}', label):
             continue
         
@@ -676,10 +898,9 @@ def extract_pnl_data_from_dataframe(df, sheet_name_hint=None):
         if len(df.columns) > 13:
             yearly_total = safe_float(df.iloc[row_idx, 13])
         elif len(df.columns) > 1:
-            # Use last column as total
             yearly_total = safe_float(df.iloc[row_idx, -1])
         
-        # Store using cleaned label
+        # Use cleaned label as key
         clean_label = label.strip().replace('  ', ' ')
         result['monthly'][clean_label] = monthly
         result['yearly'][clean_label] = yearly_total
@@ -689,7 +910,7 @@ def extract_pnl_data_from_dataframe(df, sheet_name_hint=None):
 
 def extract_pnl_data(uploaded_file, parking_code):
     """
-    Extract P&L data from ANY file format (Excel, PDF, CSV, DOCX, TXT).
+    Extract P&L data from ANY file format.
     Returns (pnl_data_dict, file_type) or (None, None).
     """
     sheets_dict, file_type = read_any_file_to_dataframes(uploaded_file)
@@ -697,26 +918,20 @@ def extract_pnl_data(uploaded_file, parking_code):
     if sheets_dict is None:
         return None, None
     
-    # Find the right sheet for this parking code
     sheet_name = find_sheet_in_dict(sheets_dict, parking_code)
     
     if sheet_name is None:
-        # Try any sheet that might contain the parking code
         for name in sheets_dict:
             if parking_code.upper() in name.upper():
                 sheet_name = name
                 break
     
-    if sheet_name is None:
-        # Just use the first/largest sheet as fallback
-        if sheets_dict:
-            max_len = 0
-            for name, df in sheets_dict.items():
-                if len(df) > max_len:
-                    max_len = len(df)
-                    sheet_name = name
-        else:
-            return None, None
+    if sheet_name is None and sheets_dict:
+        max_len = 0
+        for name, df in sheets_dict.items():
+            if len(df) > max_len:
+                max_len = len(df)
+                sheet_name = name
     
     if sheet_name is None:
         return None, None
@@ -730,7 +945,7 @@ def extract_pnl_data(uploaded_file, parking_code):
 def find_pnl_value(pnl_data, label_alternatives):
     """
     Search through P&L data for a matching label.
-    Tries exact match first, then partial match.
+    Uses cleaned text matching (removes accents, special chars).
     Returns the yearly value or 0.
     """
     if pnl_data is None:
@@ -741,29 +956,72 @@ def find_pnl_value(pnl_data, label_alternatives):
     if not yearly:
         return 0
     
-    # Try exact match first
-    for alt in label_alternatives:
-        alt_lower = alt.lower().strip()
+    # Clean all alternatives
+    clean_alts = [clean_text_for_matching(alt) for alt in label_alternatives]
+    
+    # Try exact match first (cleaned)
+    for alt_clean in clean_alts:
+        if not alt_clean or len(alt_clean) < 3:
+            continue
         for key in yearly:
-            if alt_lower == key.lower().strip():
+            key_clean = clean_text_for_matching(key)
+            if alt_clean == key_clean:
                 return yearly[key]
     
-    # Try partial match - label contains key or key contains label
-    for alt in label_alternatives:
-        alt_lower = alt.lower().strip()
+    # Try partial match
+    for alt_clean in clean_alts:
+        if not alt_clean or len(alt_clean) < 3:
+            continue
         for key in yearly:
-            key_lower = key.lower().strip()
-            if alt_lower in key_lower or key_lower in alt_lower:
+            key_clean = clean_text_for_matching(key)
+            if alt_clean in key_clean or key_clean in alt_clean:
                 return yearly[key]
     
     return 0
 
 
+def find_monthly_pnl_value(pnl_data, label_alternatives):
+    """
+    Search through P&L monthly data for a matching label.
+    Returns the monthly values dict or empty dict.
+    """
+    if pnl_data is None:
+        return {}
+    
+    monthly = pnl_data.get('monthly', {})
+    
+    if not monthly:
+        return {}
+    
+    clean_alts = [clean_text_for_matching(alt) for alt in label_alternatives]
+    
+    # Try exact match first
+    for alt_clean in clean_alts:
+        if not alt_clean or len(alt_clean) < 3:
+            continue
+        for key in monthly:
+            key_clean = clean_text_for_matching(key)
+            if alt_clean == key_clean:
+                return monthly[key]
+    
+    # Try partial match
+    for alt_clean in clean_alts:
+        if not alt_clean or len(alt_clean) < 3:
+            continue
+        for key in monthly:
+            key_clean = clean_text_for_matching(key)
+            if alt_clean in key_clean or key_clean in alt_clean:
+                return monthly[key]
+    
+    return {}
+
+
 def merge_monthly_data(current_year_data, previous_year_data, year_map):
     """
     Merge monthly data from current and previous years based on year_map.
-    year_map: {month_index: year} - tells which year each month comes from.
-    Returns merged monthly data dict.
+    Each month (by index) gets data from the year specified in year_map.
+    Returns a combined dict with structure:
+    {pnl_label: {"January": value, "February": value, ...}}
     """
     merged = {}
     current_year = datetime.now().year
@@ -771,26 +1029,23 @@ def merge_monthly_data(current_year_data, previous_year_data, year_map):
     for month_idx, year in year_map.items():
         month_name = MONTHS_EN[month_idx]
         
-        # Determine which data source to use based on the year
+        # Determine which data source to use
         if year == current_year and current_year_data:
             source = current_year_data
         elif year == current_year - 1 and previous_year_data:
             source = previous_year_data
         elif year == current_year - 2 and previous_year_data:
-            # If year mapping says 2 years ago but we only have "previous" data, use it
             source = previous_year_data
         elif current_year_data:
-            # Ultimate fallback
             source = current_year_data
         else:
             continue
         
-        # Get monthly values from the chosen source
         if source and 'monthly' in source:
-            for label, monthly in source['monthly'].items():
+            for label, monthly_values in source['monthly'].items():
                 if label not in merged:
                     merged[label] = {}
-                merged[label][month_name] = monthly.get(month_name, 0)
+                merged[label][month_name] = monthly_values.get(month_name, 0)
     
     return merged
 
@@ -832,13 +1087,11 @@ def update_budget_initial(wb, previous_year_data, parking_code):
             ws["S8"].number_format = '#,##0.00'
             updates.append(f"✅ Budget Initial: S8 = ${total:,.2f} (previous year)")
         else:
-            # Try other common labels
             backup_alternatives = [
                 "Parking Revenue",
                 "Total Revenus Bruts",
                 "Revenue",
-                "Total",
-                "Total Revenue Bruts"
+                "Total"
             ]
             found = False
             for alt in backup_alternatives:
@@ -898,7 +1151,6 @@ def update_fiche_stationnement(wb, year_minus_2_data, parking_code, word_data=No
         ws["K26"].number_format = '#,##0.00'
         updates.append(f"✅ K26 = TOTAL REVENUE: ${total_revenue:,.2f}")
         
-        # Apply Word data if provided
         if word_data:
             for row in range(43, 56):
                 if "Nb abonnés" in word_data:
@@ -916,9 +1168,15 @@ def update_fiche_stationnement(wb, year_minus_2_data, parking_code, word_data=No
 
 def update_donnees_historiques(wb, merged_monthly_data, parking_code):
     """
-    Update Donnees Historiques sheet.
-    Fills monthly data from the correct years based on year mapping.
-    Jan-Apr from current year, May-Dec from previous year.
+    Update Donnees Historiques sheet with merged monthly data.
+    
+    The template has French labels like:
+    - "Revenus horaires" -> P&L "Transient Revenue"
+    - "Revenus mensuels" -> P&L "Monthly Revenues"
+    - "Salaire Stationnement" -> P&L "Parking wages"
+    etc.
+    
+    Fills columns B-M (months) for each matching row.
     """
     updates = []
     try:
@@ -939,10 +1197,16 @@ def update_donnees_historiques(wb, merged_monthly_data, parking_code):
             f"Nov={year_map.get(10)}, Dec={year_map.get(11)}"
         )
         
-        # Debug: show what labels we found in the template
-        debug_labels = get_template_labels_for_debug(ws, max_rows=80)
-        if debug_labels:
-            updates.append(f"🔍 Template labels found: {'; '.join(debug_labels[:6])}")
+        # Get all labels from the template
+        all_template_labels = get_all_template_labels(ws, max_rows=80)
+        
+        if not all_template_labels:
+            updates.append("⚠️ Donnees Historiques: No readable labels found in template column A")
+            return updates
+        
+        # Show first few labels for debugging
+        sample_labels = [f"R{r}:{l[:50]}" for r, l in all_template_labels[:8]]
+        updates.append(f"🔍 Template labels: {'; '.join(sample_labels)}")
         
         if not merged_monthly_data:
             updates.append("⚠️ Donnees Historiques: No merged monthly data available")
@@ -951,24 +1215,15 @@ def update_donnees_historiques(wb, merged_monthly_data, parking_code):
         cells_updated = 0
         rows_filled = []
         
-        for pnl_label, french_labels in DONNEES_HISTORIQUES_LABELS.items():
-            # Find matching value in merged monthly data
-            monthly_values = None
-            matched_key = None
+        # For each mapping (pnl_label -> french_labels)
+        for pnl_label, french_labels in ALL_DONNEES_MAP:
+            # Find the monthly data for this P&L label
+            monthly_values = find_monthly_pnl_value(
+                {"monthly": merged_monthly_data, "yearly": {}},
+                [pnl_label]
+            )
             
-            # Try exact match first
-            if pnl_label in merged_monthly_data:
-                monthly_values = merged_monthly_data[pnl_label]
-                matched_key = pnl_label
-            else:
-                # Try partial match
-                for key in merged_monthly_data:
-                    if pnl_label.lower() in key.lower() or key.lower() in pnl_label.lower():
-                        monthly_values = merged_monthly_data[key]
-                        matched_key = key
-                        break
-            
-            if monthly_values is None:
+            if not monthly_values:
                 continue
             
             # Check if there's any non-zero data
@@ -988,6 +1243,11 @@ def update_donnees_historiques(wb, merged_monthly_data, parking_code):
                 if month_name in monthly_values and monthly_values[month_name] != 0:
                     col_letter = get_column_letter(month_idx + 2)  # B=2, C=3, etc.
                     cell_ref = f"{col_letter}{template_row}"
+                    
+                    # Get current value to check if we should overwrite
+                    current_val = safe_float(ws[cell_ref].value)
+                    
+                    # Always fill with the new value
                     ws[cell_ref] = monthly_values[month_name]
                     ws[cell_ref].number_format = '#,##0.00'
                     cells_updated += 1
@@ -998,12 +1258,19 @@ def update_donnees_historiques(wb, merged_monthly_data, parking_code):
         
         if cells_updated > 0:
             updates.append(f"✅ Donnees Historiques: {cells_updated} cells updated in {len(rows_filled)} rows")
-            for row_info in rows_filled:
+            for row_info in rows_filled[:15]:  # Show first 15
                 updates.append(row_info)
+            if len(rows_filled) > 15:
+                updates.append(f"  ... and {len(rows_filled) - 15} more rows")
         else:
-            updates.append("⚠️ Donnees Historiques: No matches found between P&L data and template labels")
-            updates.append(f"   Template has {len(debug_labels)} labels in column A")
+            # Show what we tried to match
+            updates.append("⚠️ Donnees Historiques: No matches found")
+            updates.append(f"   Template has {len(all_template_labels)} labels")
             updates.append(f"   P&L data has {len(merged_monthly_data)} data rows")
+            
+            # Show some P&L labels that are available
+            pnl_sample = list(merged_monthly_data.keys())[:10]
+            updates.append(f"   Available P&L labels: {pnl_sample}")
     except Exception as e:
         updates.append(f"❌ Donnees Historiques: {str(e)}")
     return updates
@@ -1027,21 +1294,10 @@ def fix_excel(
     Args:
         excel_file: Uploaded Excel template (must be .xlsx)
         pnl_current_year: P&L file for CURRENT year (e.g., 2026 for 2027 budget)
-                          Can be Excel, PDF, CSV, DOCX, or TXT
         pnl_previous_year: P&L file for PREVIOUS year (e.g., 2025 for 2027 budget)
-                          Can be any format. Used for Donnees Historiques May-Dec
         pnl_two_years_ago: P&L file from 2 years ago (e.g., 2024 for 2027 budget)
-                          Can be any format. Used for Fiche Stationnement
         parking_code: Parking code (extracted from filename if None)
         word_data: Optional dict for Fiche Stationnement H-M rows
-    
-    Year Usage per Sheet:
-        - Budget Initial: Previous year total (year - 1)
-        - Fiche Stationnement: 2 years ago data (year - 2)
-        - Donnees Historiques: Jan-Apr = current year, May-Dec = previous year
-    
-    Returns:
-        (output_bytesio, updates_list) or (None, error_list)
     """
     updates = []
     
@@ -1091,34 +1347,32 @@ def fix_excel(
     if pnl_two_years_ago:
         two_years_ago_data, two_ya_file_type = extract_pnl_data(pnl_two_years_ago, parking_code)
     
-    # Check if we got ANY data
     if current_year_data is None and previous_year_data is None and two_years_ago_data is None:
         return None, [
-            f"❌ Could not find P&L data for {parking_code} in any uploaded file. "
-            f"Please check that the parking code matches the sheet name or data in the P&L file."
+            f"❌ Could not find P&L data for {parking_code} in any uploaded file."
         ]
     
     if current_year_data:
-        keys = list(current_year_data['yearly'].keys())[:8]
+        keys = list(current_year_data['yearly'].keys())[:10]
         updates.append(f"📊 Current year keys ({current_file_type}): {keys}")
     
     if previous_year_data:
-        keys = list(previous_year_data['yearly'].keys())[:8]
+        keys = list(previous_year_data['yearly'].keys())[:10]
         updates.append(f"📊 Previous year keys ({prev_file_type}): {keys}")
     
     if two_years_ago_data:
-        keys = list(two_years_ago_data['yearly'].keys())[:8]
+        keys = list(two_years_ago_data['yearly'].keys())[:10]
         updates.append(f"📊 2YA keys ({two_ya_file_type}): {keys}")
     
-    # ── Read template - need TWO workbooks for formula handling ─────────
+    # ── Read template ───────────────────────────────────────────────────
     try:
         excel_file.seek(0) if hasattr(excel_file, 'seek') else None
         file_bytes = excel_file.read()
         excel_file.seek(0) if hasattr(excel_file, 'seek') else None
         
-        # wb_read: data_only=True to get computed values (for label matching)
-        # wb_write: data_only=False to preserve formulas (for writing)
+        # Use data_only=True to get computed values for reading labels
         wb_read = load_workbook(io.BytesIO(file_bytes), data_only=True)
+        # Use data_only=False for writing (preserves formulas)
         wb_write = load_workbook(io.BytesIO(file_bytes), data_only=False)
     except Exception as e:
         return None, [f"❌ Error reading template: {str(e)}"]
@@ -1132,26 +1386,20 @@ def fix_excel(
     # ── Merge monthly data based on year mapping ────────────────────────
     merged_monthly = {}
     if year_map and current_year_data and previous_year_data:
-        # Use current_year for Jan-Apr, previous_year for May-Dec (as per year_map)
         merged_monthly = merge_monthly_data(current_year_data, previous_year_data, year_map)
     
     if not merged_monthly and current_year_data:
-        # Fallback: use current year for all months
         merged_monthly = current_year_data['monthly']
     
     # ── Determine which data to use for each sheet ──────────────────────
-    # Budget Initial = previous year (year - 1)
     budget_initial_data = previous_year_data if previous_year_data else current_year_data
     
-    # Fiche Stationnement = 2 years ago (year - 2)
-    # If 2YA not provided, try previous year, then current year
     fiche_data = two_years_ago_data
     if fiche_data is None:
         fiche_data = previous_year_data
     if fiche_data is None:
         fiche_data = current_year_data
     
-    # Donnees Historiques = merged (current + previous)
     dh_data = merged_monthly if merged_monthly else {}
     if not dh_data and current_year_data:
         dh_data = current_year_data['monthly']
@@ -1163,10 +1411,9 @@ def fix_excel(
     
     # ── Summary ─────────────────────────────────────────────────────────
     success_count = sum(1 for u in updates if u.startswith("✅"))
-    warning_count = sum(1 for u in updates if u.startswith("⚠️"))
     
     if success_count == 0:
-        updates.append("💡 No updates were made. Check that P&L files contain matching data for the parking code and labels.")
+        updates.append("💡 No updates were made. Check that P&L files contain matching data.")
     
     # ── Reset file pointers ─────────────────────────────────────────────
     if hasattr(pnl_current_year, 'seek'):
