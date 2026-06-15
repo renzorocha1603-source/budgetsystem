@@ -701,9 +701,8 @@ def update_fiche_stationnement(wb, year_minus_2_data, parking_code, word_data=No
 
 def update_donnees_historiques(wb, merged_monthly_data, parking_code):
     """
-    Update Donnees Historiques sheet.
-    First tries to read labels from Actualisation sheet.
-    Falls back to hardcoded row mapping if that fails.
+    Update Donnees Historiques sheet using hardcoded row mapping.
+    All Actualisation sheet cells are formulas, so we use the verified row numbers.
     """
     updates = []
     try:
@@ -723,106 +722,10 @@ def update_donnees_historiques(wb, merged_monthly_data, parking_code):
             updates.append("⚠️ Donnees Historiques: No merged monthly data available")
             return updates
         
-        # Find Actualisation sheet
-        act_sheet_name = None
-        for sn in wb.sheetnames:
-            sn_lower = sn.lower()
-            if 'actualisation' in sn_lower or '5-actualisation' in sn_lower or '5 actualisation' in sn_lower:
-                act_sheet_name = sn
-                break
-        
-        if not act_sheet_name:
-            updates.append("⚠️ Actualisation sheet not found, using fallback...")
-            return _update_dh_fallback(ws_dh, merged_monthly_data, updates)
-        
-        ws_act = wb[act_sheet_name]
-        updates.append(f"🔍 Sheet: '{act_sheet_name}', max_row={ws_act.max_row}, max_col={ws_act.max_column}")
-        
-        # DEBUG: Dump first 20 rows, columns A, B, C
-        updates.append("🔧 DEBUG Actualisation (first 20 rows):")
-        for row_idx in range(1, min(21, ws_act.max_row + 1)):
-            cell_a = ws_act.cell(row=row_idx, column=1).value
-            cell_b = ws_act.cell(row=row_idx, column=2).value
-            cell_c = ws_act.cell(row=row_idx, column=3).value
-            
-            a_str = "None"
-            if cell_a is not None:
-                if isinstance(cell_a, str) and cell_a.startswith('='):
-                    a_str = f"[F:{cell_a[:40]}]"
-                else:
-                    a_str = f"'{str(cell_a)[:40]}'"
-            
-            b_str = "None"
-            if cell_b is not None:
-                if isinstance(cell_b, str) and str(cell_b).startswith('='):
-                    b_str = f"[F:{str(cell_b)[:30]}]"
-                else:
-                    b_str = f"'{str(cell_b)[:30]}'"
-            
-            c_str = "None"
-            if cell_c is not None:
-                if isinstance(cell_c, str) and str(cell_c).startswith('='):
-                    c_str = f"[F:{str(cell_c)[:30]}]"
-                else:
-                    c_str = f"'{str(cell_c)[:30]}'"
-            
-            updates.append(f"  A{row_idx}={a_str} | B{row_idx}={b_str} | C{row_idx}={c_str}")
-        
-        # Read labels from Actualisation Column A
-        act_labels = {}
-        for row_idx in range(1, min(ws_act.max_row + 1, 100)):
-            cell_value = ws_act.cell(row=row_idx, column=1).value
-            if cell_value is not None:
-                if isinstance(cell_value, str) and cell_value.startswith('='):
-                    continue
-                label_text = str(cell_value).strip()
-                if label_text and len(label_text) > 2:
-                    act_labels[row_idx] = label_text
-        
-        updates.append(f"🔍 Labels found in Column A: {len(act_labels)}")
-        
-        if len(act_labels) == 0:
-            updates.append("🔧 Trying Column B...")
-            for row_idx in range(1, min(ws_act.max_row + 1, 100)):
-                cell_value = ws_act.cell(row=row_idx, column=2).value
-                if cell_value is not None:
-                    if isinstance(cell_value, str) and cell_value.startswith('='):
-                        continue
-                    label_text = str(cell_value).strip()
-                    if label_text and len(label_text) > 2:
-                        act_labels[row_idx] = label_text
-            updates.append(f"🔍 Labels found in Column B: {len(act_labels)}")
-        
-        if len(act_labels) == 0:
-            updates.append("⚠️ Still no labels, using fallback...")
-            return _update_dh_fallback(ws_dh, merged_monthly_data, updates)
-        
-        # Build lookup
-        label_to_row = {}
-        for row_idx, label_text in act_labels.items():
-            label_clean = clean_text_for_matching(label_text)
-            if label_clean:
-                label_to_row[label_clean] = row_idx
-        
-        # Match and write
         cells_updated = 0
         rows_filled = []
         
-        for french_label, pnl_labels in DH_LABEL_MAPPING_FULL:
-            french_clean = clean_text_for_matching(french_label)
-            
-            found_row = None
-            if french_clean in label_to_row:
-                found_row = label_to_row[french_clean]
-            else:
-                for act_clean, act_row in label_to_row.items():
-                    if french_clean in act_clean or act_clean in french_clean:
-                        found_row = act_row
-                        break
-            
-            if found_row is None:
-                continue
-            
+        for dh_row, pnl_labels in DH_ROW_MAPPING.items():
             monthly_values = find_monthly_pnl_value(merged_monthly_data, pnl_labels)
             
             if not monthly_values:
@@ -837,68 +740,27 @@ def update_donnees_historiques(wb, merged_monthly_data, parking_code):
                     val = monthly_values[month_name]
                     if val != 0:
                         col_letter = get_column_letter(month_idx + 2)
-                        cell_ref = f"{col_letter}{found_row}"
+                        cell_ref = f"{col_letter}{dh_row}"
                         ws_dh[cell_ref] = val
                         ws_dh[cell_ref].number_format = '#,##0.00'
                         cells_updated += 1
                         row_cells += 1
             
             if row_cells > 0:
-                rows_filled.append(f"  Row {found_row} ({french_label}): {pnl_labels[0]} ({row_cells} months)")
+                rows_filled.append(f"  Row {dh_row}: {pnl_labels[0]} ({row_cells} months)")
         
         if cells_updated > 0:
             updates.append(f"✅ Donnees Historiques: {cells_updated} cells in {len(rows_filled)} rows")
             for row_info in rows_filled:
                 updates.append(row_info)
-            return updates
         else:
-            updates.append("⚠️ Label matching found no results, using fallback...")
-            return _update_dh_fallback(ws_dh, merged_monthly_data, updates)
+            updates.append("⚠️ Donnees Historiques: No cells updated")
+            updates.append(f"   P&L data has {len(merged_monthly_data)} labels available")
+            pnl_sample = list(merged_monthly_data.keys())[:20]
+            updates.append(f"   Available P&L labels: {pnl_sample}")
     
     except Exception as e:
         updates.append(f"❌ Donnees Historiques: {str(e)}")
-    return updates
-
-
-def _update_dh_fallback(ws_dh, merged_monthly_data, updates):
-    """Fallback: Use hardcoded DH_ROW_MAPPING."""
-    cells_updated = 0
-    rows_filled = []
-    
-    for dh_row, pnl_labels in DH_ROW_MAPPING.items():
-        monthly_values = find_monthly_pnl_value(merged_monthly_data, pnl_labels)
-        
-        if not monthly_values:
-            continue
-        
-        if all(v == 0 for v in monthly_values.values()):
-            continue
-        
-        row_cells = 0
-        for month_idx, month_name in enumerate(MONTHS_EN):
-            if month_name in monthly_values:
-                val = monthly_values[month_name]
-                if val != 0:
-                    col_letter = get_column_letter(month_idx + 2)
-                    cell_ref = f"{col_letter}{dh_row}"
-                    ws_dh[cell_ref] = val
-                    ws_dh[cell_ref].number_format = '#,##0.00'
-                    cells_updated += 1
-                    row_cells += 1
-        
-        if row_cells > 0:
-            rows_filled.append(f"  Row {dh_row}: {pnl_labels[0]} ({row_cells} months)")
-    
-    if cells_updated > 0:
-        updates.append(f"✅ Donnees Historiques (fallback): {cells_updated} cells in {len(rows_filled)} rows")
-        for row_info in rows_filled:
-            updates.append(row_info)
-    else:
-        updates.append("⚠️ Donnees Historiques: No cells updated")
-        updates.append(f"   P&L data has {len(merged_monthly_data)} labels available")
-        pnl_sample = list(merged_monthly_data.keys())[:20]
-        updates.append(f"   Available P&L labels: {pnl_sample}")
-    
     return updates
 
 
