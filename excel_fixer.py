@@ -8,67 +8,47 @@ from datetime import datetime
 # CONFIGURATION
 # ============================================================================
 
-MONTHS_FR = ["Janvier", "Février", "Mars", "Avril", "Mai", "Juin",
-             "Juillet", "Août", "Septembre", "Octobre", "Novembre", "Décembre"]
-
 MONTHS_EN = ["January", "February", "March", "April", "May", "June",
              "July", "August", "September", "October", "November", "December"]
-
-# Template row mapping for Donnees Historiques
-# Maps P&L row labels to template row numbers
-TEMPLATE_ROW_MAP = {
-    # Revenue section
-    "Revenus horaires": 42,
-    "Revenus mensuels": 43,
-    "Revenus Lave-auto": 45,
-    "Revenus hôtel": 46,
-    "Revenus d'intérêts": 48,
-    "Autres revenus": 49,
-    "Total revenus Bruts": 50,
-    "(Gratuités)": 52,
-    "(Rabais)": 54,
-    "TOTAL REVENUS": 58,
-    # Expense section
-    "Salaire Stationnement": 61,
-    "Salaire Superviseur": 62,
-    "Formation & Recrutement": 63,
-    "Uniformes": 64,
-    "Total Frais de personnel": 65,
-    "Nettoyage stationnement": 67,
-    "Entretien stationnement": 68,
-    "Entretien équipement": 69,
-    "Signalisation": 70,
-    "Lignage": 71,
-    "Déneigement": 72,
-    "Fournitures stationnement": 73,
-    "Total Entretien - réparations": 74,
-}
-
-# P&L row labels to match against template categories
-PNL_CATEGORY_MAP = {
-    # Revenue mappings (P&L label -> template category)
-    "Parking Revenue": "Total revenus Bruts",
-    "Monthly Revenues": "Revenus mensuels",
-    "Transient Revenue": "Revenus horaires",
-    "Hotel Revenue": "Revenus hôtel",
-    "Car-Wash Revenue": "Revenus Lave-auto",
-    "Interests": "Revenus d'intérêts",
-    "Miscellaneous": "Autres revenus",
-    "Discount-Gratuities - Transient": "(Gratuités)",
-    "Discount-Gratuities - Monthly": "(Rabais)",
-    "TOTAL REVENUE": "TOTAL REVENUS",
-    # Expense mappings
-    "Parking wages": "Salaire Stationnement",
-    "Total Operation expenses": "Total Entretien - réparations",
-    "OPERATION SURPLUS": None,  # Skip - not needed in template
-    "NET INCOME": None,  # Skip
-}
 
 SHEET_PATTERNS = {
     "Budget Initial": ["budget initial", "budget"],
     "Fiche Stationnement": ["fiche stationnement", "fiche de stationnement", "stationnement"],
     "Donnees Historiques": ["donnees historiques", "données historiques", "historiques", "historique"],
 }
+
+# Maps P&L row labels to Donnees Historiques template row numbers
+DONNEES_HISTORIQUES_MAP = {
+    # P&L Label -> Template Row
+    "Transient Revenue": 42,           # Revenus horaires
+    "Monthly Revenues": 43,            # Revenus mensuels
+    # Row 44 is WHITE (formula)
+    "Car-Wash Revenue": 45,            # Revenus Lave-auto
+    "Hotel Revenue": 46,               # Revenus hôtel
+    # Row 47 is WHITE (formula)
+    "Interests": 48,                   # Revenus d'intérêts
+    "Miscellaneous": 49,               # Autres revenus
+    "Parking Revenue": 50,             # Total revenus Bruts
+    "Discount-Gratuities - Transient": 52,  # (Gratuités)
+    "Discount-Gratuities - Monthly": 54,    # (Rabais)
+    "TOTAL REVENUE": 58,               # TOTAL REVENUS
+    "Parking wages": 61,               # Salaire Stationnement
+    "Total Operation expenses": 76,    # Total Entretien - réparations (approximate)
+}
+
+# Maps P&L row labels to Fiche Stationnement cells (K17-K25)
+FICHE_STATIONNEMENT_MAP = [
+    # (P&L Label, Cell, Description)
+    ("Parking Revenue", "K17"),
+    ("Monthly Revenues", "K18"),
+    ("Transient Revenue", "K19"),
+    ("TOTAL REVENUE", "K20"),
+    ("Total Operation expenses", "K21"),
+    ("Parking wages", "K22"),
+    ("OPERATION SURPLUS", "K23"),
+    ("Percent Management fee", "K24"),
+    ("NET INCOME", "K25"),
+]
 
 # ============================================================================
 # HELPER FUNCTIONS
@@ -141,26 +121,17 @@ def safe_float(value, default=0.0):
         return default
 
 
-def find_row_by_label(df, label, col_idx=0, max_rows=100):
-    """Find a row by its label in a specific column."""
-    label_lower = label.lower().strip()
-    for row_idx in range(min(max_rows, len(df))):
-        cell = str(df.iloc[row_idx, col_idx]).strip().lower() if pd.notna(df.iloc[row_idx, col_idx]) else ""
-        if label_lower in cell:
-            return row_idx
-    return None
-
-
 # ============================================================================
 # DATA EXTRACTION
 # ============================================================================
 
 def extract_pnl_data(pnl_file, parking_code):
     """
-    Extract ALL data from the P&L sheet into a structured format.
+    Extract ALL data from the P&L sheet.
+    P&L structure: Col A = labels, Col B-M = Jan-Dec, Col N = Year Total
     Returns dict with:
-    - 'monthly': {row_label: {month_name: value}}
-    - 'yearly': {row_label: total_value}
+    - 'monthly': {pnl_label: {month_name: value}}
+    - 'yearly': {pnl_label: year_total_value}
     """
     df, sheet_name = find_pnl_sheet(pnl_file, parking_code)
     if df is None:
@@ -168,12 +139,13 @@ def extract_pnl_data(pnl_file, parking_code):
     
     result = {'monthly': {}, 'yearly': {}}
     
-    # The P&L has: Col A = labels, Col B-M = Jan-Dec, Col N = Year Total
-    # Data starts around row 8-9
-    
     for row_idx in range(len(df)):
         label = str(df.iloc[row_idx, 0]).strip() if pd.notna(df.iloc[row_idx, 0]) else ""
-        if not label:
+        if not label or label.lower() in ['code', 'profit & loss', '']:
+            continue
+        
+        # Skip filter/date rows
+        if re.search(r'\d{2}-\d{2}-\d{2}', label):
             continue
         
         # Extract monthly data (columns B-M = indices 1-12)
@@ -208,8 +180,6 @@ def update_budget_initial(wb, pnl_data, parking_code):
             return ["Budget Initial: Sheet not found"]
         
         ws = wb[sheet_name]
-        
-        # Get TOTAL REVENUE from P&L
         total = pnl_data['yearly'].get('TOTAL REVENUE', 0)
         
         if total > 0:
@@ -225,8 +195,7 @@ def update_budget_initial(wb, pnl_data, parking_code):
 
 def update_fiche_stationnement(wb, pnl_data, parking_code, word_data=None):
     """
-    Update Fiche Stationnement - K17-K26 with yearly totals.
-    Maps specific P&L categories to K17-K25.
+    Update Fiche Stationnement - K17-K26 with YEARLY totals from Column N.
     """
     updates = []
     try:
@@ -236,32 +205,18 @@ def update_fiche_stationnement(wb, pnl_data, parking_code, word_data=None):
         
         ws = wb[sheet_name]
         
-        # Define which P&L categories go to which cells (in order of importance)
-        cell_mapping = [
-            ("Parking Revenue", "K17"),
-            ("TOTAL REVENUE", "K18"),
-            ("Monthly Revenues", "K19"),
-            ("Transient Revenue", "K20"),
-            ("Total Operation expenses", "K21"),
-            ("Parking wages", "K22"),
-            ("OPERATION SURPLUS", "K23"),
-            ("Percent Management fee", "K24"),
-            ("NET INCOME", "K25"),
-        ]
-        
-        total_revenue = 0
-        for pnl_label, cell in cell_mapping:
-            value = pnl_data['yearly'].get(pnl_label, 0)
-            if value != 0:
-                ws[cell] = value
+        for pnl_label, cell in FICHE_STATIONNEMENT_MAP:
+            yearly_value = pnl_data['yearly'].get(pnl_label, 0)
+            if yearly_value != 0:
+                ws[cell] = yearly_value
                 ws[cell].number_format = '#,##0.00'
-                total_revenue += value if value > 0 else 0
-                updates.append(f"✅ {cell} = {pnl_label}: ${value:,.2f}")
+                updates.append(f"✅ {cell} = {pnl_label}: ${yearly_value:,.2f}")
         
-        # K26 = Sum of all positive values or TOTAL REVENUE
-        ws["K26"] = pnl_data['yearly'].get('TOTAL REVENUE', total_revenue)
+        # K26 = TOTAL REVENUE yearly total
+        total_revenue = pnl_data['yearly'].get('TOTAL REVENUE', 0)
+        ws["K26"] = total_revenue
         ws["K26"].number_format = '#,##0.00'
-        updates.append(f"✅ K26 = Total Revenue: ${pnl_data['yearly'].get('TOTAL REVENUE', 0):,.2f}")
+        updates.append(f"✅ K26 = TOTAL REVENUE: ${total_revenue:,.2f}")
         
         if word_data:
             for row in range(43, 56):
@@ -281,7 +236,8 @@ def update_fiche_stationnement(wb, pnl_data, parking_code, word_data=None):
 def update_donnees_historiques(wb, pnl_data, parking_code):
     """
     Update Donnees Historiques with monthly data.
-    Maps P&L monthly values to the correct template rows.
+    Uses DONNEES_HISTORIQUES_MAP to put P&L monthly values into correct template rows.
+    Only fills rows that have matching P&L data.
     """
     updates = []
     try:
@@ -290,35 +246,34 @@ def update_donnees_historiques(wb, pnl_data, parking_code):
             return ["Donnees Historiques: Sheet not found"]
         
         ws = wb[sheet_name]
-        
-        # Map P&L data to template rows using PNL_CATEGORY_MAP
         cells_updated = 0
+        rows_updated = []
         
-        for pnl_label, template_label in PNL_CATEGORY_MAP.items():
-            if template_label is None:
-                continue
-            
-            # Get the template row for this label
-            template_row = TEMPLATE_ROW_MAP.get(template_label)
-            if template_row is None:
-                continue
-            
-            # Get monthly data from P&L
+        for pnl_label, template_row in DONNEES_HISTORIQUES_MAP.items():
+            # Get monthly data for this P&L label
             monthly_values = pnl_data['monthly'].get(pnl_label, {})
             if not monthly_values:
                 continue
             
-            # Fill each month column (B-M = columns 1-12 in template)
+            # Skip if all values are zero
+            if all(v == 0 for v in monthly_values.values()):
+                continue
+            
+            # Fill each month column (B-M = columns 1-12 in Excel)
             for month_idx, month_name in enumerate(MONTHS_EN):
-                if month_name in monthly_values and monthly_values[month_name] != 0:
-                    col_letter = chr(ord('B') + month_idx)  # B, C, D, ... M
+                if month_name in monthly_values:
+                    col_letter = chr(ord('B') + month_idx)  # B=Jan, C=Feb, ... M=Dec
                     cell = f"{col_letter}{template_row}"
                     ws[cell] = monthly_values[month_name]
                     ws[cell].number_format = '#,##0.00'
                     cells_updated += 1
+            
+            rows_updated.append(f"  Row {template_row}: {pnl_label}")
         
         if cells_updated > 0:
-            updates.append(f"✅ Donnees Historiques: Updated {cells_updated} monthly cells")
+            updates.append(f"✅ Donnees Historiques: Updated {cells_updated} cells across {len(rows_updated)} rows")
+            for row_info in rows_updated:
+                updates.append(row_info)
         else:
             updates.append("⚠️ Donnees Historiques: No matching data found")
     except Exception as e:
@@ -361,7 +316,7 @@ def fix_excel(excel_file, pnl_file, parking_code=None, word_data=None):
     
     yearly_count = sum(1 for v in pnl_data['yearly'].values() if v != 0)
     monthly_count = sum(1 for m in pnl_data['monthly'].values() if any(v != 0 for v in m.values()))
-    updates.append(f"📊 Found {yearly_count} yearly totals, {monthly_count} monthly breakdowns")
+    updates.append(f"📊 P&L: {yearly_count} yearly totals, {monthly_count} monthly breakdowns")
     
     # Read the Excel template
     try:
@@ -378,7 +333,7 @@ def fix_excel(excel_file, pnl_file, parking_code=None, word_data=None):
     # Count successes
     success_count = sum(1 for u in updates if u.startswith("✅"))
     if success_count == 0:
-        updates.append("💡 No updates were made.")
+        updates.append("💡 No updates were made. Check if parking code exists in P&L file.")
     
     # Reset P&L file pointer
     pnl_file.seek(0) if hasattr(pnl_file, 'seek') else None
