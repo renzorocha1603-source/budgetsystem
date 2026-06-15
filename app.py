@@ -7,14 +7,12 @@ import os
 import json
 import requests
 from datetime import datetime
-import time
 import csv
 import zipfile
 from xml.etree import ElementTree
 from audio_recorder_streamlit import audio_recorder
 from deepgram import DeepgramClient
 import base64
-import threading
 from excel_fixer import fix_excel
 
 # ─────────────────────────────────────────────────────────────────
@@ -39,10 +37,12 @@ MISTRAL_API_KEY = "em5oqjSdA1Nus9iUpa1MNAJtQA4YfCtK"
 MISTRAL_URL = "https://api.mistral.ai/v1/chat/completions"
 MISTRAL_MODEL = "mistral-small-latest"
 
-# Global flag for stopping
+# Global flag for stopping AI response generation
 stop_requested = False
 
+
 def ask_mistral(history: list) -> str:
+    """Send chat history to Mistral and return the AI response."""
     global stop_requested
     stop_requested = False
 
@@ -108,6 +108,7 @@ def ask_mistral(history: list) -> str:
     except Exception as e:
         return f"⚠️ Unexpected error: {e}"
 
+
 # ─────────────────────────────────────────────────────────────────
 # VOICE: Speech-to-Text (transcription)
 # ─────────────────────────────────────────────────────────────────
@@ -123,7 +124,6 @@ def transcribe_with_deepgram(audio_bytes, lang="en"):
             "buffer": audio_bytes,
         }
 
-        # Switch language based on app setting
         if lang == "fr":
             speech_language = "fr"
         else:
@@ -145,6 +145,7 @@ def transcribe_with_deepgram(audio_bytes, lang="en"):
     except Exception as e:
         return None
 
+
 # ─────────────────────────────────────────────────────────────────
 # VOICE: Text-to-Speech (Allison speaks back)
 # ─────────────────────────────────────────────────────────────────
@@ -161,6 +162,7 @@ def clean_text_for_speech(text):
     clean = re.sub(r'\s+', ' ', clean)
     return clean.strip()
 
+
 def text_to_speech(text, lang="en"):
     """Convert Allison's text response to speech using Deepgram TTS (Aura-2)"""
     try:
@@ -168,12 +170,10 @@ def text_to_speech(text, lang="en"):
         
         deepgram = DeepgramClient(DEEPGRAM_API_KEY)
         
-        # Choose voice based on language
-        # Aura-2 voices: agathe-fr (feminine French), asteria-en (feminine English)
         if lang == "fr":
-            voice_model = "aura-2-agathe-fr"  # French feminine voice
+            voice_model = "aura-2-agathe-fr"
         else:
-            voice_model = "aura-2-asteria-en"  # English feminine voice
+            voice_model = "aura-2-asteria-en"
         
         options = {
             "model": voice_model,
@@ -193,6 +193,7 @@ def text_to_speech(text, lang="en"):
     except Exception as e:
         return None
 
+
 def play_audio_html(audio_b64):
     """Create HTML audio player that autoplays"""
     if audio_b64:
@@ -203,11 +204,12 @@ def play_audio_html(audio_b64):
         """
         st.markdown(audio_html, unsafe_allow_html=True)
 
+
 # ─────────────────────────────────────────────────────────────────
-# FILE EXTRACTION FUNCTIONS (using only installed libraries)
+# FILE EXTRACTION FUNCTIONS (for AI chat file analysis)
 # ─────────────────────────────────────────────────────────────────
 def extract_text_from_excel(file_bytes):
-    """Extract text from Excel file"""
+    """Extract text from Excel file for AI context"""
     wb = load_workbook(io.BytesIO(file_bytes))
     ws = wb.active
     excel_data = []
@@ -215,8 +217,9 @@ def extract_text_from_excel(file_bytes):
         excel_data.append([str(cell) if cell is not None else "" for cell in row])
     return excel_data
 
+
 def extract_text_from_csv(file_bytes):
-    """Extract text from CSV file"""
+    """Extract text from CSV file for AI context"""
     text = file_bytes.decode('utf-8', errors='ignore')
     reader = csv.reader(io.StringIO(text))
     csv_data = []
@@ -226,18 +229,20 @@ def extract_text_from_csv(file_bytes):
         csv_data.append(row)
     return csv_data
 
+
 def extract_text_from_pdf(file_bytes):
     """Extract text from PDF file using pdfplumber"""
     text = ""
     try:
         with pdfplumber.open(io.BytesIO(file_bytes)) as pdf:
             text = "".join(p.extract_text() or "" for p in pdf.pages)
-    except:
+    except Exception:
         pass
     return text if text.strip() else "Could not extract text from PDF"
 
+
 def extract_text_from_docx(file_bytes):
-    """Extract text from Word document using built-in zipfile and ElementTree"""
+    """Extract text from Word document"""
     try:
         with zipfile.ZipFile(io.BytesIO(file_bytes)) as z:
             if 'word/document.xml' in z.namelist():
@@ -252,16 +257,18 @@ def extract_text_from_docx(file_bytes):
                     if para_text:
                         text_parts.append(para_text)
                 return '\n'.join(text_parts)
-    except:
+    except Exception:
         pass
     return "Could not extract text from this document"
+
 
 def extract_text_from_txt(file_bytes):
     """Extract text from text file"""
     return file_bytes.decode('utf-8', errors='ignore')
 
+
 def process_any_file(uploaded_file):
-    """Process any uploaded file and return extracted content"""
+    """Process any uploaded file and return extracted content for AI chat"""
     file_name = uploaded_file.name.lower()
     file_bytes = uploaded_file.read()
 
@@ -278,8 +285,9 @@ def process_any_file(uploaded_file):
     else:
         try:
             return file_bytes.decode('utf-8', errors='ignore'), "text", file_bytes
-        except:
+        except Exception:
             return f"Binary file: {file_name} (content cannot be displayed as text)", "binary", file_bytes
+
 
 # ─────────────────────────────────────────────────────────────────
 # TRANSLATIONS
@@ -298,12 +306,13 @@ T_DATA = {
         "chat_hint": "Ask Allison about budget, forecasts, or calculations…",
         "no_msgs": "No messages yet — start a conversation with Allison.",
         "files_title": "File Upload",
-        "excel_lbl": "Upload Excel Template",
-        "pnl_current_lbl": "Upload P&L CURRENT Year (e.g., 2026)",
-        "pnl_previous_lbl": "Upload P&L PREVIOUS Year (e.g., 2025)",
+        "excel_lbl": "📊 Upload Excel Template (.xlsx)",
+        "pnl_current_lbl": "📁 P&L CURRENT Year (e.g., 2026) - Any format",
+        "pnl_previous_lbl": "📁 P&L PREVIOUS Year (e.g., 2025) - Any format",
+        "pnl_two_ya_lbl": "📁 P&L 2 Years Ago (e.g., 2024) - Optional",
         "processing": "Processing files…",
-        "files_ready": "✅ Files ready — you can now run the workflow.",
-        "files_ready_single": "✅ Template + Current Year P&L ready. Previous year P&L optional but recommended for Donnees Historiques.",
+        "files_ready": "✅ All files ready — you can now run the workflow.",
+        "files_ready_partial": "✅ Template + Current Year P&L ready. Previous year recommended for best results.",
         "transient": "Transient",
         "monthly": "Monthly",
         "total": "Total",
@@ -311,11 +320,11 @@ T_DATA = {
         "parking_lbl": "Parking",
         "type_lbl": "Type",
         "hours_lbl": "Supervisor hrs/day",
-        "run_btn": "Run Workflow",
+        "run_btn": "🚀 Run Workflow",
         "running": "Processing your budget...",
-        "run_ok": "Done — file ready to download.",
-        "dl_btn": "Download Budget File",
-        "upload_first": "Upload Excel Template + Current Year P&L File to unlock workflow.",
+        "run_ok": "✅ Done — file ready to download.",
+        "dl_btn": "📥 Download Budget File",
+        "upload_first": "⚠️ Upload Excel Template + Current Year P&L to unlock workflow.",
         "admin_title": "Admin Panel",
         "new_user_title": "Create New User",
         "nm_lbl": "Full name",
@@ -343,12 +352,13 @@ T_DATA = {
         "stop": "⏹ STOP",
         "ai_file_upload": "📎 Upload any file to analyze",
         "ai_file_loaded": "ready for questions",
-        "clear_workflow": "Clear Workflow",
+        "clear_workflow": "🔄 Clear Workflow",
         "speak_now": "🎤 SPEAK NOW",
         "thinking_msg": "🤖 Allison is thinking...",
         "allison_online": "🟢 Allison is online and ready",
         "word_data_upload": "📄 Upload Word Data (optional)",
         "parking_code_lbl": "Parking Code",
+        "year_info": "📅 Year info",
     },
     "fr": {
         "brand": "SYSTÈME BUDGÉTAIRE",
@@ -363,12 +373,13 @@ T_DATA = {
         "chat_hint": "Demandez à Allison budget, prévisions, calculs…",
         "no_msgs": "Aucun message — commencez une conversation avec Allison.",
         "files_title": "Fichiers",
-        "excel_lbl": "Téléverser le modèle Excel",
-        "pnl_current_lbl": "Téléverser P&L année EN COURS (ex: 2026)",
-        "pnl_previous_lbl": "Téléverser P&L année PRÉCÉDENTE (ex: 2025)",
+        "excel_lbl": "📊 Téléverser le modèle Excel (.xlsx)",
+        "pnl_current_lbl": "📁 P&L année EN COURS (ex: 2026) - Tout format",
+        "pnl_previous_lbl": "📁 P&L année PRÉCÉDENTE (ex: 2025) - Tout format",
+        "pnl_two_ya_lbl": "📁 P&L il y a 2 ans (ex: 2024) - Optionnel",
         "processing": "Traitement…",
-        "files_ready": "✅ Fichiers prêts — vous pouvez exécuter le workflow.",
-        "files_ready_single": "✅ Modèle + P&L année courante prêts. P&L année précédente optionnel mais recommandé pour Données Historiques.",
+        "files_ready": "✅ Tous les fichiers prêts — exécutez le workflow.",
+        "files_ready_partial": "✅ Modèle + P&L année courante prêts. Année précédente recommandée.",
         "transient": "Transitoire",
         "monthly": "Mensuel",
         "total": "Total",
@@ -376,11 +387,11 @@ T_DATA = {
         "parking_lbl": "Stationnement",
         "type_lbl": "Type",
         "hours_lbl": "Heures sup./jour",
-        "run_btn": "Exécuter le workflow",
+        "run_btn": "🚀 Exécuter",
         "running": "Traitement de votre budget...",
-        "run_ok": "Terminé — fichier prêt.",
-        "dl_btn": "Télécharger le fichier",
-        "upload_first": "Téléversez le modèle Excel + fichier P&L année courante pour débloquer.",
+        "run_ok": "✅ Terminé — fichier prêt.",
+        "dl_btn": "📥 Télécharger le fichier",
+        "upload_first": "⚠️ Téléversez le modèle Excel + P&L année courante.",
         "admin_title": "Admin",
         "new_user_title": "Créer un utilisateur",
         "nm_lbl": "Nom complet",
@@ -408,27 +419,31 @@ T_DATA = {
         "stop": "⏹ STOP",
         "ai_file_upload": "📎 Téléverser tout fichier à analyser",
         "ai_file_loaded": "prêt pour les questions",
-        "clear_workflow": "Effacer Workflow",
+        "clear_workflow": "🔄 Effacer Workflow",
         "speak_now": "🎤 PARLEZ",
         "thinking_msg": "🤖 Allison réfléchit...",
         "allison_online": "🟢 Allison est en ligne et prête",
         "word_data_upload": "📄 Téléverser données Word (optionnel)",
         "parking_code_lbl": "Code stationnement",
+        "year_info": "📅 Info année",
     },
 }
+
 
 # ─────────────────────────────────────────────────────────────────
 # PERSISTENT CHAT MEMORY
 # ─────────────────────────────────────────────────────────────────
 CHAT_HISTORY_FILE = "chat_history.json"
 
+
 def save_chat_history(messages):
     """Save chat messages to a file"""
     try:
         with open(CHAT_HISTORY_FILE, "w") as f:
             json.dump(messages, f, indent=2)
-    except:
+    except Exception:
         pass
+
 
 def load_chat_history():
     """Load chat messages from file"""
@@ -436,17 +451,19 @@ def load_chat_history():
         if os.path.exists(CHAT_HISTORY_FILE):
             with open(CHAT_HISTORY_FILE) as f:
                 return json.load(f)
-    except:
+    except Exception:
         pass
     return []
+
 
 def clear_chat_history():
     """Delete the chat history file"""
     try:
         if os.path.exists(CHAT_HISTORY_FILE):
             os.remove(CHAT_HISTORY_FILE)
-    except:
+    except Exception:
         pass
+
 
 # ─────────────────────────────────────────────────────────────────
 # USER MANAGEMENT
@@ -463,30 +480,45 @@ DEFAULT_USERS = {
     }
 }
 
+
 def load_users():
+    """Load users from JSON file"""
     if os.path.exists(USERS_FILE):
         with open(USERS_FILE) as f:
             return json.load(f)
     save_users(DEFAULT_USERS)
     return DEFAULT_USERS
 
+
 def save_users(u):
+    """Save users to JSON file"""
     with open(USERS_FILE, "w") as f:
         json.dump(u, f, indent=2)
 
+
 def authenticate(email, pw):
+    """Authenticate a user by email and password"""
     u = load_users().get(email)
     return u if (u and u["password"] == pw) else None
 
+
 def create_user(email, name, pw, role="user"):
+    """Create a new user"""
     users = load_users()
     if email in users:
         return False
-    users[email] = {"password": pw, "name": name, "role": role, "created": datetime.now().isoformat()}
+    users[email] = {
+        "password": pw,
+        "name": name,
+        "role": role,
+        "created": datetime.now().isoformat()
+    }
     save_users(users)
     return True
 
+
 def delete_user(email):
+    """Delete a user (cannot delete admin)"""
     if email == ADMIN_EMAIL:
         return False
     users = load_users()
@@ -496,7 +528,9 @@ def delete_user(email):
         return True
     return False
 
+
 def reset_password(email, pw):
+    """Reset a user's password"""
     users = load_users()
     if email in users:
         users[email]["password"] = pw
@@ -504,8 +538,9 @@ def reset_password(email, pw):
         return True
     return False
 
+
 # ─────────────────────────────────────────────────────────────────
-# SESSION STATE
+# SESSION STATE INITIALIZATION
 # ─────────────────────────────────────────────────────────────────
 _D = dict(
     authenticated=False,
@@ -518,6 +553,7 @@ _D = dict(
     excel_bytes=None,
     pnl_current_bytes=None,
     pnl_previous_bytes=None,
+    pnl_two_ya_bytes=None,
     word_bytes=None,
     extracted_rev={},
     files_ready=False,
@@ -533,19 +569,24 @@ _D = dict(
     last_audio=None,
     last_processed_text="",
 )
+
 for k, v in _D.items():
     if k not in st.session_state:
         st.session_state[k] = v
 
+
 def T(key):
+    """Get translated string for current language"""
     return T_DATA[st.session_state.lang].get(key, key)
 
+
 def do_logout():
-    # Save chat before logging out
+    """Log out the current user and clear session"""
     save_chat_history(st.session_state.messages)
     for k, v in _D.items():
         st.session_state[k] = v
     st.rerun()
+
 
 # ─────────────────────────────────────────────────────────────────
 # THEME TOKENS
@@ -602,12 +643,15 @@ LIGHT = dict(
     highlight="#E67E22",
 )
 
+
 def TK():
+    """Return current theme token dictionary"""
     return DARK if st.session_state.theme == "dark" else LIGHT
 
+
 def inject_css():
+    """Inject custom CSS based on current theme"""
     C = TK()
-    is_dark = st.session_state.theme == "dark"
     st.markdown(f"""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500;600&family=Inter:wght@300;400;500;600;700&display=swap');
@@ -652,7 +696,7 @@ def inject_css():
         background: {C['run_bg2']};
     }}
     
-    /* THINKING DOTS - TRIGGERED BY THINKING STATE */
+    /* THINKING DOTS */
     .thinking-container {{
         display: inline-flex !important;
         align-items: center;
@@ -971,15 +1015,27 @@ def inject_css():
     .stInfo .stMarkdown {{
         color: {C['text']} !important;
     }}
+    
+    /* File upload format note */
+    .file-upload-note {{
+        font-size: 0.55rem !important;
+        color: {C['text_secondary']} !important;
+        margin-top: -0.5rem !important;
+        margin-bottom: 0.3rem !important;
+        font-style: italic;
+    }}
     </style>
     """, unsafe_allow_html=True)
+
 
 # ─────────────────────────────────────────────────────────────────
 # LOGIN PAGE
 # ─────────────────────────────────────────────────────────────────
 def page_login():
+    """Render the login page"""
     inject_css()
 
+    # Language and theme toggles in top right
     r1, r2, r3, r4 = st.columns([8, 0.75, 0.55, 0.55])
     with r2:
         theme_label = T("theme_light") if st.session_state.theme == "dark" else T("theme_dark")
@@ -995,6 +1051,7 @@ def page_login():
             st.session_state.lang = "fr"
             st.rerun()
 
+    # Login form centered
     _, center, _ = st.columns([1, 1.05, 1])
     with center:
         st.markdown(f"""
@@ -1016,7 +1073,7 @@ def page_login():
                     st.session_state.user_email = email
                     st.session_state.user_name = user["name"]
                     st.session_state.user_role = user["role"]
-                    # Load saved chat history
+                    # Load saved chat history on login
                     st.session_state.messages = load_chat_history()
                     st.rerun()
                 else:
@@ -1024,17 +1081,21 @@ def page_login():
 
         st.markdown(f'<div class="db-footer">{T("footer")}</div>', unsafe_allow_html=True)
 
+
 # ─────────────────────────────────────────────────────────────────
-# SETTINGS MENU (only shows when ⚙️ clicked)
+# SETTINGS MENU (only shows when gear icon is clicked)
 # ─────────────────────────────────────────────────────────────────
 def render_settings_menu():
+    """Render the settings expander with user info, theme, language, and admin functions"""
     if st.session_state.show_settings:
         with st.expander(f"⚙️ {T('settings')}", expanded=True):
+            # Profile info
             st.markdown(f"**{T('profile')}**")
             st.info(f"**{st.session_state.user_name}**  \n`{st.session_state.user_email}`  \nRole: **{st.session_state.user_role.upper()}**")
 
             st.markdown("---")
 
+            # Appearance toggle
             st.markdown(f"**{T('appearance')}**")
             col1, col2 = st.columns(2)
             with col1:
@@ -1046,6 +1107,7 @@ def render_settings_menu():
                     st.session_state.theme = "light"
                     st.rerun()
 
+            # Language toggle
             st.markdown(f"**{T('language')}**")
             col1, col2 = st.columns(2)
             with col1:
@@ -1059,12 +1121,16 @@ def render_settings_menu():
 
             st.markdown("---")
 
+            # Logout button
             if st.button(T("logout_btn"), use_container_width=True, key="logout_settings"):
                 do_logout()
 
+            # Admin panel (only for admin users)
             if st.session_state.user_role == "admin":
                 st.markdown("---")
                 st.markdown("### 👑 Admin Management")
+
+                # Create new user form
                 st.markdown(f"### 👤 {T('new_user_title')}")
                 with st.form("create_user_form"):
                     col1, col2 = st.columns(2)
@@ -1085,6 +1151,7 @@ def render_settings_menu():
                         else:
                             st.warning("All fields required")
 
+                # User list
                 with st.expander("📋 " + T("users_title")):
                     users = load_users()
                     for ue, ud in users.items():
@@ -1099,6 +1166,7 @@ def render_settings_menu():
                                     st.rerun()
                         st.markdown("---")
 
+                # Reset password
                 with st.expander("🔑 " + T("reset_title")):
                     users = load_users()
                     sel = st.selectbox(T("select_user"), list(users.keys()), key="reset_select")
@@ -1108,13 +1176,15 @@ def render_settings_menu():
                             reset_password(sel, npw)
                             st.success(T("reset_ok"))
 
+
 # ─────────────────────────────────────────────────────────────────
 # MAIN DASHBOARD
 # ─────────────────────────────────────────────────────────────────
 def page_dashboard():
+    """Render the main dashboard page after login"""
     inject_css()
 
-    # Navbar - only ONE settings icon
+    # ── Navbar ───────────────────────────────────────────────────────────
     n1, n2 = st.columns([6, 0.65])
     with n1:
         st.markdown(f"""
@@ -1126,22 +1196,31 @@ def page_dashboard():
     with n2:
         col_time, col_settings, col_alive = st.columns([2.5, 0.5, 0.5])
         with col_time:
-            st.markdown(f"<div style='font-family:IBM Plex Mono,monospace;font-size:0.58rem;color:{TK()['text_secondary']};padding-top:0.6rem;text-align:right;'>{datetime.now().strftime('%Y-%m-%d %H:%M')}</div>", unsafe_allow_html=True)
+            st.markdown(
+                f"<div style='font-family:IBM Plex Mono,monospace;font-size:0.58rem;"
+                f"color:{TK()['text_secondary']};padding-top:0.6rem;text-align:right;'>"
+                f"{datetime.now().strftime('%Y-%m-%d %H:%M')}</div>",
+                unsafe_allow_html=True
+            )
         with col_settings:
             if st.button("⚙️", key="settings_btn"):
                 st.session_state.show_settings = not st.session_state.show_settings
                 st.rerun()
         with col_alive:
-            st.markdown('<div style="padding-top:0.55rem;text-align:center;"><span class="alive-dot"></span></div>', unsafe_allow_html=True)
+            st.markdown(
+                '<div style="padding-top:0.55rem;text-align:center;">'
+                '<span class="alive-dot"></span></div>',
+                unsafe_allow_html=True
+            )
 
     # Settings expander (only shows when toggled)
     if st.session_state.show_settings:
         render_settings_menu()
 
-    # ============ AI CHAT - FULL WIDTH TOP ============
+    # ── AI CHAT SECTION ──────────────────────────────────────────────────
     st.markdown(f'<div class="scard"><div class="scard-title">{T("ai_title")}</div>', unsafe_allow_html=True)
 
-    # Top row: File upload + Clear chat
+    # Top row: File upload + Clear chat button
     col_upload_area, col_clear_area = st.columns([1.5, 0.8])
     with col_upload_area:
         uploaded_file_for_ai = st.file_uploader(
@@ -1172,13 +1251,17 @@ def page_dashboard():
         except Exception as e:
             st.error(f"Could not read file: {e}")
 
-    # Show indicator if file is loaded
+    # Show indicator if file is loaded for AI
     if st.session_state.ai_file_data:
         file_name = st.session_state.ai_file_name
         file_type = st.session_state.ai_file_type
-        st.markdown(f'<div style="font-size:0.6rem;color:{TK()["highlight"]};margin-bottom:0.5rem;">📎 {file_name} ({file_type}) {T("ai_file_loaded")}</div>', unsafe_allow_html=True)
+        st.markdown(
+            f'<div style="font-size:0.6rem;color:{TK()["highlight"]};margin-bottom:0.5rem;">'
+            f'📎 {file_name} ({file_type}) {T("ai_file_loaded")}</div>',
+            unsafe_allow_html=True
+        )
 
-    # SCROLLABLE MESSAGES AREA
+    # ── Chat Messages Area ──────────────────────────────────────────────
     st.markdown('<div class="chat-messages">', unsafe_allow_html=True)
 
     if not st.session_state.messages:
@@ -1186,11 +1269,17 @@ def page_dashboard():
 
     for msg in st.session_state.messages:
         if msg["role"] == "user":
-            st.markdown(f'<div class="bubble-user"><div class="bubble-lbl">You</div>{msg["content"]}</div>', unsafe_allow_html=True)
+            st.markdown(
+                f'<div class="bubble-user"><div class="bubble-lbl">You</div>{msg["content"]}</div>',
+                unsafe_allow_html=True
+            )
         else:
-            st.markdown(f'<div class="bubble-bot"><div class="bubble-lbl">Allison</div>{msg["content"]}</div>', unsafe_allow_html=True)
+            st.markdown(
+                f'<div class="bubble-bot"><div class="bubble-lbl">Allison</div>{msg["content"]}</div>',
+                unsafe_allow_html=True
+            )
 
-    # THINKING INDICATOR - Shows dots animation when thinking
+    # Thinking indicator
     if st.session_state.thinking:
         st.markdown(f"""
         <div class="thinking-container">
@@ -1203,7 +1292,7 @@ def page_dashboard():
 
     st.markdown('</div>', unsafe_allow_html=True)
 
-    # CHAT INPUT USING FORM - THIS ELIMINATES THE GAP
+    # ── Chat Input Form ─────────────────────────────────────────────────
     with st.form(key="chat_form", clear_on_submit=True):
         col_input, col_send = st.columns([5, 1])
         with col_input:
@@ -1236,12 +1325,13 @@ def page_dashboard():
         st.session_state.thinking_from_voice = False
         st.rerun()
 
-    # ============ LOGO + STATUS + MIC ============
+    # ── Logo + Status + Microphone ──────────────────────────────────────
     col_status_gap, col_logo_gap, col_mic_gap = st.columns([1.5, 1, 1.5])
 
     with col_status_gap:
         st.markdown(f"""
-        <div style="text-align:right; padding-top: 12px; font-family: 'IBM Plex Mono', monospace; font-size: 0.7rem; color: {TK()['highlight']};">
+        <div style="text-align:right; padding-top: 12px; font-family: 'IBM Plex Mono', monospace; 
+        font-size: 0.7rem; color: {TK()['highlight']};">
             {T("allison_online")}
         </div>
         """, unsafe_allow_html=True)
@@ -1249,7 +1339,8 @@ def page_dashboard():
     with col_logo_gap:
         st.markdown(f"""
         <div style="text-align:center; padding: 0; margin: 0;">
-            <img src="https://i.ibb.co/0yfv7KCS/image-1.jpg" width="130" style="border-radius: 8px; opacity: 0.9;">
+            <img src="https://i.ibb.co/0yfv7KCS/image-1.jpg" width="130" 
+            style="border-radius: 8px; opacity: 0.9;">
         </div>
         """, unsafe_allow_html=True)
 
@@ -1275,47 +1366,79 @@ def page_dashboard():
             st.session_state.thinking_from_voice = True
             st.rerun()
 
-    # ============ FILE UPLOAD + WORKFLOW - MULTI-YEAR P&L SUPPORT ============
+    # ── FILE UPLOAD + WORKFLOW SECTION ──────────────────────────────────
     col_files, col_wf = st.columns([1, 1])
 
     with col_files:
         st.markdown(f'<div class="scard"><div class="scard-title">{T("files_title")}</div>', unsafe_allow_html=True)
 
-        # Upload Excel Template (REQUIRED)
-        excel_file = st.file_uploader(T("excel_lbl"), type=["xlsx"], key="xl")
-        
-        # Upload P&L CURRENT Year (REQUIRED) - e.g., 2026 for 2027 budget
-        pnl_current_file = st.file_uploader(T("pnl_current_lbl"), type=["xlsx"], key="pnl_current")
-        
-        # Upload P&L PREVIOUS Year (OPTIONAL but recommended) - e.g., 2025 for 2027 budget
-        pnl_previous_file = st.file_uploader(T("pnl_previous_lbl"), type=["xlsx"], key="pnl_previous")
-        
-        # Optional Word Data
-        word_file = st.file_uploader(T("word_data_upload"), type=["xlsx", "csv"], key="wd")
+        # 1. Excel Template (REQUIRED - must be .xlsx)
+        excel_file = st.file_uploader(
+            T("excel_lbl"),
+            type=["xlsx"],
+            key="xl"
+        )
+
+        # 2. P&L Current Year (REQUIRED - ANY format!)
+        pnl_current_file = st.file_uploader(
+            T("pnl_current_lbl"),
+            type=["xlsx", "xls", "xlsm", "pdf", "csv", "tsv", "txt", "docx"],
+            key="pnl_current"
+        )
+        st.markdown(
+            '<div class="file-upload-note">Accepts: Excel, PDF, CSV, DOCX, TXT</div>',
+            unsafe_allow_html=True
+        )
+
+        # 3. P&L Previous Year (OPTIONAL - ANY format!)
+        pnl_previous_file = st.file_uploader(
+            T("pnl_previous_lbl"),
+            type=["xlsx", "xls", "xlsm", "pdf", "csv", "tsv", "txt", "docx"],
+            key="pnl_previous"
+        )
+
+        # 4. P&L 2 Years Ago (OPTIONAL - ANY format!)
+        pnl_two_ya_file = st.file_uploader(
+            T("pnl_two_ya_lbl"),
+            type=["xlsx", "xls", "xlsm", "pdf", "csv", "tsv", "txt", "docx"],
+            key="pnl_two_ya"
+        )
+
+        # 5. Word Data (OPTIONAL)
+        word_file = st.file_uploader(
+            T("word_data_upload"),
+            type=["xlsx", "csv", "docx", "txt"],
+            key="wd"
+        )
 
         # Check if minimum required files are ready
         if excel_file and pnl_current_file:
-            # Update session state
+            # Update session state with all uploaded files
             st.session_state.excel_bytes = excel_file
             st.session_state.pnl_current_bytes = pnl_current_file
-            
+
             if pnl_previous_file:
                 st.session_state.pnl_previous_bytes = pnl_previous_file
             else:
                 st.session_state.pnl_previous_bytes = None
-                
+
+            if pnl_two_ya_file:
+                st.session_state.pnl_two_ya_bytes = pnl_two_ya_file
+            else:
+                st.session_state.pnl_two_ya_bytes = None
+
             if word_file:
                 st.session_state.word_bytes = word_file
             else:
                 st.session_state.word_bytes = None
-                
+
             st.session_state.files_ready = True
-            
-            if pnl_previous_file:
+
+            if pnl_previous_file and pnl_two_ya_file:
                 st.success(T("files_ready"))
             else:
-                st.info(T("files_ready_single"))
-                
+                st.info(T("files_ready_partial"))
+
         elif excel_file and not pnl_current_file:
             st.warning("⚠️ Current Year P&L file is required to run the workflow.")
             st.session_state.files_ready = False
@@ -1326,61 +1449,68 @@ def page_dashboard():
         st.markdown(f'<div class="scard"><div class="scard-title">{T("config_title")}</div>', unsafe_allow_html=True)
 
         if not st.session_state.files_ready:
-            st.markdown(f'<div style="font-size:0.78rem;color:{TK()["text_secondary"]};padding:1rem 0;">{T("upload_first")}</div>', unsafe_allow_html=True)
+            st.markdown(
+                f'<div style="font-size:0.78rem;color:{TK()["text_secondary"]};padding:1rem 0;">'
+                f'{T("upload_first")}</div>',
+                unsafe_allow_html=True
+            )
         else:
-            # Show filenames of uploaded files
-            template_name = st.session_state.excel_bytes.name if hasattr(st.session_state.excel_bytes, 'name') else "Template"
-            pnl_current_name = st.session_state.pnl_current_bytes.name if hasattr(st.session_state.pnl_current_bytes, 'name') else "Current Year P&L"
-            
+            # Show filenames of all uploaded files
+            template_name = "Template"
+            pnl_current_name = "Current Year"
+            pnl_previous_name = "Not provided"
+            pnl_two_ya_name = "Not provided"
+
+            if hasattr(st.session_state.excel_bytes, 'name'):
+                template_name = st.session_state.excel_bytes.name
+            if hasattr(st.session_state.pnl_current_bytes, 'name'):
+                pnl_current_name = st.session_state.pnl_current_bytes.name
+            if st.session_state.pnl_previous_bytes and hasattr(st.session_state.pnl_previous_bytes, 'name'):
+                pnl_previous_name = st.session_state.pnl_previous_bytes.name
+            if st.session_state.pnl_two_ya_bytes and hasattr(st.session_state.pnl_two_ya_bytes, 'name'):
+                pnl_two_ya_name = st.session_state.pnl_two_ya_bytes.name
+
             st.markdown(f"**Template:** {template_name}")
-            st.markdown(f"**Current Year P&L:** {pnl_current_name}")
-            
-            if st.session_state.pnl_previous_bytes:
-                pnl_previous_name = st.session_state.pnl_previous_bytes.name if hasattr(st.session_state.pnl_previous_bytes, 'name') else "Previous Year P&L"
-                st.markdown(f"**Previous Year P&L:** {pnl_previous_name}")
-            else:
-                st.markdown("**Previous Year P&L:** Not provided (optional)")
-            
+            st.markdown(f"**Current Year:** {pnl_current_name}")
+            st.markdown(f"**Previous Year:** {pnl_previous_name}")
+            st.markdown(f"**2 Years Ago:** {pnl_two_ya_name}")
+
             st.markdown('<div class="hr"></div>', unsafe_allow_html=True)
 
+            # Run and Clear buttons
             col_run, col_clear_wf = st.columns([1, 1])
             with col_run:
-                if st.button("🚀 " + T("run_btn"), use_container_width=True, type="primary"):
+                if st.button(T("run_btn"), use_container_width=True, type="primary"):
                     with st.spinner(T("running")):
                         try:
-                            # Extract Word data if provided
                             word_data = None
-                            if st.session_state.word_bytes:
-                                # Try to extract relevant data from Word file
-                                # This can be enhanced based on actual Word data format
-                                pass
-                            
-                            # Call the new excel_fixer with multi-year support
+                            # Future: extract word data if word_file is uploaded
+
+                            # Call the excel_fixer with all 3 P&L files (any format!)
                             fixed_excel, updates = fix_excel(
                                 excel_file=st.session_state.excel_bytes,
                                 pnl_current_year=st.session_state.pnl_current_bytes,
                                 pnl_previous_year=st.session_state.pnl_previous_bytes,
-                                parking_code=None,  # Auto-extract from filename
+                                pnl_two_years_ago=st.session_state.pnl_two_ya_bytes,
+                                parking_code=None,
                                 word_data=word_data
                             )
-                            
+
                             st.session_state.fixed_excel = fixed_excel
                             st.session_state.workflow_log = updates
-                            
-                            # Show what was updated
+
+                            # Display all updates
                             if updates:
                                 for update in updates:
                                     st.markdown(f'<div class="log-line">{update}</div>', unsafe_allow_html=True)
-                                
-                                # Count successes
-                                success_count = sum(1 for u in updates if "✅" in u)
-                                warning_count = sum(1 for u in updates if "⚠️" in u)
-                                
+
+                                success_count = sum(1 for u in updates if u.startswith("✅"))
+
                                 if fixed_excel:
-                                    if warning_count > 0 and success_count == 0:
-                                        st.warning("Workflow completed with warnings. Download available but some data may be missing.")
-                                    else:
+                                    if success_count > 0:
                                         st.success(T("run_ok"))
+                                    else:
+                                        st.warning("Workflow completed with warnings. Download available but some data may be missing.")
                                 else:
                                     st.error("Workflow failed - no output file generated.")
                             else:
@@ -1389,21 +1519,23 @@ def page_dashboard():
                             st.error(f"Workflow error: {str(e)}")
 
             with col_clear_wf:
-                if st.button("🔄 " + T("clear_workflow"), use_container_width=True):
+                if st.button(T("clear_workflow"), use_container_width=True):
                     st.session_state.excel_bytes = None
                     st.session_state.pnl_current_bytes = None
                     st.session_state.pnl_previous_bytes = None
+                    st.session_state.pnl_two_ya_bytes = None
                     st.session_state.word_bytes = None
                     st.session_state.files_ready = False
                     st.session_state.fixed_excel = None
                     st.session_state.workflow_log = []
                     st.rerun()
 
+            # Download button
             if st.session_state.fixed_excel:
                 st.markdown('<div class="hr"></div>', unsafe_allow_html=True)
                 template_name_clean = template_name.rsplit('.', 1)[0].replace(" ", "_")
                 st.download_button(
-                    label="📥 " + T("dl_btn"),
+                    label=T("dl_btn"),
                     data=st.session_state.fixed_excel,
                     file_name=f"{template_name_clean}_updated_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -1412,16 +1544,19 @@ def page_dashboard():
 
         st.markdown('</div>', unsafe_allow_html=True)
 
+    # ── Footer ───────────────────────────────────────────────────────────
     st.markdown(f'<div class="db-footer">{T("footer")}</div>', unsafe_allow_html=True)
 
+
 # ─────────────────────────────────────────────────────────────────
-# Process AI response with MEMORY (last 12 messages)
+# PROCESS AI RESPONSE WITH MEMORY
 # ─────────────────────────────────────────────────────────────────
 if st.session_state.thinking:
     user_messages = [m for m in st.session_state.messages if m["role"] == "user"]
     if user_messages:
         last_user_msg = user_messages[-1]["content"]
 
+        # Build context suffix from uploaded files
         ctx_suffix = ""
 
         if st.session_state.ai_file_data:
@@ -1439,9 +1574,17 @@ if st.session_state.thinking:
 
         if st.session_state.extracted_rev:
             rev = st.session_state.extracted_rev
-            ctx_suffix += f" [Budget: Transient ${rev['transient']:,.0f}, Monthly ${rev['monthly']:,.0f}, Total ${rev['total']:,.0f}]"
+            ctx_suffix += (
+                f" [Budget: Transient ${rev['transient']:,.0f}, "
+                f"Monthly ${rev['monthly']:,.0f}, Total ${rev['total']:,.0f}]"
+            )
 
-        recent_history = st.session_state.messages[-12:] if len(st.session_state.messages) > 12 else st.session_state.messages
+        # Keep last 12 messages for context
+        recent_history = (
+            st.session_state.messages[-12:]
+            if len(st.session_state.messages) > 12
+            else st.session_state.messages
+        )
 
         history_for_mistral = []
         for msg in recent_history[:-1]:
@@ -1449,12 +1592,15 @@ if st.session_state.thinking:
 
         history_for_mistral.append({"role": "user", "content": last_user_msg + ctx_suffix})
 
+        # Get AI response
         reply = ask_mistral(history_for_mistral)
         st.session_state.messages.append({"role": "assistant", "content": reply})
         st.session_state.thinking = False
 
+        # Save to persistent memory
         save_chat_history(st.session_state.messages)
 
+        # Generate voice if message came from microphone
         if st.session_state.thinking_from_voice:
             audio_b64 = text_to_speech(reply, st.session_state.lang)
             st.session_state.last_audio = audio_b64
@@ -1467,6 +1613,7 @@ if st.session_state.thinking:
 if st.session_state.get("last_audio"):
     play_audio_html(st.session_state.last_audio)
     st.session_state.last_audio = None
+
 
 # ─────────────────────────────────────────────────────────────────
 # ROUTER
