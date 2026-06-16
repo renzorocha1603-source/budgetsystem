@@ -306,17 +306,17 @@ T_DATA = {
         "no_msgs": "No messages yet — start a conversation with Allison.",
         "files_title": "File Upload",
         "excel_lbl": "📊 Upload Excel Template (.xlsx)",
-        "upload_method_lbl": "📋 Upload Method",
+        "upload_method_lbl": "📋 Upload Method for Current & Previous Year",
         "method_yearly": "Yearly P&L Files",
-        "method_monthly": "Monthly Reports (12 files)",
+        "method_monthly": "Monthly Reports (PDF/Excel)",
         "pnl_current_lbl": "📁 P&L CURRENT Year (e.g., 2026) - Any format",
         "pnl_previous_lbl": "📁 P&L PREVIOUS Year (e.g., 2025) - Any format",
-        "pnl_two_ya_lbl": "📁 P&L 2 Years Ago (e.g., 2024) - Optional",
+        "pnl_two_ya_lbl": "📁 P&L 2 Years Ago (e.g., 2024) - Any format (for Fiche Stationnement)",
         "monthly_current_lbl": "📁 Monthly Reports CURRENT Year (4 files: Jan-Apr 2026)",
         "monthly_previous_lbl": "📁 Monthly Reports PREVIOUS Year (8 files: May-Dec 2025)",
         "processing": "Processing files…",
         "files_ready": "✅ All files ready — you can now run the workflow.",
-        "files_ready_partial": "✅ Template + Current Year data ready. Previous year recommended for best results.",
+        "files_ready_partial": "✅ Template + Current Year data ready. Other files recommended.",
         "config_title": "Workflow",
         "run_btn": "🚀 Run Workflow",
         "running": "Processing your budget...",
@@ -356,17 +356,17 @@ T_DATA = {
         "no_msgs": "Aucun message — commencez une conversation avec Allison.",
         "files_title": "Fichiers",
         "excel_lbl": "📊 Téléverser le modèle Excel (.xlsx)",
-        "upload_method_lbl": "📋 Méthode de téléversement",
+        "upload_method_lbl": "📋 Méthode pour année courante et précédente",
         "method_yearly": "Fichiers P&L annuels",
-        "method_monthly": "Rapports mensuels (12 fichiers)",
+        "method_monthly": "Rapports mensuels (PDF/Excel)",
         "pnl_current_lbl": "📁 P&L année EN COURS (ex: 2026) - Tout format",
         "pnl_previous_lbl": "📁 P&L année PRÉCÉDENTE (ex: 2025) - Tout format",
-        "pnl_two_ya_lbl": "📁 P&L il y a 2 ans (ex: 2024) - Optionnel",
+        "pnl_two_ya_lbl": "📁 P&L il y a 2 ans (ex: 2024) - Tout format (pour Fiche Stationnement)",
         "monthly_current_lbl": "📁 Rapports mensuels année EN COURS (4 fichiers: Jan-Avr 2026)",
         "monthly_previous_lbl": "📁 Rapports mensuels année PRÉCÉDENTE (8 fichiers: Mai-Déc 2025)",
         "processing": "Traitement…",
         "files_ready": "✅ Tous les fichiers prêts — exécutez le workflow.",
-        "files_ready_partial": "✅ Modèle + données année courante prêts. Année précédente recommandée.",
+        "files_ready_partial": "✅ Modèle + données année courante prêts. Autres fichiers recommandés.",
         "config_title": "Workflow",
         "run_btn": "🚀 Exécuter",
         "running": "Traitement de votre budget...",
@@ -638,7 +638,6 @@ def inject_css():
         color: {C['text']} !important;
     }}
     
-    /* SCROLLABLE CHAT CONTAINER */
     .chat-messages {{
         max-height: 400px;
         overflow-y: auto;
@@ -648,25 +647,11 @@ def inject_css():
         scrollbar-width: thin;
     }}
     
-    .chat-messages::-webkit-scrollbar {{
-        width: 6px;
-    }}
+    .chat-messages::-webkit-scrollbar {{ width: 6px; }}
+    .chat-messages::-webkit-scrollbar-track {{ background: {C['border']}; border-radius: 3px; }}
+    .chat-messages::-webkit-scrollbar-thumb {{ background: {C['highlight']}; border-radius: 3px; }}
+    .chat-messages::-webkit-scrollbar-thumb:hover {{ background: {C['run_bg2']}; }}
     
-    .chat-messages::-webkit-scrollbar-track {{
-        background: {C['border']};
-        border-radius: 3px;
-    }}
-    
-    .chat-messages::-webkit-scrollbar-thumb {{
-        background: {C['highlight']};
-        border-radius: 3px;
-    }}
-    
-    .chat-messages::-webkit-scrollbar-thumb:hover {{
-        background: {C['run_bg2']};
-    }}
-    
-    /* THINKING DOTS */
     .thinking-container {{
         display: inline-flex !important;
         align-items: center;
@@ -679,10 +664,7 @@ def inject_css():
         margin-bottom: 0.5rem;
     }}
     
-    .robot-icon {{
-        font-size: 1.1rem;
-        line-height: 1;
-    }}
+    .robot-icon {{ font-size: 1.1rem; line-height: 1; }}
     
     .dot {{
         display: inline-block;
@@ -702,16 +684,9 @@ def inject_css():
         40% {{ transform: scale(1); opacity: 1; }}
     }}
     
-    /* GREEN PULSING DOT - ALIVE INDICATOR */
     @keyframes pulse-green {{
-        0%, 100% {{ 
-            box-shadow: 0 0 0 0 rgba(63, 185, 80, 0.7);
-            transform: scale(1);
-        }}
-        50% {{ 
-            box-shadow: 0 0 0 6px rgba(63, 185, 80, 0);
-            transform: scale(1.15);
-        }}
+        0%, 100% {{ box-shadow: 0 0 0 0 rgba(63, 185, 80, 0.7); transform: scale(1); }}
+        50% {{ box-shadow: 0 0 0 6px rgba(63, 185, 80, 0); transform: scale(1.15); }}
     }}
     
     .alive-dot {{
@@ -724,7 +699,6 @@ def inject_css():
         vertical-align: middle;
     }}
 
-    /* STOP BUTTON - RED */
     .stop-btn > button {{
         background: #DC2626 !important;
         color: #FFFFFF !important;
@@ -737,7 +711,6 @@ def inject_css():
         50% {{ box-shadow: 0 0 0 6px rgba(220, 38, 38, 0); }}
     }}
 
-    /* FIX: Selectbox dropdown scroll and search text visibility */
     div[data-baseweb="select"] input[type="text"] {{
         color: #FFFFFF !important;
         background-color: #1A1A2E !important;
@@ -781,7 +754,6 @@ def inject_css():
         font-weight: 600 !important;
     }}
 
-    /* Make ALL selectbox options visible */
     div[data-baseweb="select"] div, 
     div[data-baseweb="select"] span,
     div[data-testid="stSelectbox"] div,
@@ -805,7 +777,6 @@ def inject_css():
         color: #000000 !important;
     }}
     
-    /* File upload hint text */
     div[data-testid="stFileUploader"] span, 
     div[data-testid="stFileUploader"] p, 
     div[data-testid="stFileUploader"] div,
@@ -824,15 +795,9 @@ def inject_css():
         font-weight: 500 !important;
     }}
     
-    .stFileUploader .e1y5xznm0 {{
-        color: {C['highlight']} !important;
-    }}
+    .stFileUploader .e1y5xznm0 {{ color: {C['highlight']} !important; }}
+    .stMarkdown small, .stCaption, .text-muted, .secondary-text {{ color: {C['highlight']} !important; }}
     
-    .stMarkdown small, .stCaption, .text-muted, .secondary-text {{
-        color: {C['highlight']} !important;
-    }}
-    
-    /* ALL REGULAR BUTTONS - ORANGE */
     .stButton > button {{
         background: #E67E22 !important;
         color: #FFFFFF !important;
@@ -867,7 +832,6 @@ def inject_css():
         transform: scale(1.01) !important;
     }}
     
-    /* FORM SUBMIT BUTTONS - ALSO ORANGE */
     div[data-testid="stFormSubmitButton"] > button {{
         background: #E67E22 !important;
         color: #FFFFFF !important;
@@ -891,7 +855,6 @@ def inject_css():
         box-shadow: 0 2px 8px rgba(230,126,34,0.3) !important;
     }}
     
-    /* DOWNLOAD BUTTON */
     .stDownloadButton > button {{
         background: #E67E22 !important;
         color: #FFFFFF !important;
@@ -911,7 +874,6 @@ def inject_css():
         border-color: #FFFFFF !important;
     }}
     
-    /* SETTINGS BUTTON - JUST ORANGE ICON, NO BOX */
     button[kind="secondary"][data-testid="baseButton-secondary"] {{
         background: transparent !important;
         border: none !important;
@@ -930,7 +892,6 @@ def inject_css():
         box-shadow: none !important;
     }}
     
-    /* Settings expander */
     details {{
         background: {C['surface']} !important;
         border: 1px solid {C['border']} !important;
@@ -961,14 +922,6 @@ def inject_css():
     .scard-title {{ font-family: 'IBM Plex Mono', monospace; font-size: 0.6rem; font-weight: 500; color: {C['accent']} !important; text-transform: uppercase; letter-spacing: 0.16em; margin-bottom: 0.85rem; padding-bottom: 0.45rem; border-bottom: 1px solid {C['border']}; display: flex; align-items: center; gap: 0.4rem; }}
     .scard-title::before {{ content: ''; width: 2px; height: 9px; background: {C['accent']}; border-radius: 2px; flex-shrink: 0; }}
 
-    .metric-row {{ display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0.5rem; margin-top: 0.75rem; }}
-    .mblock {{ background: {C['bg']}; border: 1px solid {C['border']}; border-radius: 6px; padding: 0.6rem 0.7rem; }}
-    .mblock-label {{ font-family: 'IBM Plex Mono', monospace; font-size: 0.55rem; color: {C['text_secondary']} !important; letter-spacing: 0.1em; text-transform: uppercase; margin-bottom: 0.2rem; }}
-    .mblock-val {{ font-family: 'IBM Plex Mono', monospace; font-size: 1rem; font-weight: 600; line-height: 1; }}
-    .mblock-val.c {{ color: {C['accent']} !important; }}
-    .mblock-val.g {{ color: {C['accent2']} !important; }}
-    .mblock-val.t {{ color: {C['accent3']} !important; }}
-
     .bubble-user {{ background: {C['bubble_user']}; border: 1px solid {C['border']}; border-right: 2px solid {C['accent']}; padding: 0.5rem 0.75rem; border-radius: 8px 2px 8px 8px; margin-bottom: 0.5rem; margin-left: auto; margin-right: 0; max-width: 85%; width: fit-content; font-size: 0.82rem; line-height: 1.5; color: {C['text']} !important; }}
     .bubble-bot {{ background: {C['bubble_bot']}; border: 1px solid {C['border']}; border-left: 2px solid {C['accent2']}; padding: 0.5rem 0.75rem; border-radius: 2px 8px 8px 8px; margin-bottom: 0.5rem; margin-right: auto; margin-left: 0; max-width: 85%; width: fit-content; font-size: 0.82rem; line-height: 1.5; color: {C['text']} !important; }}
     .bubble-lbl {{ font-family: 'IBM Plex Mono', monospace; font-size: 0.52rem; letter-spacing: 0.1em; text-transform: uppercase; color: {C['text_secondary']} !important; margin-bottom: 0.2rem; opacity: 0.7; }}
@@ -985,9 +938,7 @@ def inject_css():
 
     .db-footer {{ text-align: center; font-family: 'IBM Plex Mono', monospace; font-size: 0.55rem; color: {C['text_secondary']} !important; letter-spacing: 0.1em; text-transform: uppercase; padding: 1.25rem 0 0.5rem; border-top: 1px solid {C['border']}; margin-top: 0.5rem; }}
     
-    .streamlit-expanderContent {{
-        background: {C['surface']} !important;
-    }}
+    .streamlit-expanderContent {{ background: {C['surface']} !important; }}
     
     div[data-testid="stFileUploader"] button {{
         background: #E67E22 !important;
@@ -1002,17 +953,9 @@ def inject_css():
         border-color: #FFFFFF !important;
     }}
     
-    .stCaption, caption, .help-text, .hint-text, .stFileUploader .e1y5xznm0 {{
-        color: {C['highlight']} !important;
-    }}
-    
-    .metric-label {{
-        color: {C['highlight']} !important;
-    }}
-    
-    .stSelectbox div[data-baseweb="select"] div {{
-        color: {C['text']} !important;
-    }}
+    .stCaption, caption, .help-text, .hint-text, .stFileUploader .e1y5xznm0 {{ color: {C['highlight']} !important; }}
+    .metric-label {{ color: {C['highlight']} !important; }}
+    .stSelectbox div[data-baseweb="select"] div {{ color: {C['text']} !important; }}
     
     .stInfo {{
         background-color: {C['surface']} !important;
@@ -1020,11 +963,8 @@ def inject_css():
         color: {C['text']} !important;
     }}
     
-    .stInfo .stMarkdown {{
-        color: {C['text']} !important;
-    }}
+    .stInfo .stMarkdown {{ color: {C['text']} !important; }}
     
-    /* File upload format note */
     .file-upload-note {{
         font-size: 0.55rem !important;
         color: {C['text_secondary']} !important;
@@ -1033,19 +973,12 @@ def inject_css():
         font-style: italic;
     }}
     
-    /* Parking code selector */
     .parking-selector {{
         background: {C['surface']} !important;
         border: 1px solid {C['highlight']} !important;
         border-radius: 6px !important;
         padding: 0.6rem 0.8rem !important;
         margin-bottom: 0.8rem !important;
-    }}
-    
-    /* Upload method tabs */
-    .stRadio > div {{
-        display: flex;
-        gap: 1rem;
     }}
     </style>
     """, unsafe_allow_html=True)
@@ -1058,7 +991,6 @@ def page_login():
     """Render the login page"""
     inject_css()
 
-    # Language and theme toggles in top right
     r1, r2, r3, r4 = st.columns([8, 0.75, 0.55, 0.55])
     with r2:
         theme_label = T("theme_light") if st.session_state.theme == "dark" else T("theme_dark")
@@ -1074,7 +1006,6 @@ def page_login():
             st.session_state.lang = "fr"
             st.rerun()
 
-    # Login form centered
     _, center, _ = st.columns([1, 1.05, 1])
     with center:
         st.markdown(f"""
@@ -1108,7 +1039,7 @@ def page_login():
 # SETTINGS MENU
 # ============================================================================
 def render_settings_menu():
-    """Render the settings expander with user info, theme, language, and admin functions"""
+    """Render the settings expander"""
     if st.session_state.show_settings:
         with st.expander(f"⚙️ {T('settings')}", expanded=True):
             st.markdown(f"**{T('profile')}**")
@@ -1140,7 +1071,7 @@ def render_settings_menu():
             if st.session_state.user_role == "admin":
                 st.markdown("---")
                 st.markdown("### 👑 Admin Management")
-                st.markdown(f"### 👤 Create New User")
+                st.markdown("### 👤 Create New User")
                 with st.form("create_user_form"):
                     col1, col2 = st.columns(2)
                     with col1:
@@ -1328,7 +1259,7 @@ def page_dashboard():
         # 1. Excel Template (REQUIRED)
         excel_file = st.file_uploader(T("excel_lbl"), type=["xlsx"], key="xl")
 
-        # 2. Upload Method Selector
+        # 2. Upload Method for Current & Previous Years
         upload_method = st.radio(
             T("upload_method_lbl"),
             options=["yearly", "monthly"],
@@ -1355,42 +1286,6 @@ def page_dashboard():
                 key="pnl_previous"
             )
 
-            pnl_two_ya_file = st.file_uploader(
-                T("pnl_two_ya_lbl"),
-                type=["xlsx", "xls", "xlsm", "pdf", "csv", "tsv", "txt", "docx"],
-                key="pnl_two_ya"
-            )
-
-            # Word Data
-            word_file = st.file_uploader(T("word_data_upload"), type=["xlsx", "csv", "docx", "txt"], key="wd")
-
-            if excel_file and pnl_current_file:
-                st.session_state.excel_bytes = excel_file
-                st.session_state.pnl_current_bytes = pnl_current_file
-                st.session_state.pnl_previous_bytes = pnl_previous_file if pnl_previous_file else None
-                st.session_state.pnl_two_ya_bytes = pnl_two_ya_file if pnl_two_ya_file else None
-                st.session_state.word_bytes = word_file if word_file else None
-                st.session_state.monthly_current_files = []
-                st.session_state.monthly_previous_files = []
-
-                try:
-                    pnl_current_file.seek(0)
-                    codes = get_parking_codes_from_pnl(pnl_current_file)
-                    pnl_current_file.seek(0)
-                    st.session_state.parking_codes = codes
-                except Exception:
-                    st.session_state.parking_codes = []
-
-                st.session_state.files_ready = True
-                if pnl_previous_file and pnl_two_ya_file:
-                    st.success(T("files_ready"))
-                else:
-                    st.info(T("files_ready_partial"))
-
-            elif excel_file and not pnl_current_file:
-                st.warning("⚠️ Current Year P&L file is required.")
-                st.session_state.files_ready = False
-
         else:
             # ── MONTHLY REPORT UPLOAD ──
             monthly_current = st.file_uploader(
@@ -1409,24 +1304,79 @@ def page_dashboard():
             )
             st.markdown('<div class="file-upload-note">Upload 8 files: May, Jun, Jul, Aug, Sep, Oct, Nov, Dec 2025</div>', unsafe_allow_html=True)
 
-            if excel_file and monthly_current:
-                st.session_state.excel_bytes = excel_file
-                st.session_state.monthly_current_files = list(monthly_current) if monthly_current else []
-                st.session_state.monthly_previous_files = list(monthly_previous) if monthly_previous else []
+        # ── 2 YEARS AGO P&L (Always available, any format) ──
+        st.markdown('<div class="hr"></div>', unsafe_allow_html=True)
+        pnl_two_ya_file = st.file_uploader(
+            T("pnl_two_ya_lbl"),
+            type=["xlsx", "xls", "xlsm", "pdf", "csv", "tsv", "txt", "docx"],
+            key="pnl_two_ya"
+        )
+        st.markdown('<div class="file-upload-note">Required for Fiche Stationnement. Accepts any format.</div>', unsafe_allow_html=True)
+
+        # Word Data (OPTIONAL)
+        word_file = st.file_uploader(T("word_data_upload"), type=["xlsx", "csv", "docx", "txt"], key="wd")
+
+        # Check if minimum required files are ready
+        if excel_file:
+            st.session_state.excel_bytes = excel_file
+            st.session_state.pnl_two_ya_bytes = pnl_two_ya_file if pnl_two_ya_file else None
+            st.session_state.word_bytes = word_file if word_file else None
+
+            if upload_method == "yearly":
+                st.session_state.monthly_current_files = []
+                st.session_state.monthly_previous_files = []
+
+                if pnl_current_file:
+                    st.session_state.pnl_current_bytes = pnl_current_file
+                    st.session_state.pnl_previous_bytes = pnl_previous_file if pnl_previous_file else None
+                    st.session_state.files_ready = True
+
+                    try:
+                        pnl_current_file.seek(0)
+                        codes = get_parking_codes_from_pnl(pnl_current_file)
+                        pnl_current_file.seek(0)
+                        st.session_state.parking_codes = codes
+                    except Exception:
+                        st.session_state.parking_codes = []
+
+                    if pnl_previous_file and pnl_two_ya_file:
+                        st.success(T("files_ready"))
+                    else:
+                        st.info(T("files_ready_partial"))
+                else:
+                    st.warning("⚠️ Current Year P&L file is required.")
+                    st.session_state.files_ready = False
+
+            else:  # monthly
                 st.session_state.pnl_current_bytes = None
                 st.session_state.pnl_previous_bytes = None
-                st.session_state.pnl_two_ya_bytes = None
-                st.session_state.word_bytes = None
-                st.session_state.files_ready = True
 
-                if monthly_previous:
-                    st.success(T("files_ready"))
+                if monthly_current:
+                    st.session_state.monthly_current_files = list(monthly_current)
+                    st.session_state.monthly_previous_files = list(monthly_previous) if monthly_previous else []
+                    st.session_state.files_ready = True
+
+                    # Try to get parking codes from first monthly file
+                    try:
+                        if len(monthly_current) > 0:
+                            monthly_current[0].seek(0)
+                            codes = get_parking_codes_from_pnl(monthly_current[0])
+                            monthly_current[0].seek(0)
+                            st.session_state.parking_codes = codes
+                    except Exception:
+                        st.session_state.parking_codes = []
+
+                    if monthly_previous and pnl_two_ya_file:
+                        st.success(T("files_ready"))
+                    else:
+                        st.info(T("files_ready_partial"))
                 else:
-                    st.info(T("files_ready_partial"))
+                    st.warning("⚠️ Monthly Current Year files are required.")
+                    st.session_state.files_ready = False
 
-            elif excel_file and not monthly_current:
-                st.warning("⚠️ Monthly Current Year files are required.")
-                st.session_state.files_ready = False
+        elif excel_file and not (upload_method == "yearly" and 'pnl_current_file' in locals() and pnl_current_file) and not (upload_method == "monthly" and 'monthly_current' in locals() and monthly_current):
+            st.warning("⚠️ Data files are required to run the workflow.")
+            st.session_state.files_ready = False
 
         st.markdown('</div>', unsafe_allow_html=True)
 
@@ -1442,13 +1392,14 @@ def page_dashboard():
             if st.session_state.upload_method == "yearly":
                 pnl_current_name = st.session_state.pnl_current_bytes.name if st.session_state.pnl_current_bytes and hasattr(st.session_state.pnl_current_bytes, 'name') else "Current Year"
                 pnl_previous_name = st.session_state.pnl_previous_bytes.name if st.session_state.pnl_previous_bytes and hasattr(st.session_state.pnl_previous_bytes, 'name') else "Not provided"
-                pnl_two_ya_name = st.session_state.pnl_two_ya_bytes.name if st.session_state.pnl_two_ya_bytes and hasattr(st.session_state.pnl_two_ya_bytes, 'name') else "Not provided"
                 st.markdown(f"**Current Year:** {pnl_current_name}")
                 st.markdown(f"**Previous Year:** {pnl_previous_name}")
-                st.markdown(f"**2 Years Ago:** {pnl_two_ya_name}")
             else:
                 st.markdown(f"**Current Year Files:** {len(st.session_state.monthly_current_files)} files")
                 st.markdown(f"**Previous Year Files:** {len(st.session_state.monthly_previous_files)} files")
+
+            pnl_two_ya_name = st.session_state.pnl_two_ya_bytes.name if st.session_state.pnl_two_ya_bytes and hasattr(st.session_state.pnl_two_ya_bytes, 'name') else "Not provided"
+            st.markdown(f"**2 Years Ago:** {pnl_two_ya_name}")
 
             st.markdown('<div class="hr"></div>', unsafe_allow_html=True)
 
@@ -1496,7 +1447,7 @@ def page_dashboard():
                                         excel_file=st.session_state.excel_bytes,
                                         pnl_current_year=None,
                                         pnl_previous_year=None,
-                                        pnl_two_years_ago=None,
+                                        pnl_two_years_ago=st.session_state.pnl_two_ya_bytes,
                                         monthly_files_current=st.session_state.monthly_current_files,
                                         monthly_files_previous=st.session_state.monthly_previous_files,
                                         parking_code=st.session_state.selected_parking_code,
