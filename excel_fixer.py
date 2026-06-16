@@ -37,7 +37,7 @@ SHEET_PATTERNS = {
 }
 
 # ============================================================================
-# VERIFIED ROW MAPPING - Donnees Historiques & Budget Initial
+# VERIFIED ROW MAPPING
 # ============================================================================
 DH_ROW_MAPPING = {
     12: ["Transient Revenue", "transient revenue"],
@@ -64,7 +64,7 @@ DH_ROW_MAPPING = {
     46: ["Public services", "public services", "services publics", "utilities"],
     49: ["Office expenses", "office expenses", "fournitures de bureau", "fournitures bureau"],
     50: ["Telecommunication", "telecommunication", "telecommunications", "télécommunications", "telecom"],
-    51: ["Rent", "rent", "loyer"],
+    51: ["Rent", "loyer"],
     52: ["Travel expenses", "travel", "frais de déplacement", "frais de deplacement", "déplacement"],
     53: ["Credit Card fees", "credit card", "frais de cartes de crédit", "frais de cartes de credit", "cartes de crédit"],
     54: ["Bank fees", "bank fees", "intérêts et frais de banque", "interets et frais de banque", "frais de banque"],
@@ -95,8 +95,12 @@ REVENUE_CATCH_ALL_ROW = 17
 EXPENSE_CATCH_ALL_ROW = 76
 
 # ============================================================================
-# FICHE STATIONNEMENT MAPPING
+# BUDGET INITIAL TOTAL ROWS
 # ============================================================================
+BI_TOTAL_REVENUS_ROW = 26  # Row for TOTAL REVENUS
+BI_TOTAL_DEPENSES_ROW = 84  # Row for TOTAL DÉPENSES
+BI_REVENUS_NETS_ROW = 86  # Row for REVENUS NETS
+
 FICHE_STATIONNEMENT_MAP = [
     ("K17", ["Transient Revenue", "transient revenue"]),
     ("K18", ["Monthly Revenues", "monthly revenues"]),
@@ -727,6 +731,7 @@ def find_pnl_value(pnl_data, label_alternatives):
     if not yearly:
         return 0
     clean_alts = [clean_text_for_matching(alt) for alt in label_alternatives]
+    # Exact match first
     for alt_clean in clean_alts:
         if not alt_clean or len(alt_clean) < 3:
             continue
@@ -734,13 +739,17 @@ def find_pnl_value(pnl_data, label_alternatives):
             key_clean = clean_text_for_matching(key)
             if alt_clean == key_clean:
                 return yearly[key]
+    # Partial match with length check
     for alt_clean in clean_alts:
         if not alt_clean or len(alt_clean) < 3:
             continue
         for key in yearly:
             key_clean = clean_text_for_matching(key)
             if alt_clean in key_clean or key_clean in alt_clean:
-                return yearly[key]
+                shorter = min(len(alt_clean), len(key_clean))
+                longer = max(len(alt_clean), len(key_clean))
+                if shorter >= 5 and (shorter / longer) >= 0.6:
+                    return yearly[key]
     return 0
 
 def find_monthly_pnl_value(monthly_data, label_alternatives):
@@ -795,8 +804,7 @@ def merge_monthly_data(current_year_data, previous_year_data, year_map):
 def update_budget_initial(wb, previous_year_data, parking_code):
     """
     Fill Budget Initial Column S with Year Totals from previous year P&L.
-    Uses DH_ROW_MAPPING row numbers since Budget Initial references
-    the same Actualisation sheet structure.
+    Uses DH_ROW_MAPPING row numbers. Also validates against NET INCOME.
     """
     updates = []
     try:
@@ -810,6 +818,8 @@ def update_budget_initial(wb, previous_year_data, parking_code):
             return updates
         
         cells_updated = 0
+        filled_revenue = 0
+        filled_expense = 0
         
         for dh_row, pnl_labels in DH_ROW_MAPPING.items():
             yearly_value = find_pnl_value(previous_year_data, pnl_labels)
@@ -819,6 +829,31 @@ def update_budget_initial(wb, previous_year_data, parking_code):
                 ws[f"S{dh_row}"].number_format = '#,##0.00 $'
                 cells_updated += 1
                 updates.append(f"✅ BI Row {dh_row}: ${yearly_value:,.2f} ({pnl_labels[0]})")
+                
+                if dh_row in REVENUE_ROWS:
+                    filled_revenue += yearly_value
+                elif dh_row in EXPENSE_ROWS:
+                    filled_expense += yearly_value
+        
+        # ── VALIDATE AGAINST NET INCOME ───────────────────────────
+        expected_net = find_pnl_value(previous_year_data, [
+            "NET INCOME", "net income", "revenus nets", "REVENUS NETS"
+        ])
+        
+        if expected_net != 0:
+            calculated_net = filled_revenue - filled_expense
+            gap = expected_net - calculated_net
+            
+            updates.append(f"🔍 BI Validation: Expected NET INCOME = ${expected_net:,.2f}")
+            updates.append(f"🔍 BI Validation: Filled Revenue = ${filled_revenue:,.2f}, Filled Expense = ${filled_expense:,.2f}")
+            updates.append(f"🔍 BI Validation: Calculated Net = ${calculated_net:,.2f}, Gap = ${gap:,.2f}")
+            
+            if abs(gap) > 0.99:
+                updates.append(f"⚠️ BI Gap detected: ${gap:,.2f} - some items may not be mapped correctly")
+            else:
+                updates.append(f"✅ BI Balanced: Gap is only ${gap:,.2f} (within tolerance)")
+        else:
+            updates.append("⚠️ BI: Could not find NET INCOME in P&L for validation")
         
         if cells_updated > 0:
             updates.append(f"✅ Budget Initial: {cells_updated} cells updated in Column S")
