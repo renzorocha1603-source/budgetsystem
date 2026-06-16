@@ -18,6 +18,23 @@ MONTHS_EN = [
     "July", "August", "September", "October", "November", "December"
 ]
 
+MONTHS_FR = [
+    "janvier", "février", "fevrier", "mars", "avril", "mai", "juin",
+    "juillet", "août", "aout", "septembre", "octobre", "novembre", "décembre", "decembre"
+]
+
+MONTH_NAMES_MAP = {
+    "january": "January", "february": "February", "march": "March",
+    "april": "April", "may": "May", "june": "June",
+    "july": "July", "august": "August", "september": "September",
+    "october": "October", "november": "November", "december": "December",
+    "janvier": "January", "février": "February", "fevrier": "February",
+    "mars": "March", "avril": "April", "mai": "May", "juin": "June",
+    "juillet": "July", "août": "August", "aout": "August",
+    "septembre": "September", "octobre": "October",
+    "novembre": "November", "décembre": "December", "decembre": "December",
+}
+
 SHEET_PATTERNS = {
     "Budget Initial": ["budget initial", "budget"],
     "Fiche Stationnement": ["fiche stationnement", "fiche de stationnement", "stationnement", "1. fiche"],
@@ -28,26 +45,18 @@ SHEET_PATTERNS = {
 # VERIFIED ROW MAPPING: Donnees Historiques row -> P&L labels
 # ============================================================================
 DH_ROW_MAPPING = {
-    # REVENUS section
     12: ["Transient Revenue", "transient revenue"],
     13: ["Monthly Revenues", "monthly revenues"],
     14: ["Car-Wash Revenue", "car-wash revenue", "lave-auto"],
     15: ["Hotel Revenue", "hotel revenue", "revenus hotel"],
     16: ["Interests", "interests", "intérêts", "interets"],
     17: ["Miscellaneous", "miscellaneous", "autres revenus", "Other Monthly revenue", "other monthly revenue", "other revenue", "Violation", "violation"],
-    # 18 = Total revenus Bruts (FORMULA)
     20: ["Discount-Gratuities - Transient", "gratuities transient"],
     22: ["Discount-Gratuities - Monthly", "rabais", "discount monthly"],
-    # 24 = Autres revenus
-    # 26 = TOTAL REVENUS (FORMULA)
-
-    # DÉPENSES section
     29: ["Parking wages", "parking wages", "salaire stationnement"],
     30: ["Other wages", "other wages", "salaire superviseur", "supervisor"],
     31: ["Training & Recr.", "training", "formation", "recrutement"],
     32: ["Uniforms", "uniforms", "uniformes"],
-    # 33 = Total Frais de personnel (FORMULA)
-
     35: ["R&M - Cleaning", "cleaning", "nettoyage"],
     36: ["R&M - General", "maintenance", "entretien stationnement"],
     37: ["R&M - Equipement", "equipment", "entretien équipement", "entretien equipement"],
@@ -57,11 +66,7 @@ DH_ROW_MAPPING = {
     41: ["Parking supplies", "parking supplies", "fournitures stationnement", "fournitures"],
     42: ["Misc. Re-Billing", "re-billing", "refacturations diverses", "refacturations", "rebilling"],
     43: ["R&M - General", "amenagement", "aménagement stationnement", "aménagement"],
-    # 44 = Total Entretien (FORMULA)
-
     46: ["Public services", "public services", "services publics", "utilities"],
-    # 47 = Total Services Publics (FORMULA)
-
     49: ["Office expenses", "office expenses", "fournitures de bureau", "fournitures bureau"],
     50: ["Telecommunication", "telecommunication", "telecommunications", "télécommunications", "telecom"],
     51: ["Rent", "rent", "loyer"],
@@ -78,8 +83,6 @@ DH_ROW_MAPPING = {
     62: ["Percent Management fee", "management fee", "honoraires de gestion en pourcentage", "honoraires de gestion en %"],
     63: ["Management Fees (Basic)", "management fees basic", "honoraires de gestion de base", "honoraires de base"],
     64: ["Incentives", "incentives", "incitatif annuel", "incitatif", "incentive"],
-    # 65 = Total Frais Généraux (FORMULA)
-
     67: ["Depreciation", "depreciation", "amortissement"],
     68: ["Financial fees", "interest", "intérêts sur emprunts", "interets sur emprunts", "emprunts"],
     69: ["Security", "security", "sécurité", "securite"],
@@ -95,7 +98,6 @@ DH_ROW_MAPPING = {
 # FICHE STATIONNEMENT MAPPING: Cell -> P&L Year Total labels
 # ============================================================================
 FICHE_STATIONNEMENT_MAP = [
-    # (Cell, [P&L labels to try for Year Total])
     ("K17", ["Transient Revenue", "transient revenue"]),
     ("K18", ["Monthly Revenues", "monthly revenues"]),
     ("K19", ["Car-Wash Revenue", "car-wash revenue", "lave-auto"]),
@@ -109,7 +111,53 @@ FICHE_STATIONNEMENT_MAP = [
 ]
 
 # ============================================================================
-# FILE TYPE HANDLERS - Accept ANY format
+# MONTHLY REPORT LABEL MAPPING: Monthly description -> Standard P&L label
+# ============================================================================
+MONTHLY_REPORT_MAPPING = {
+    # REVENUES - these get summed into standard P&L categories
+    "Monthly Revenues": "Monthly Revenues",
+    "Gratuities - Monthlies": "Discount-Gratuities - Monthly",
+    "Monthlies Collected by the Owner": "Monthly Revenues",
+    "Others - Processing Fee": "Other Monthly revenue",
+    "Transient Revenue - Day": "Transient Revenue",
+    "Coin Box & Meter": "Transient Revenue",
+    "Revenues Reimbursement": "Transient Revenue",
+    "Gratuities - Transient": "Discount-Gratuities - Transient",
+    "Validation": "Transient Revenue",
+    "Hotel Revenues": "Hotel Revenue",
+    "Shuttle Revenues": "Shuttle expenses",
+    "Lave-Auto": "Car-Wash Revenue",
+    "Miscellaneous": "Miscellaneous",
+    "Revenues Violation": "Violation",
+    "Lost card fees": "Miscellaneous",
+    "Monthly Processing Fees": "Other Monthly revenue",
+    "Evening Tickets": "Transient Revenue",
+    "Others Tickets": "Transient Revenue",
+    "Special Events": "Transient Revenue",
+    "Week end visitors": "Transient Revenue",
+    "Online reservation": "Transient Revenue",
+    # EXPENSES
+    "Salaires stationnement": "Parking wages",
+    "Salaires - Supervision": "Other wages",
+    "Uniformes": "Uniforms",
+    "Fournitures stationnements": "Parking supplies",
+    "Billet de stationnement": "Parking supplies",
+    "Entretien réparation - général": "R&M - General",
+    "Sécurité": "Security",
+    "Location d'équipement": "Equipment rent",
+    "Assurances": "Insurance & Guarantee",
+    "Vehicle Expenses": "Vehicle expenses",
+    "Telecommunication": "Telecommunication",
+    "Serv. info. - Général": "Computer services",
+    "Publicité et promotion": "Ad. & Promotion",
+    "Frais de banque & C.C.": "Credit Card fees",
+    "Honoraires de gestion (base)": "Management Fees (Basic)",
+    "Honoraire de gestion a %": "Percent Management fee",
+    "Incitatifs": "Incentives",
+}
+
+# ============================================================================
+# FILE TYPE HANDLERS
 # ============================================================================
 
 def is_excel_file(file_bytes_or_obj):
@@ -436,8 +484,153 @@ def read_year_mapping_from_template(wb):
         year_map[i] = current_year - 1
     return year_map
 
+def extract_month_year_from_text(text):
+    """
+    Extract month and year from text like "LUNA - January 2026" or "janvier 2026".
+    Returns (month_name, year) or (None, None).
+    """
+    if not text:
+        return None, None
+    
+    text_lower = text.lower()
+    
+    # Try to find year
+    year_match = re.search(r'(20\d{2})', text)
+    year = int(year_match.group(1)) if year_match else None
+    
+    # Try to find month name
+    found_month = None
+    for month_name in MONTH_NAMES_MAP:
+        if month_name in text_lower:
+            found_month = MONTH_NAMES_MAP[month_name]
+            break
+    
+    return found_month, year
+
+def extract_monthly_data_from_file(uploaded_file):
+    """
+    Extract revenue and expense data from a monthly report (Excel or PDF).
+    Returns dict: {standard_label: value} and (month_name, year).
+    """
+    result = {}
+    month_name = None
+    year = None
+    
+    # Get file content as text for date extraction
+    file_bytes = get_file_bytes(uploaded_file)
+    
+    # Try to read as Excel first
+    sheets_dict = None
+    if is_excel_file(uploaded_file):
+        sheets_dict = read_excel_to_dataframe(uploaded_file)
+    elif is_pdf_file(uploaded_file):
+        sheets_dict = read_pdf_to_dataframe(uploaded_file)
+    elif is_csv_file(uploaded_file):
+        sheets_dict = read_csv_to_dataframe(uploaded_file)
+    else:
+        # Try all formats
+        sheets_dict = read_excel_to_dataframe(uploaded_file)
+        if sheets_dict is None:
+            sheets_dict = read_pdf_to_dataframe(uploaded_file)
+        if sheets_dict is None:
+            sheets_dict = read_csv_to_dataframe(uploaded_file)
+    
+    if sheets_dict is None:
+        return result, (None, None)
+    
+    # Try to extract month/year from filename
+    if hasattr(uploaded_file, 'name'):
+        month_name, year = extract_month_year_from_text(uploaded_file.name)
+    
+    # Process each sheet
+    for sheet_name, df in sheets_dict.items():
+        if df is None or len(df) == 0:
+            continue
+        
+        # Try to extract month/year from content if not found yet
+        if month_name is None or year is None:
+            for row_idx in range(min(5, len(df))):
+                for col_idx in range(min(10, len(df.columns))):
+                    try:
+                        cell_text = str(df.iloc[row_idx, col_idx])
+                        m, y = extract_month_year_from_text(cell_text)
+                        if m:
+                            month_name = m
+                        if y:
+                            year = y
+                    except Exception:
+                        continue
+        
+        # Look for data rows
+        # Monthly reports have labels in one column and amounts in another
+        for row_idx in range(len(df)):
+            try:
+                # Try to find a label in any column
+                for col_idx in range(min(5, len(df.columns))):
+                    cell_text = str(df.iloc[row_idx, col_idx]).strip()
+                    if not cell_text or len(cell_text) < 3:
+                        continue
+                    
+                    # Check if this label matches our monthly mapping
+                    cell_clean = clean_text_for_matching(cell_text)
+                    
+                    for monthly_label, standard_label in MONTHLY_REPORT_MAPPING.items():
+                        monthly_clean = clean_text_for_matching(monthly_label)
+                        if monthly_clean in cell_clean or cell_clean in monthly_clean:
+                            # Found a match - look for a numeric value in adjacent columns
+                            for val_col in range(col_idx + 1, min(col_idx + 4, len(df.columns))):
+                                val = safe_float(df.iloc[row_idx, val_col])
+                                if val != 0:
+                                    if standard_label in result:
+                                        result[standard_label] += val
+                                    else:
+                                        result[standard_label] = val
+                                    break
+                            break
+            except Exception:
+                continue
+    
+    return result, (month_name, year)
+
+def build_monthly_data_from_files(monthly_files):
+    """
+    Process a list of 12 monthly report files and build the standard P&L data structure.
+    Returns dict with 'monthly' and 'yearly' data, or None if processing fails.
+    """
+    if not monthly_files:
+        return None
+    
+    # Initialize data structure
+    monthly_data = {}  # {label: {month_name: value}}
+    yearly_data = {}   # {label: year_total}
+    
+    for uploaded_file in monthly_files:
+        file_data, (month_name, year) = extract_monthly_data_from_file(uploaded_file)
+        
+        if not file_data or month_name is None:
+            continue
+        
+        # Add data to monthly structure
+        for label, value in file_data.items():
+            if label not in monthly_data:
+                monthly_data[label] = {}
+            monthly_data[label][month_name] = value
+            
+            # Accumulate yearly total
+            if label not in yearly_data:
+                yearly_data[label] = 0
+            yearly_data[label] += value
+    
+    if not monthly_data:
+        return None
+    
+    return {
+        'monthly': monthly_data,
+        'yearly': yearly_data
+    }
+
 # ============================================================================
-# P&L DATA EXTRACTION - Works with ANY file format
+# P&L DATA EXTRACTION - Works with ANY file format (yearly P&L method)
 # ============================================================================
 
 def extract_pnl_data_from_dataframe(df, sheet_name_hint=None):
@@ -702,52 +895,74 @@ def update_donnees_historiques(wb, merged_monthly_data, parking_code):
 
 def fix_excel(
     excel_file,
-    pnl_current_year,
+    pnl_current_year=None,
     pnl_previous_year=None,
     pnl_two_years_ago=None,
+    monthly_files_current=None,
+    monthly_files_previous=None,
     parking_code=None,
     word_data=None
 ):
+    """
+    Main function to process the Excel template.
+    
+    TWO METHODS:
+    1. Yearly P&L files: pnl_current_year, pnl_previous_year, pnl_two_years_ago
+    2. Monthly report files: monthly_files_current (12 files), monthly_files_previous (12 files)
+    
+    The code auto-detects which method is being used.
+    """
     updates = []
+    
     if not parking_code and hasattr(excel_file, 'name'):
         parking_code = extract_parking_code_from_filename(excel_file.name)
+    
     if not parking_code:
         return None, ["❌ Could not determine parking code. Please select a parking code."]
+    
     updates.append(f"🔍 Processing: {parking_code}")
-    current_year_name = "?"
-    previous_year_name = "?"
-    two_years_ago_name = "?"
-    if hasattr(pnl_current_year, 'name'):
-        detected = detect_year_from_filename(pnl_current_year.name)
-        if detected:
-            current_year_name = str(detected)
-    if pnl_previous_year and hasattr(pnl_previous_year, 'name'):
-        detected = detect_year_from_filename(pnl_previous_year.name)
-        if detected:
-            previous_year_name = str(detected)
-    if pnl_two_years_ago and hasattr(pnl_two_years_ago, 'name'):
-        detected = detect_year_from_filename(pnl_two_years_ago.name)
-        if detected:
-            two_years_ago_name = str(detected)
-    updates.append(f"📂 Files: Current={current_year_name} | Previous={previous_year_name} | 2YA={two_years_ago_name}")
-    current_year_data, current_file_type = extract_pnl_data(pnl_current_year, parking_code)
-    previous_year_data, prev_file_type = (None, None)
-    two_years_ago_data, two_ya_file_type = (None, None)
-    if pnl_previous_year:
+    
+    # ── Determine which data source to use ──────────────────────────────
+    current_year_data = None
+    previous_year_data = None
+    two_years_ago_data = None
+    
+    # Check if monthly files are provided
+    if monthly_files_current and len(monthly_files_current) > 0:
+        updates.append("📋 Using monthly report files (Current Year)")
+        current_year_data = build_monthly_data_from_files(monthly_files_current)
+        if current_year_data:
+            updates.append(f"📊 Current year from monthlies: {len(current_year_data['yearly'])} labels")
+    
+    if monthly_files_previous and len(monthly_files_previous) > 0:
+        updates.append("📋 Using monthly report files (Previous Year)")
+        previous_year_data = build_monthly_data_from_files(monthly_files_previous)
+        if previous_year_data:
+            updates.append(f"📊 Previous year from monthlies: {len(previous_year_data['yearly'])} labels")
+    
+    # If no monthly files or monthly processing failed, try yearly P&L files
+    if pnl_current_year and current_year_data is None:
+        current_year_data, current_file_type = extract_pnl_data(pnl_current_year, parking_code)
+        if current_year_data:
+            keys = list(current_year_data['yearly'].keys())[:10]
+            updates.append(f"📊 Current year keys ({current_file_type}): {keys}")
+    
+    if pnl_previous_year and previous_year_data is None:
         previous_year_data, prev_file_type = extract_pnl_data(pnl_previous_year, parking_code)
+        if previous_year_data:
+            keys = list(previous_year_data['yearly'].keys())[:10]
+            updates.append(f"📊 Previous year keys ({prev_file_type}): {keys}")
+    
     if pnl_two_years_ago:
         two_years_ago_data, two_ya_file_type = extract_pnl_data(pnl_two_years_ago, parking_code)
+        if two_years_ago_data:
+            keys = list(two_years_ago_data['yearly'].keys())[:10]
+            updates.append(f"📊 2YA keys ({two_ya_file_type}): {keys}")
+    
     if current_year_data is None and previous_year_data is None and two_years_ago_data is None:
         return None, [f"❌ Could not find P&L data for {parking_code} in any uploaded file."]
-    if current_year_data:
-        keys = list(current_year_data['yearly'].keys())[:10]
-        updates.append(f"📊 Current year keys ({current_file_type}): {keys}")
-    if previous_year_data:
-        keys = list(previous_year_data['yearly'].keys())[:10]
-        updates.append(f"📊 Previous year keys ({prev_file_type}): {keys}")
-    if two_years_ago_data:
-        keys = list(two_years_ago_data['yearly'].keys())[:10]
-        updates.append(f"📊 2YA keys ({two_ya_file_type}): {keys}")
+    
+    # ── Read template ───────────────────────────────────────────────────
     try:
         excel_file.seek(0) if hasattr(excel_file, 'seek') else None
         file_bytes = excel_file.read()
@@ -756,32 +971,50 @@ def fix_excel(
         wb_read = load_workbook(io.BytesIO(file_bytes), data_only=True)
     except Exception as e:
         return None, [f"❌ Error reading template: {str(e)}"]
+    
+    # ── Read year mapping ───────────────────────────────────────────────
     year_map = read_year_mapping_from_template(wb_read)
+    
+    # ── Merge monthly data ──────────────────────────────────────────────
     merged_monthly = {}
     if year_map and current_year_data and previous_year_data:
         merged_monthly = merge_monthly_data(current_year_data, previous_year_data, year_map)
+    
     if not merged_monthly and current_year_data:
         merged_monthly = current_year_data['monthly']
+    
+    # ── Assign data to sheets ───────────────────────────────────────────
     budget_initial_data = previous_year_data if previous_year_data else current_year_data
+    
     fiche_data = None
     if pnl_two_years_ago and two_years_ago_data:
         fiche_data = two_years_ago_data
+    
     dh_data = merged_monthly if merged_monthly else {}
     if not dh_data and current_year_data:
         dh_data = current_year_data['monthly']
+    
+    # ── Update all sheets ───────────────────────────────────────────────
     updates.extend(update_budget_initial(wb_write, budget_initial_data, parking_code))
     updates.extend(update_fiche_stationnement(wb_write, fiche_data, parking_code, word_data))
     updates.extend(update_donnees_historiques(wb_write, dh_data, parking_code))
+    
+    # ── Summary ─────────────────────────────────────────────────────────
     success_count = sum(1 for u in updates if u.startswith("✅"))
     if success_count == 0:
         updates.append("💡 No updates were made.")
-    if hasattr(pnl_current_year, 'seek'):
+    
+    # ── Reset file pointers ─────────────────────────────────────────────
+    if pnl_current_year and hasattr(pnl_current_year, 'seek'):
         pnl_current_year.seek(0)
     if pnl_previous_year and hasattr(pnl_previous_year, 'seek'):
         pnl_previous_year.seek(0)
     if pnl_two_years_ago and hasattr(pnl_two_years_ago, 'seek'):
         pnl_two_years_ago.seek(0)
+    
+    # ── Save output ─────────────────────────────────────────────────────
     output = io.BytesIO()
     wb_write.save(output)
     output.seek(0)
+    
     return output, updates
