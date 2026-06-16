@@ -35,7 +35,7 @@ DH_ROW_MAPPING = {
     15: ["Hotel Revenue", "hotel revenue", "revenus hotel"],
     16: ["Interests", "interests", "intérêts", "interets"],
     17: ["Miscellaneous", "miscellaneous", "autres revenus", "Other Monthly revenue", "other monthly revenue", "other revenue", "Violation", "violation"],
-    # 18 = Total revenus Bruts (FORMULA: SUM 12-17)
+    # 18 = Total revenus Bruts (FORMULA)
     20: ["Discount-Gratuities - Transient", "gratuities transient"],
     22: ["Discount-Gratuities - Monthly", "rabais", "discount monthly"],
     # 24 = Autres revenus
@@ -91,15 +91,21 @@ DH_ROW_MAPPING = {
     76: ["Meal & Entertainment", "meal", "représentation repas", "representation repas", "repas", "entertainment"],
 }
 
+# ============================================================================
+# FICHE STATIONNEMENT MAPPING: Cell -> P&L Year Total labels
+# ============================================================================
 FICHE_STATIONNEMENT_MAP = [
-    ("Parking Revenue", "K17"),
-    ("Monthly Revenues", "K18"),
-    ("Transient Revenue", "K19"),
-    ("TOTAL REVENUE", "K20"),
-    ("Total Operation expenses", "K21"),
-    ("Parking wages", "K22"),
-    ("OPERATION SURPLUS", "K23"),
-    ("Percent Management fee", "K24"),
+    # (Cell, [P&L labels to try for Year Total])
+    ("K17", ["Transient Revenue", "transient revenue"]),
+    ("K18", ["Monthly Revenues", "monthly revenues"]),
+    ("K19", ["Car-Wash Revenue", "car-wash revenue", "lave-auto"]),
+    ("K20", ["Hotel Revenue", "hotel revenue", "revenus hotel"]),
+    ("K21", ["Interests", "interests", "intérêts", "interets"]),
+    ("K22", ["Miscellaneous", "miscellaneous", "autres revenus", "Other Monthly revenue", "other monthly revenue", "Violation", "violation"]),
+    ("K23", ["Discount-Gratuities - Transient", "gratuities transient"]),
+    ("K24", ["Discount-Gratuities - Monthly", "rabais", "discount monthly"]),
+    ("K25", ["Other Monthly revenue", "other monthly revenue", "Miscellaneous", "miscellaneous"]),
+    ("K26", ["TOTAL REVENUE", "Total Revenue", "total revenus", "TOTAL DES REVENUS"]),
 ]
 
 # ============================================================================
@@ -628,18 +634,14 @@ def update_fiche_stationnement(wb, year_minus_2_data, parking_code, word_data=No
         if year_minus_2_data is None:
             updates.append("⚠️ Fiche Stationnement: Skipped - P&L from 2 years ago not uploaded")
             return updates
-        for pnl_label, cell in FICHE_STATIONNEMENT_MAP:
-            yearly_value = find_pnl_value(year_minus_2_data, [pnl_label])
+        for cell, pnl_labels in FICHE_STATIONNEMENT_MAP:
+            yearly_value = find_pnl_value(year_minus_2_data, pnl_labels)
             if yearly_value != 0:
                 ws[cell] = yearly_value
                 ws[cell].number_format = '#,##0.00'
-                updates.append(f"✅ {cell} = {pnl_label}: ${yearly_value:,.2f}")
+                updates.append(f"✅ {cell} = ${yearly_value:,.2f}")
             else:
-                updates.append(f"⚠️ {cell} = {pnl_label}: Not found in P&L")
-        total_revenue = find_pnl_value(year_minus_2_data, ["TOTAL REVENUE", "Total Revenue", "total revenus"])
-        ws["K26"] = total_revenue
-        ws["K26"].number_format = '#,##0.00'
-        updates.append(f"✅ K26 = TOTAL REVENUE: ${total_revenue:,.2f}")
+                updates.append(f"⚠️ {cell} = Not found in P&L (tried: {pnl_labels[0]})")
     except Exception as e:
         updates.append(f"❌ Fiche Stationnement: {str(e)}")
     return updates
