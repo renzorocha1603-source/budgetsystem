@@ -89,14 +89,10 @@ DH_ROW_MAPPING = {
     76: ["Meal & Entertainment", "meal", "représentation repas", "representation repas", "repas", "entertainment"],
 }
 
-# ============================================================================
-# CATCH-ALL ROWS FOR BALANCING
-# ============================================================================
-# When there's a gap between expected and actual totals,
-# the difference goes to these catch-all rows.
-REVENUE_CATCH_ALL_ROW = 17  # "Autres revenus" - for missing revenue
-EXPENSE_CATCH_ALL_ROW = 76  # "Représentation repas" - for missing expenses
-# We'll use Row 17 for revenue gaps and add to "Miscellaneous"
+REVENUE_ROWS = [12, 13, 14, 15, 16, 17, 20, 22]
+EXPENSE_ROWS = [r for r in DH_ROW_MAPPING.keys() if r not in REVENUE_ROWS]
+REVENUE_CATCH_ALL_ROW = 17
+EXPENSE_CATCH_ALL_ROW = 76
 
 FICHE_STATIONNEMENT_MAP = [
     ("K17", ["Transient Revenue", "transient revenue"]),
@@ -153,9 +149,6 @@ MONTHLY_REPORT_MAPPING = {
     "Week end visitors": "Transient Revenue",
     "Réservation en ligne": "Transient Revenue",
     "Online reservation": "Transient Revenue",
-    # SPECIAL MARKERS for balancing
-    "REVENUE TOTAL": "_REVENUE_TOTAL_",
-    "CHARGE TOTALE": "_EXPENSE_TOTAL_",
     # EXPENSES
     "Salaires stationnement": "Parking wages",
     "Salaires - Supervision": "Other wages",
@@ -413,31 +406,22 @@ def clean_text_for_matching(text):
     return text
 
 def label_match_score(cell_text, label_text):
-    """
-    Calculate match score. Requires label to be fully contained in cell text
-    AND the label must represent at least 50% of the cell text length.
-    """
     cell_clean = clean_text_for_matching(cell_text)
     label_clean = clean_text_for_matching(label_text)
-    
     if not cell_clean or not label_clean:
         return 0
-    
     if cell_clean == label_clean:
         return 1.0
-    
     if label_clean in cell_clean:
         ratio = len(label_clean) / len(cell_clean)
         if ratio >= 0.5:
             return ratio
         return 0
-    
     if cell_clean in label_clean:
         ratio = len(cell_clean) / len(label_clean)
         if ratio >= 0.5:
             return ratio
         return 0
-    
     return 0
 
 def read_year_mapping_from_template(wb):
@@ -518,8 +502,7 @@ def find_monthly_data_sheet(sheets_dict):
 def extract_monthly_data_from_file(uploaded_file):
     """
     Extract data from monthly report.
-    Only the BEST match per cell wins.
-    Also extracts REVENUE TOTAL and CHARGE TOTALE for balancing.
+    Handles special markers REVENUE TOTAL and CHARGE TOTALE FIRST.
     """
     result = {}
     month_name = None
@@ -555,6 +538,33 @@ def extract_monthly_data_from_file(uploaded_file):
     
     for row_idx in range(len(df)):
         try:
+            # ── FIRST: Check for special markers ──────────────────────
+            for col_idx in range(min(10, len(df.columns))):
+                cell_text = str(df.iloc[row_idx, col_idx]).strip().upper()
+                
+                if 'REVENUE TOTAL' in cell_text:
+                    val = 0
+                    for vcol in range(col_idx + 1, min(col_idx + 5, len(df.columns))):
+                        candidate = safe_float(df.iloc[row_idx, vcol])
+                        if candidate != 0:
+                            val = candidate
+                            break
+                    if val != 0:
+                        result['_REVENUE_TOTAL_'] = val
+                    break
+                
+                if 'CHARGE TOTALE' in cell_text:
+                    val = 0
+                    for vcol in range(col_idx + 1, min(col_idx + 5, len(df.columns))):
+                        candidate = safe_float(df.iloc[row_idx, vcol])
+                        if candidate != 0:
+                            val = candidate
+                            break
+                    if val != 0:
+                        result['_EXPENSE_TOTAL_'] = val
+                    break
+            
+            # ── SECOND: Regular label matching ─────────────────────────
             best_match = None
             best_score = 0
             label_col = -1
@@ -597,14 +607,13 @@ def build_monthly_data_from_files(monthly_files):
         return None
     monthly_data = {}
     yearly_data = {}
-    monthly_totals = {}  # {month_name: {"revenue_total": X, "expense_total": Y}}
+    monthly_totals = {}
     
     for uploaded_file in monthly_files:
         file_data, (month_name, year) = extract_monthly_data_from_file(uploaded_file)
         if not file_data or month_name is None:
             continue
         
-        # Extract the special totals before adding to data
         revenue_total = file_data.pop('_REVENUE_TOTAL_', None)
         expense_total = file_data.pop('_EXPENSE_TOTAL_', None)
         
@@ -862,17 +871,11 @@ def update_donnees_historiques(wb, merged_monthly_data, parking_code, monthly_to
             updates.append("⚠️ Donnees Historiques: No merged monthly data available")
             return updates
         
-        # Track what we fill per month for balancing
-        monthly_filled_revenue = {}  # {month_name: sum of revenue filled}
-        monthly_filled_expense = {}  # {month_name: sum of expense filled}
+        monthly_filled_revenue = {}
+        monthly_filled_expense = {}
         
         cells_updated = 0
         rows_filled = []
-        
-        # Revenue rows: 12, 13, 14, 15, 16, 17, 20, 22
-        revenue_rows = [12, 13, 14, 15, 16, 17, 20, 22]
-        # Expense rows: all others
-        expense_rows = [r for r in DH_ROW_MAPPING.keys() if r not in revenue_rows]
         
         for dh_row, pnl_labels in DH_ROW_MAPPING.items():
             monthly_values = find_monthly_pnl_value(merged_monthly_data, pnl_labels)
@@ -892,12 +895,11 @@ def update_donnees_historiques(wb, merged_monthly_data, parking_code, monthly_to
                         cells_updated += 1
                         row_cells += 1
                         
-                        # Track for balancing
-                        if dh_row in revenue_rows:
+                        if dh_row in REVENUE_ROWS:
                             if month_name not in monthly_filled_revenue:
                                 monthly_filled_revenue[month_name] = 0
                             monthly_filled_revenue[month_name] += val
-                        elif dh_row in expense_rows:
+                        elif dh_row in EXPENSE_ROWS:
                             if month_name not in monthly_filled_expense:
                                 monthly_filled_expense[month_name] = 0
                             monthly_filled_expense[month_name] += val
@@ -905,7 +907,7 @@ def update_donnees_historiques(wb, merged_monthly_data, parking_code, monthly_to
             if row_cells > 0:
                 rows_filled.append(f"  Row {dh_row}: {pnl_labels[0]} ({row_cells} months)")
         
-        # ── BALANCING: Fill gaps using monthly totals ──────────────────
+        # ── BALANCING ──────────────────────────────────────────────
         if monthly_totals:
             balancing_updates = []
             for month_name, totals in monthly_totals.items():
@@ -918,14 +920,11 @@ def update_donnees_historiques(wb, merged_monthly_data, parking_code, monthly_to
                 expected_revenue = totals.get("revenue_total")
                 expected_expense = totals.get("expense_total")
                 
-                # Balance revenue
                 if expected_revenue is not None and expected_revenue != 0:
                     actual_revenue = monthly_filled_revenue.get(month_name, 0)
                     revenue_gap = expected_revenue - actual_revenue
                     
-                    # Allow small rounding differences (less than $1)
                     if abs(revenue_gap) > 0.99:
-                        # Add gap to catch-all revenue row (Row 17)
                         catch_row = REVENUE_CATCH_ALL_ROW
                         cell_ref = f"{col_letter}{catch_row}"
                         current_val = safe_float(ws_dh[cell_ref].value)
@@ -933,17 +932,15 @@ def update_donnees_historiques(wb, merged_monthly_data, parking_code, monthly_to
                         ws_dh[cell_ref].number_format = '#,##0.00'
                         balancing_updates.append(
                             f"  ⚖️ {month_name}: Added ${revenue_gap:,.2f} to Row {catch_row} "
-                            f"(expected revenue ${expected_revenue:,.2f}, actual ${actual_revenue:,.2f})"
+                            f"(expected ${expected_revenue:,.2f}, actual ${actual_revenue:,.2f})"
                         )
                         cells_updated += 1
                 
-                # Balance expenses
                 if expected_expense is not None and expected_expense != 0:
                     actual_expense = monthly_filled_expense.get(month_name, 0)
                     expense_gap = expected_expense - actual_expense
                     
                     if abs(expense_gap) > 0.99:
-                        # Add gap to catch-all expense row (Row 76 - Représentation repas)
                         catch_row = EXPENSE_CATCH_ALL_ROW
                         cell_ref = f"{col_letter}{catch_row}"
                         current_val = safe_float(ws_dh[cell_ref].value)
@@ -951,7 +948,7 @@ def update_donnees_historiques(wb, merged_monthly_data, parking_code, monthly_to
                         ws_dh[cell_ref].number_format = '#,##0.00'
                         balancing_updates.append(
                             f"  ⚖️ {month_name}: Added ${expense_gap:,.2f} to Row {catch_row} "
-                            f"(expected expenses ${expected_expense:,.2f}, actual ${actual_expense:,.2f})"
+                            f"(expected ${expected_expense:,.2f}, actual ${actual_expense:,.2f})"
                         )
                         cells_updated += 1
             
@@ -1009,7 +1006,6 @@ def fix_excel(
         if current_year_data:
             num_labels = len(current_year_data.get('yearly', {}))
             updates.append(f"📊 Current year from monthlies: {num_labels} labels")
-            # Extract monthly totals for balancing
             if '_monthly_totals' in current_year_data:
                 monthly_totals = current_year_data.pop('_monthly_totals')
                 updates.append(f"📊 Monthly totals available for balancing: {len(monthly_totals)} months")
@@ -1020,12 +1016,12 @@ def fix_excel(
         if previous_year_data:
             num_labels = len(previous_year_data.get('yearly', {}))
             updates.append(f"📊 Previous year from monthlies: {num_labels} labels")
-            # Merge monthly totals
             if '_monthly_totals' in previous_year_data:
                 prev_totals = previous_year_data.pop('_monthly_totals')
                 if monthly_totals is None:
                     monthly_totals = {}
                 monthly_totals.update(prev_totals)
+                updates.append(f"📊 Monthly totals available for balancing: {len(monthly_totals)} months")
     
     if pnl_current_year and current_year_data is None:
         current_year_data, current_file_type = extract_pnl_data(pnl_current_year, parking_code)
