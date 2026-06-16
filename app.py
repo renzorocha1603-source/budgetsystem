@@ -306,18 +306,23 @@ T_DATA = {
         "no_msgs": "No messages yet — start a conversation with Allison.",
         "files_title": "File Upload",
         "excel_lbl": "📊 Upload Excel Template (.xlsx)",
+        "upload_method_lbl": "📋 Upload Method",
+        "method_yearly": "Yearly P&L Files",
+        "method_monthly": "Monthly Reports (12 files)",
         "pnl_current_lbl": "📁 P&L CURRENT Year (e.g., 2026) - Any format",
         "pnl_previous_lbl": "📁 P&L PREVIOUS Year (e.g., 2025) - Any format",
         "pnl_two_ya_lbl": "📁 P&L 2 Years Ago (e.g., 2024) - Optional",
+        "monthly_current_lbl": "📁 Monthly Reports CURRENT Year (4 files: Jan-Apr 2026)",
+        "monthly_previous_lbl": "📁 Monthly Reports PREVIOUS Year (8 files: May-Dec 2025)",
         "processing": "Processing files…",
         "files_ready": "✅ All files ready — you can now run the workflow.",
-        "files_ready_partial": "✅ Template + Current Year P&L ready. Previous year recommended for best results.",
+        "files_ready_partial": "✅ Template + Current Year data ready. Previous year recommended for best results.",
         "config_title": "Workflow",
         "run_btn": "🚀 Run Workflow",
         "running": "Processing your budget...",
         "run_ok": "✅ Done — file ready to download.",
         "dl_btn": "📥 Download Budget File",
-        "upload_first": "⚠️ Upload Excel Template + Current Year P&L to unlock workflow.",
+        "upload_first": "⚠️ Upload Excel Template + Data files to unlock workflow.",
         "theme_dark": "🌙 Dark Mode",
         "theme_light": "☀️ Light Mode",
         "footer": "Budget System · Only Solutions Inc.",
@@ -335,7 +340,7 @@ T_DATA = {
         "word_data_upload": "📄 Upload Word Data (optional)",
         "parking_code_lbl": "🏢 Select Parking Code",
         "parking_code_help": "Choose the parking location from the P&L file",
-        "no_parking_codes": "No parking codes detected in P&L file",
+        "no_parking_codes": "No parking codes detected in uploaded files",
     },
     "fr": {
         "brand": "SYSTÈME BUDGÉTAIRE",
@@ -351,18 +356,23 @@ T_DATA = {
         "no_msgs": "Aucun message — commencez une conversation avec Allison.",
         "files_title": "Fichiers",
         "excel_lbl": "📊 Téléverser le modèle Excel (.xlsx)",
+        "upload_method_lbl": "📋 Méthode de téléversement",
+        "method_yearly": "Fichiers P&L annuels",
+        "method_monthly": "Rapports mensuels (12 fichiers)",
         "pnl_current_lbl": "📁 P&L année EN COURS (ex: 2026) - Tout format",
         "pnl_previous_lbl": "📁 P&L année PRÉCÉDENTE (ex: 2025) - Tout format",
         "pnl_two_ya_lbl": "📁 P&L il y a 2 ans (ex: 2024) - Optionnel",
+        "monthly_current_lbl": "📁 Rapports mensuels année EN COURS (4 fichiers: Jan-Avr 2026)",
+        "monthly_previous_lbl": "📁 Rapports mensuels année PRÉCÉDENTE (8 fichiers: Mai-Déc 2025)",
         "processing": "Traitement…",
         "files_ready": "✅ Tous les fichiers prêts — exécutez le workflow.",
-        "files_ready_partial": "✅ Modèle + P&L année courante prêts. Année précédente recommandée.",
+        "files_ready_partial": "✅ Modèle + données année courante prêts. Année précédente recommandée.",
         "config_title": "Workflow",
         "run_btn": "🚀 Exécuter",
         "running": "Traitement de votre budget...",
         "run_ok": "✅ Terminé — fichier prêt.",
         "dl_btn": "📥 Télécharger le fichier",
-        "upload_first": "⚠️ Téléversez le modèle Excel + P&L année courante.",
+        "upload_first": "⚠️ Téléversez le modèle Excel + fichiers de données.",
         "theme_dark": "🌙 Mode Sombre",
         "theme_light": "☀️ Mode Clair",
         "footer": "Système budgétaire · Only Solutions Inc.",
@@ -380,7 +390,7 @@ T_DATA = {
         "word_data_upload": "📄 Téléverser données Word (optionnel)",
         "parking_code_lbl": "🏢 Sélectionner le code stationnement",
         "parking_code_help": "Choisissez le stationnement du fichier P&L",
-        "no_parking_codes": "Aucun code stationnement détecté dans le fichier P&L",
+        "no_parking_codes": "Aucun code stationnement détecté dans les fichiers",
     },
 }
 
@@ -509,6 +519,9 @@ _D = dict(
     pnl_current_bytes=None,
     pnl_previous_bytes=None,
     pnl_two_ya_bytes=None,
+    monthly_current_files=[],
+    monthly_previous_files=[],
+    upload_method="yearly",
     word_bytes=None,
     extracted_rev={},
     files_ready=False,
@@ -1028,6 +1041,12 @@ def inject_css():
         padding: 0.6rem 0.8rem !important;
         margin-bottom: 0.8rem !important;
     }}
+    
+    /* Upload method tabs */
+    .stRadio > div {{
+        display: flex;
+        gap: 1rem;
+    }}
     </style>
     """, unsafe_allow_html=True)
 
@@ -1077,7 +1096,6 @@ def page_login():
                     st.session_state.user_email = email
                     st.session_state.user_name = user["name"]
                     st.session_state.user_role = user["role"]
-                    # Load saved chat history on login
                     st.session_state.messages = load_chat_history()
                     st.rerun()
                 else:
@@ -1087,19 +1105,15 @@ def page_login():
 
 
 # ============================================================================
-# SETTINGS MENU (only shows when gear icon is clicked)
+# SETTINGS MENU
 # ============================================================================
 def render_settings_menu():
     """Render the settings expander with user info, theme, language, and admin functions"""
     if st.session_state.show_settings:
         with st.expander(f"⚙️ {T('settings')}", expanded=True):
-            # Profile info
             st.markdown(f"**{T('profile')}**")
             st.info(f"**{st.session_state.user_name}**  \n`{st.session_state.user_email}`  \nRole: **{st.session_state.user_role.upper()}**")
-
             st.markdown("---")
-
-            # Appearance toggle
             st.markdown(f"**{T('appearance')}**")
             col1, col2 = st.columns(2)
             with col1:
@@ -1110,8 +1124,6 @@ def render_settings_menu():
                 if st.button(T("theme_light"), use_container_width=True, key="theme_light_settings"):
                     st.session_state.theme = "light"
                     st.rerun()
-
-            # Language toggle
             st.markdown(f"**{T('language')}**")
             col1, col2 = st.columns(2)
             with col1:
@@ -1122,41 +1134,31 @@ def render_settings_menu():
                 if st.button("Français", use_container_width=True, key="fr_settings"):
                     st.session_state.lang = "fr"
                     st.rerun()
-
             st.markdown("---")
-
-            # Logout button
             if st.button(T("logout_btn"), use_container_width=True, key="logout_settings"):
                 do_logout()
-
-            # Admin panel (only for admin users)
             if st.session_state.user_role == "admin":
                 st.markdown("---")
                 st.markdown("### 👑 Admin Management")
-
-                # Create new user form
-                st.markdown(f"### 👤 {T('new_user_title')}")
+                st.markdown(f"### 👤 Create New User")
                 with st.form("create_user_form"):
                     col1, col2 = st.columns(2)
                     with col1:
-                        new_name = st.text_input(T("nm_lbl"), placeholder="John Doe")
+                        new_name = st.text_input("Full name", placeholder="John Doe")
                     with col2:
-                        new_email = st.text_input(T("new_email_lbl"), placeholder="user@example.com")
-                    new_password = st.text_input(T("new_pass_lbl"), type="password", placeholder="••••••••")
-                    new_role = st.selectbox(T("role_lbl"), ["user", "admin"])
-
-                    if st.form_submit_button("➕ " + T("create_btn"), type="primary"):
+                        new_email = st.text_input("Email", placeholder="user@example.com")
+                    new_password = st.text_input("Password", type="password", placeholder="••••••••")
+                    new_role = st.selectbox("Role", ["user", "admin"])
+                    if st.form_submit_button("➕ Create User", type="primary"):
                         if new_email and new_name and new_password:
                             if create_user(new_email, new_name, new_password, new_role):
-                                st.success(f"✅ {T('user_created')}")
+                                st.success("✅ User created successfully.")
                                 st.rerun()
                             else:
-                                st.error(f"❌ {T('user_exists')}")
+                                st.error("❌ Email already in use.")
                         else:
                             st.warning("All fields required")
-
-                # User list
-                with st.expander("📋 " + T("users_title")):
+                with st.expander("📋 User List"):
                     users = load_users()
                     for ue, ud in users.items():
                         ca, cb = st.columns([5, 1])
@@ -1169,16 +1171,14 @@ def render_settings_menu():
                                     delete_user(ue)
                                     st.rerun()
                         st.markdown("---")
-
-                # Reset password
-                with st.expander("🔑 " + T("reset_title")):
+                with st.expander("🔑 Reset password"):
                     users = load_users()
-                    sel = st.selectbox(T("select_user"), list(users.keys()), key="reset_select")
-                    npw = st.text_input(T("new_pw_lbl"), type="password", key="reset_password_input")
-                    if st.button(T("reset_btn"), use_container_width=True):
+                    sel = st.selectbox("Select user", list(users.keys()), key="reset_select")
+                    npw = st.text_input("New password", type="password", key="reset_password_input")
+                    if st.button("Reset Password", use_container_width=True):
                         if sel and npw:
                             reset_password(sel, npw)
-                            st.success(T("reset_ok"))
+                            st.success("Password updated successfully.")
 
 
 # ============================================================================
@@ -1217,14 +1217,12 @@ def page_dashboard():
                 unsafe_allow_html=True
             )
 
-    # Settings expander (only shows when toggled)
     if st.session_state.show_settings:
         render_settings_menu()
 
     # ── AI CHAT SECTION ──
     st.markdown(f'<div class="scard"><div class="scard-title">{T("ai_title")}</div>', unsafe_allow_html=True)
 
-    # Top row: File upload + Clear chat button
     col_upload_area, col_clear_area = st.columns([1.5, 0.8])
     with col_upload_area:
         uploaded_file_for_ai = st.file_uploader(
@@ -1243,7 +1241,6 @@ def page_dashboard():
             clear_chat_history()
             st.rerun()
 
-    # Process uploaded file for AI context
     if uploaded_file_for_ai and not st.session_state.ai_file_data:
         try:
             file_content, file_type, _ = process_any_file(uploaded_file_for_ai)
@@ -1255,7 +1252,6 @@ def page_dashboard():
         except Exception as e:
             st.error(f"Could not read file: {e}")
 
-    # Show indicator if file is loaded for AI
     if st.session_state.ai_file_data:
         file_name = st.session_state.ai_file_name
         file_type = st.session_state.ai_file_type
@@ -1265,47 +1261,24 @@ def page_dashboard():
             unsafe_allow_html=True
         )
 
-    # ── Chat Messages Area ──
+    # ── Chat Messages ──
     st.markdown('<div class="chat-messages">', unsafe_allow_html=True)
-
     if not st.session_state.messages:
         st.markdown(f'<div class="no-msgs">— {T("no_msgs")} —</div>', unsafe_allow_html=True)
-
     for msg in st.session_state.messages:
         if msg["role"] == "user":
-            st.markdown(
-                f'<div class="bubble-user"><div class="bubble-lbl">You</div>{msg["content"]}</div>',
-                unsafe_allow_html=True
-            )
+            st.markdown(f'<div class="bubble-user"><div class="bubble-lbl">You</div>{msg["content"]}</div>', unsafe_allow_html=True)
         else:
-            st.markdown(
-                f'<div class="bubble-bot"><div class="bubble-lbl">Allison</div>{msg["content"]}</div>',
-                unsafe_allow_html=True
-            )
-
-    # Thinking indicator
+            st.markdown(f'<div class="bubble-bot"><div class="bubble-lbl">Allison</div>{msg["content"]}</div>', unsafe_allow_html=True)
     if st.session_state.thinking:
-        st.markdown(f"""
-        <div class="thinking-container">
-            <span class="robot-icon">🤖</span>
-            <span class="dot"></span>
-            <span class="dot"></span>
-            <span class="dot"></span>
-        </div>
-        """, unsafe_allow_html=True)
-
+        st.markdown(f"""<div class="thinking-container"><span class="robot-icon">🤖</span><span class="dot"></span><span class="dot"></span><span class="dot"></span></div>""", unsafe_allow_html=True)
     st.markdown('</div>', unsafe_allow_html=True)
 
-    # ── Chat Input Form ──
+    # ── Chat Input ──
     with st.form(key="chat_form", clear_on_submit=True):
         col_input, col_send = st.columns([5, 1])
         with col_input:
-            user_input = st.text_input(
-                T("chat_hint"),
-                placeholder=T("chat_hint"),
-                label_visibility="collapsed",
-                key="chat_input"
-            )
+            user_input = st.text_input(T("chat_hint"), placeholder=T("chat_hint"), label_visibility="collapsed", key="chat_input")
         with col_send:
             if st.session_state.thinking:
                 st.markdown('<div class="stop-btn">', unsafe_allow_html=True)
@@ -1315,7 +1288,6 @@ def page_dashboard():
             else:
                 submitted = st.form_submit_button("➤ " + T("send"), use_container_width=True)
                 stop_clicked = False
-
     st.markdown('</div>', unsafe_allow_html=True)
 
     if stop_clicked:
@@ -1331,35 +1303,12 @@ def page_dashboard():
 
     # ── Logo + Status + Microphone ──
     col_status_gap, col_logo_gap, col_mic_gap = st.columns([1.5, 1, 1.5])
-
     with col_status_gap:
-        st.markdown(f"""
-        <div style="text-align:right; padding-top: 12px; font-family: 'IBM Plex Mono', monospace; 
-        font-size: 0.7rem; color: {TK()['highlight']};">
-            {T("allison_online")}
-        </div>
-        """, unsafe_allow_html=True)
-
+        st.markdown(f"""<div style="text-align:right; padding-top: 12px; font-family: 'IBM Plex Mono', monospace; font-size: 0.7rem; color: {TK()['highlight']};">{T("allison_online")}</div>""", unsafe_allow_html=True)
     with col_logo_gap:
-        st.markdown(f"""
-        <div style="text-align:center; padding: 0; margin: 0;">
-            <img src="https://i.ibb.co/0yfv7KCS/image-1.jpg" width="130" 
-            style="border-radius: 8px; opacity: 0.9;">
-        </div>
-        """, unsafe_allow_html=True)
-
+        st.markdown(f"""<div style="text-align:center; padding: 0; margin: 0;"><img src="https://i.ibb.co/0yfv7KCS/image-1.jpg" width="130" style="border-radius: 8px; opacity: 0.9;"></div>""", unsafe_allow_html=True)
     with col_mic_gap:
-        audio_bytes = audio_recorder(
-            text=T("speak_now"),
-            recording_color="#DC2626",
-            neutral_color="#E67E22",
-            icon_name="microphone",
-            icon_size="1x",
-            key="mic_recorder",
-            pause_threshold=120.0,
-            sample_rate=16000,
-            energy_threshold=0.001
-        )
+        audio_bytes = audio_recorder(text=T("speak_now"), recording_color="#DC2626", neutral_color="#E67E22", icon_name="microphone", icon_size="1x", key="mic_recorder", pause_threshold=120.0, sample_rate=16000, energy_threshold=0.001)
 
     if audio_bytes:
         transcript = transcribe_with_deepgram(audio_bytes, st.session_state.lang)
@@ -1376,85 +1325,108 @@ def page_dashboard():
     with col_files:
         st.markdown(f'<div class="scard"><div class="scard-title">{T("files_title")}</div>', unsafe_allow_html=True)
 
-        # 1. Excel Template (REQUIRED - must be .xlsx)
-        excel_file = st.file_uploader(
-            T("excel_lbl"),
-            type=["xlsx"],
-            key="xl"
-        )
+        # 1. Excel Template (REQUIRED)
+        excel_file = st.file_uploader(T("excel_lbl"), type=["xlsx"], key="xl")
 
-        # 2. P&L Current Year (REQUIRED - ANY format!)
-        pnl_current_file = st.file_uploader(
-            T("pnl_current_lbl"),
-            type=["xlsx", "xls", "xlsm", "pdf", "csv", "tsv", "txt", "docx"],
-            key="pnl_current"
+        # 2. Upload Method Selector
+        upload_method = st.radio(
+            T("upload_method_lbl"),
+            options=["yearly", "monthly"],
+            format_func=lambda x: T(f"method_{x}"),
+            key="upload_method_radio",
+            horizontal=True
         )
-        st.markdown(
-            '<div class="file-upload-note">Accepts: Excel, PDF, CSV, DOCX, TXT</div>',
-            unsafe_allow_html=True
-        )
+        st.session_state.upload_method = upload_method
 
-        # 3. P&L Previous Year (OPTIONAL - ANY format!)
-        pnl_previous_file = st.file_uploader(
-            T("pnl_previous_lbl"),
-            type=["xlsx", "xls", "xlsm", "pdf", "csv", "tsv", "txt", "docx"],
-            key="pnl_previous"
-        )
+        st.markdown('<div class="hr"></div>', unsafe_allow_html=True)
 
-        # 4. P&L 2 Years Ago (OPTIONAL - ANY format!)
-        pnl_two_ya_file = st.file_uploader(
-            T("pnl_two_ya_lbl"),
-            type=["xlsx", "xls", "xlsm", "pdf", "csv", "tsv", "txt", "docx"],
-            key="pnl_two_ya"
-        )
+        if upload_method == "yearly":
+            # ── YEARLY P&L UPLOAD ──
+            pnl_current_file = st.file_uploader(
+                T("pnl_current_lbl"),
+                type=["xlsx", "xls", "xlsm", "pdf", "csv", "tsv", "txt", "docx"],
+                key="pnl_current"
+            )
+            st.markdown('<div class="file-upload-note">Accepts: Excel, PDF, CSV, DOCX, TXT</div>', unsafe_allow_html=True)
 
-        # 5. Word Data (OPTIONAL)
-        word_file = st.file_uploader(
-            T("word_data_upload"),
-            type=["xlsx", "csv", "docx", "txt"],
-            key="wd"
-        )
+            pnl_previous_file = st.file_uploader(
+                T("pnl_previous_lbl"),
+                type=["xlsx", "xls", "xlsm", "pdf", "csv", "tsv", "txt", "docx"],
+                key="pnl_previous"
+            )
 
-        # Check if minimum required files are ready
-        if excel_file and pnl_current_file:
-            # Update session state with all uploaded files
-            st.session_state.excel_bytes = excel_file
-            st.session_state.pnl_current_bytes = pnl_current_file
+            pnl_two_ya_file = st.file_uploader(
+                T("pnl_two_ya_lbl"),
+                type=["xlsx", "xls", "xlsm", "pdf", "csv", "tsv", "txt", "docx"],
+                key="pnl_two_ya"
+            )
 
-            if pnl_previous_file:
-                st.session_state.pnl_previous_bytes = pnl_previous_file
-            else:
+            # Word Data
+            word_file = st.file_uploader(T("word_data_upload"), type=["xlsx", "csv", "docx", "txt"], key="wd")
+
+            if excel_file and pnl_current_file:
+                st.session_state.excel_bytes = excel_file
+                st.session_state.pnl_current_bytes = pnl_current_file
+                st.session_state.pnl_previous_bytes = pnl_previous_file if pnl_previous_file else None
+                st.session_state.pnl_two_ya_bytes = pnl_two_ya_file if pnl_two_ya_file else None
+                st.session_state.word_bytes = word_file if word_file else None
+                st.session_state.monthly_current_files = []
+                st.session_state.monthly_previous_files = []
+
+                try:
+                    pnl_current_file.seek(0)
+                    codes = get_parking_codes_from_pnl(pnl_current_file)
+                    pnl_current_file.seek(0)
+                    st.session_state.parking_codes = codes
+                except Exception:
+                    st.session_state.parking_codes = []
+
+                st.session_state.files_ready = True
+                if pnl_previous_file and pnl_two_ya_file:
+                    st.success(T("files_ready"))
+                else:
+                    st.info(T("files_ready_partial"))
+
+            elif excel_file and not pnl_current_file:
+                st.warning("⚠️ Current Year P&L file is required.")
+                st.session_state.files_ready = False
+
+        else:
+            # ── MONTHLY REPORT UPLOAD ──
+            monthly_current = st.file_uploader(
+                T("monthly_current_lbl"),
+                type=["xlsx", "xls", "xlsm", "pdf", "csv"],
+                accept_multiple_files=True,
+                key="monthly_current"
+            )
+            st.markdown('<div class="file-upload-note">Upload 4 files: Jan, Feb, Mar, Apr 2026</div>', unsafe_allow_html=True)
+
+            monthly_previous = st.file_uploader(
+                T("monthly_previous_lbl"),
+                type=["xlsx", "xls", "xlsm", "pdf", "csv"],
+                accept_multiple_files=True,
+                key="monthly_previous"
+            )
+            st.markdown('<div class="file-upload-note">Upload 8 files: May, Jun, Jul, Aug, Sep, Oct, Nov, Dec 2025</div>', unsafe_allow_html=True)
+
+            if excel_file and monthly_current:
+                st.session_state.excel_bytes = excel_file
+                st.session_state.monthly_current_files = list(monthly_current) if monthly_current else []
+                st.session_state.monthly_previous_files = list(monthly_previous) if monthly_previous else []
+                st.session_state.pnl_current_bytes = None
                 st.session_state.pnl_previous_bytes = None
-
-            if pnl_two_ya_file:
-                st.session_state.pnl_two_ya_bytes = pnl_two_ya_file
-            else:
                 st.session_state.pnl_two_ya_bytes = None
-
-            if word_file:
-                st.session_state.word_bytes = word_file
-            else:
                 st.session_state.word_bytes = None
+                st.session_state.files_ready = True
 
-            # Extract parking codes from P&L file
-            try:
-                pnl_current_file.seek(0)
-                codes = get_parking_codes_from_pnl(pnl_current_file)
-                pnl_current_file.seek(0)
-                st.session_state.parking_codes = codes
-            except Exception:
-                st.session_state.parking_codes = []
+                if monthly_previous:
+                    st.success(T("files_ready"))
+                else:
+                    st.info(T("files_ready_partial"))
 
-            st.session_state.files_ready = True
-
-            if pnl_previous_file and pnl_two_ya_file:
-                st.success(T("files_ready"))
-            else:
-                st.info(T("files_ready_partial"))
-
-        elif excel_file and not pnl_current_file:
-            st.warning("⚠️ Current Year P&L file is required to run the workflow.")
-            st.session_state.files_ready = False
+            elif excel_file and not monthly_current:
+                st.warning("⚠️ Monthly Current Year files are required.")
+                st.session_state.files_ready = False
 
         st.markdown('</div>', unsafe_allow_html=True)
 
@@ -1462,54 +1434,35 @@ def page_dashboard():
         st.markdown(f'<div class="scard"><div class="scard-title">{T("config_title")}</div>', unsafe_allow_html=True)
 
         if not st.session_state.files_ready:
-            st.markdown(
-                f'<div style="font-size:0.78rem;color:{TK()["text_secondary"]};padding:1rem 0;">'
-                f'{T("upload_first")}</div>',
-                unsafe_allow_html=True
-            )
+            st.markdown(f'<div style="font-size:0.78rem;color:{TK()["text_secondary"]};padding:1rem 0;">{T("upload_first")}</div>', unsafe_allow_html=True)
         else:
-            # Show filenames of all uploaded files
-            template_name = "Template"
-            pnl_current_name = "Current Year"
-            pnl_previous_name = "Not provided"
-            pnl_two_ya_name = "Not provided"
-
-            if hasattr(st.session_state.excel_bytes, 'name'):
-                template_name = st.session_state.excel_bytes.name
-            if hasattr(st.session_state.pnl_current_bytes, 'name'):
-                pnl_current_name = st.session_state.pnl_current_bytes.name
-            if st.session_state.pnl_previous_bytes and hasattr(st.session_state.pnl_previous_bytes, 'name'):
-                pnl_previous_name = st.session_state.pnl_previous_bytes.name
-            if st.session_state.pnl_two_ya_bytes and hasattr(st.session_state.pnl_two_ya_bytes, 'name'):
-                pnl_two_ya_name = st.session_state.pnl_two_ya_bytes.name
-
+            template_name = st.session_state.excel_bytes.name if hasattr(st.session_state.excel_bytes, 'name') else "Template"
             st.markdown(f"**Template:** {template_name}")
-            st.markdown(f"**Current Year:** {pnl_current_name}")
-            st.markdown(f"**Previous Year:** {pnl_previous_name}")
-            st.markdown(f"**2 Years Ago:** {pnl_two_ya_name}")
+
+            if st.session_state.upload_method == "yearly":
+                pnl_current_name = st.session_state.pnl_current_bytes.name if st.session_state.pnl_current_bytes and hasattr(st.session_state.pnl_current_bytes, 'name') else "Current Year"
+                pnl_previous_name = st.session_state.pnl_previous_bytes.name if st.session_state.pnl_previous_bytes and hasattr(st.session_state.pnl_previous_bytes, 'name') else "Not provided"
+                pnl_two_ya_name = st.session_state.pnl_two_ya_bytes.name if st.session_state.pnl_two_ya_bytes and hasattr(st.session_state.pnl_two_ya_bytes, 'name') else "Not provided"
+                st.markdown(f"**Current Year:** {pnl_current_name}")
+                st.markdown(f"**Previous Year:** {pnl_previous_name}")
+                st.markdown(f"**2 Years Ago:** {pnl_two_ya_name}")
+            else:
+                st.markdown(f"**Current Year Files:** {len(st.session_state.monthly_current_files)} files")
+                st.markdown(f"**Previous Year Files:** {len(st.session_state.monthly_previous_files)} files")
 
             st.markdown('<div class="hr"></div>', unsafe_allow_html=True)
 
             # ── PARKING CODE SELECTOR ──
             parking_codes = st.session_state.get("parking_codes", [])
-
             if parking_codes:
-                selected_code = st.selectbox(
-                    T("parking_code_lbl"),
-                    options=parking_codes,
-                    help=T("parking_code_help"),
-                    key="parking_code_select"
-                )
+                selected_code = st.selectbox(T("parking_code_lbl"), options=parking_codes, help=T("parking_code_help"), key="parking_code_select")
                 st.session_state.selected_parking_code = selected_code
             else:
-                # Try to extract from template filename as fallback
                 fallback_code = None
                 if hasattr(st.session_state.excel_bytes, 'name'):
-                    name = st.session_state.excel_bytes.name
-                    match = re.search(r'(CMO\d+)', name, re.IGNORECASE)
+                    match = re.search(r'(CMO\d+)', st.session_state.excel_bytes.name, re.IGNORECASE)
                     if match:
                         fallback_code = match.group(1).upper()
-
                 if fallback_code:
                     st.info(f"📌 Parking code from filename: **{fallback_code}**")
                     st.session_state.selected_parking_code = fallback_code
@@ -1519,7 +1472,6 @@ def page_dashboard():
 
             st.markdown('<div class="hr"></div>', unsafe_allow_html=True)
 
-            # Run and Clear buttons
             col_run, col_clear_wf = st.columns([1, 1])
             with col_run:
                 if st.button(T("run_btn"), use_container_width=True, type="primary"):
@@ -1528,33 +1480,41 @@ def page_dashboard():
                     else:
                         with st.spinner(T("running")):
                             try:
-                                word_data = None
-
-                                # Call the excel_fixer with user-selected parking code
-                                fixed_excel, updates = fix_excel(
-                                    excel_file=st.session_state.excel_bytes,
-                                    pnl_current_year=st.session_state.pnl_current_bytes,
-                                    pnl_previous_year=st.session_state.pnl_previous_bytes,
-                                    pnl_two_years_ago=st.session_state.pnl_two_ya_bytes,
-                                    parking_code=st.session_state.selected_parking_code,
-                                    word_data=word_data
-                                )
+                                if st.session_state.upload_method == "yearly":
+                                    fixed_excel, updates = fix_excel(
+                                        excel_file=st.session_state.excel_bytes,
+                                        pnl_current_year=st.session_state.pnl_current_bytes,
+                                        pnl_previous_year=st.session_state.pnl_previous_bytes,
+                                        pnl_two_years_ago=st.session_state.pnl_two_ya_bytes,
+                                        monthly_files_current=None,
+                                        monthly_files_previous=None,
+                                        parking_code=st.session_state.selected_parking_code,
+                                        word_data=None
+                                    )
+                                else:
+                                    fixed_excel, updates = fix_excel(
+                                        excel_file=st.session_state.excel_bytes,
+                                        pnl_current_year=None,
+                                        pnl_previous_year=None,
+                                        pnl_two_years_ago=None,
+                                        monthly_files_current=st.session_state.monthly_current_files,
+                                        monthly_files_previous=st.session_state.monthly_previous_files,
+                                        parking_code=st.session_state.selected_parking_code,
+                                        word_data=None
+                                    )
 
                                 st.session_state.fixed_excel = fixed_excel
                                 st.session_state.workflow_log = updates
 
-                                # Display all updates
                                 if updates:
                                     for update in updates:
                                         st.markdown(f'<div class="log-line">{update}</div>', unsafe_allow_html=True)
-
                                     success_count = sum(1 for u in updates if u.startswith("✅"))
-
                                     if fixed_excel:
                                         if success_count > 0:
                                             st.success(T("run_ok"))
                                         else:
-                                            st.warning("Workflow completed with warnings. Download available but some data may be missing.")
+                                            st.warning("Workflow completed with warnings.")
                                     else:
                                         st.error("Workflow failed - no output file generated.")
                                 else:
@@ -1568,6 +1528,8 @@ def page_dashboard():
                     st.session_state.pnl_current_bytes = None
                     st.session_state.pnl_previous_bytes = None
                     st.session_state.pnl_two_ya_bytes = None
+                    st.session_state.monthly_current_files = []
+                    st.session_state.monthly_previous_files = []
                     st.session_state.word_bytes = None
                     st.session_state.files_ready = False
                     st.session_state.fixed_excel = None
@@ -1576,7 +1538,6 @@ def page_dashboard():
                     st.session_state.selected_parking_code = None
                     st.rerun()
 
-            # Download button
             if st.session_state.fixed_excel:
                 st.markdown('<div class="hr"></div>', unsafe_allow_html=True)
                 template_name_clean = template_name.rsplit('.', 1)[0].replace(" ", "_")
@@ -1590,7 +1551,6 @@ def page_dashboard():
 
         st.markdown('</div>', unsafe_allow_html=True)
 
-    # ── Footer ──
     st.markdown(f'<div class="db-footer">{T("footer")}</div>', unsafe_allow_html=True)
 
 
@@ -1601,10 +1561,7 @@ if st.session_state.thinking:
     user_messages = [m for m in st.session_state.messages if m["role"] == "user"]
     if user_messages:
         last_user_msg = user_messages[-1]["content"]
-
-        # Build context suffix from uploaded files
         ctx_suffix = ""
-
         if st.session_state.ai_file_data:
             file_data = st.session_state.ai_file_data
             file_name = st.session_state.ai_file_name
@@ -1617,45 +1574,25 @@ if st.session_state.thinking:
             else:
                 ctx_suffix += f"Content:\n{str(file_data)[:3000]}\n"
             ctx_suffix += f"\n[End of {file_name}]\n"
-
         if st.session_state.extracted_rev:
             rev = st.session_state.extracted_rev
-            ctx_suffix += (
-                f" [Budget: Transient ${rev['transient']:,.0f}, "
-                f"Monthly ${rev['monthly']:,.0f}, Total ${rev['total']:,.0f}]"
-            )
-
-        # Keep last 12 messages for context
-        recent_history = (
-            st.session_state.messages[-12:]
-            if len(st.session_state.messages) > 12
-            else st.session_state.messages
-        )
-
+            ctx_suffix += f" [Budget: Transient ${rev['transient']:,.0f}, Monthly ${rev['monthly']:,.0f}, Total ${rev['total']:,.0f}]"
+        recent_history = st.session_state.messages[-12:] if len(st.session_state.messages) > 12 else st.session_state.messages
         history_for_mistral = []
         for msg in recent_history[:-1]:
             history_for_mistral.append({"role": msg["role"], "content": msg["content"]})
-
         history_for_mistral.append({"role": "user", "content": last_user_msg + ctx_suffix})
-
-        # Get AI response
         reply = ask_mistral(history_for_mistral)
         st.session_state.messages.append({"role": "assistant", "content": reply})
         st.session_state.thinking = False
-
-        # Save to persistent memory
         save_chat_history(st.session_state.messages)
-
-        # Generate voice if message came from microphone
         if st.session_state.thinking_from_voice:
             audio_b64 = text_to_speech(reply, st.session_state.lang)
             st.session_state.last_audio = audio_b64
         else:
             st.session_state.last_audio = None
-
         st.rerun()
 
-# Play Allison's audio if available
 if st.session_state.get("last_audio"):
     play_audio_html(st.session_state.last_audio)
     st.session_state.last_audio = None
