@@ -37,7 +37,7 @@ SHEET_PATTERNS = {
 }
 
 # ============================================================================
-# VERIFIED ROW MAPPING
+# VERIFIED ROW MAPPING - Donnees Historiques
 # ============================================================================
 DH_ROW_MAPPING = {
     12: ["Transient Revenue", "transient revenue"],
@@ -94,6 +94,68 @@ EXPENSE_ROWS = [r for r in DH_ROW_MAPPING.keys() if r not in REVENUE_ROWS]
 REVENUE_CATCH_ALL_ROW = 17
 EXPENSE_CATCH_ALL_ROW = 76
 
+# ============================================================================
+# BUDGET INITIAL LABEL MAPPING - Search Column A for these French labels
+# ============================================================================
+BI_LABEL_MAPPING = [
+    # REVENUS
+    ("Revenus horaires", ["Transient Revenue", "transient revenue"]),
+    ("Revenus mensuels", ["Monthly Revenues", "monthly revenues"]),
+    ("Revenus Lave-auto", ["Car-Wash Revenue", "car-wash revenue", "lave-auto"]),
+    ("Revenus hôtel", ["Hotel Revenue", "hotel revenue", "revenus hotel"]),
+    ("Revenus d'intérêts", ["Interests", "interests", "intérêts", "interets"]),
+    ("Autres revenus", ["Miscellaneous", "miscellaneous", "autres revenus", "Other Monthly revenue", "other monthly revenue", "Violation", "violation"]),
+    ("Total revenus Bruts", ["Parking Revenue", "parking revenue"]),
+    ("(Gratuités)", ["Discount-Gratuities - Transient", "gratuities transient"]),
+    ("(Rabais)", ["Discount-Gratuities - Monthly", "rabais", "discount monthly"]),
+    ("TOTAL REVENUS", ["TOTAL REVENUE", "Total Revenue", "total revenus"]),
+    # DÉPENSES
+    ("Salaire Stationnement", ["Parking wages", "parking wages", "salaire stationnement"]),
+    ("Salaire Superviseur", ["Other wages", "other wages", "salaire superviseur", "supervisor"]),
+    ("Formation & Recrutement", ["Training & Recr.", "training", "formation", "recrutement"]),
+    ("Uniformes", ["Uniforms", "uniforms", "uniformes"]),
+    ("Nettoyage stationnement", ["R&M - Cleaning", "cleaning", "nettoyage"]),
+    ("Entretien stationnement", ["R&M - General", "maintenance", "entretien stationnement"]),
+    ("Entretien équipement", ["R&M - Equipement", "entretien équipement", "entretien equipement"]),
+    ("Signalisation", ["R&M - Signs", "signs", "signalisation", "signage"]),
+    ("Lignage", ["R&M - Lines", "lines", "lignage", "line painting"]),
+    ("Déneigement", ["Snow Removal", "snow removal", "déneigement", "deneigement", "snow"]),
+    ("Fournitures stationnement", ["Parking supplies", "parking supplies", "fournitures stationnement", "fournitures"]),
+    ("Refacturations diverses", ["Misc. Re-Billing", "re-billing", "refacturations diverses", "refacturations", "rebilling"]),
+    ("Aménagement stationnement", ["R&M - General", "amenagement", "aménagement stationnement", "aménagement"]),
+    ("Services Publics", ["Public services", "public services", "services publics", "utilities"]),
+    ("Fournitures de bureau", ["Office expenses", "office expenses", "fournitures de bureau", "fournitures bureau"]),
+    ("Telecommunications", ["Telecommunication", "telecommunication", "telecommunications", "télécommunications", "telecom"]),
+    ("Loyer", ["Rent", "rent", "loyer"]),
+    ("Frais de déplacement", ["Travel expenses", "travel", "frais de déplacement", "frais de deplacement", "déplacement"]),
+    ("Frais de cartes de crédit", ["Credit Card fees", "credit card", "frais de cartes de crédit", "frais de cartes de credit", "cartes de crédit"]),
+    ("Intérêts et frais de banque", ["Bank fees", "bank fees", "intérêts et frais de banque", "interets et frais de banque", "frais de banque"]),
+    ("Transport de fonds", ["Cash transportation fees", "cash transportation", "transport de fonds", "transport fonds"]),
+    ("Réclamations", ["Claims", "claims", "réclamations", "reclamations"]),
+    ("Assurances et cautionnement", ["Insurance & Guarantee", "insurance", "assurances et cautionnement", "assurance", "cautionnement"]),
+    ("Taxes et permis", ["Tax & license", "tax", "taxes et permis", "taxes", "permis", "license"]),
+    ("Comptabilité", ["Professional services", "accounting", "comptabilité", "comptabilite", "professional services"]),
+    ("Location d'équipement", ["Equipment rent", "equipment rent", "location d'équipement", "location d'equipement", "location équipement"]),
+    ("Publicité et promotion", ["Ad. & Promotion", "advertising", "publicité et promotion", "publicite et promotion", "promotion"]),
+    ("Honoraires de gestion en pourcentage", ["Percent Management fee", "management fee", "honoraires de gestion en pourcentage", "honoraires de gestion en %"]),
+    ("Honoraires de gestion de base", ["Management Fees (Basic)", "management fees basic", "honoraires de gestion de base", "honoraires de base"]),
+    ("Incitatif annuel", ["Incentives", "incentives", "incitatif annuel", "incitatif", "incentive"]),
+    ("Amortissement", ["Depreciation", "depreciation", "amortissement"]),
+    ("Intérêts sur emprunts", ["Financial fees", "interest", "intérêts sur emprunts", "interets sur emprunts", "emprunts"]),
+    ("Sécurité", ["Security", "security", "sécurité", "securite"]),
+    ("Frais de copropriété", ["Co-ownership expenses", "co-ownership", "frais de copropriété", "frais de copropriete", "copropriété"]),
+    ("Frais de Navettes", ["Shuttle expenses", "shuttle", "frais de navettes", "navettes"]),
+    ("Services Informatiques", ["Computer services", "computer", "services informatiques", "informatiques"]),
+    ("Mauvaises créances", ["Bad debts", "bad debts", "mauvaises créances", "mauvaises creances", "créances"]),
+    ("Cotisations", ["Dues & Subscription", "dues", "cotisations", "subscription"]),
+    ("Représentation repas", ["Meal & Entertainment", "meal", "représentation repas", "representation repas", "repas", "entertainment"]),
+    ("TOTAL DÉPENSES", ["Total Operation expenses", "total operation expenses", "total dépenses"]),
+    ("REVENUS NETS", ["NET INCOME", "net income", "revenus nets"]),
+]
+
+# ============================================================================
+# FICHE STATIONNEMENT MAPPING
+# ============================================================================
 FICHE_STATIONNEMENT_MAP = [
     ("K17", ["Transient Revenue", "transient revenue"]),
     ("K18", ["Monthly Revenues", "monthly revenues"]),
@@ -498,10 +560,6 @@ def find_monthly_data_sheet(sheets_dict):
     return None
 
 def extract_monthly_data_from_file(uploaded_file):
-    """
-    Extract data from monthly report.
-    Handles special markers REVENUE TOTAL and CHARGE TOTALE FIRST.
-    """
     result = {}
     month_name = None
     year = None
@@ -536,7 +594,6 @@ def extract_monthly_data_from_file(uploaded_file):
     
     for row_idx in range(len(df)):
         try:
-            # ── FIRST: Check for special markers ──────────────────────
             for col_idx in range(min(10, len(df.columns))):
                 cell_text = str(df.iloc[row_idx, col_idx]).strip().upper()
                 
@@ -562,7 +619,6 @@ def extract_monthly_data_from_file(uploaded_file):
                         result['_EXPENSE_TOTAL_'] = val
                     break
             
-            # ── SECOND: Regular label matching ─────────────────────────
             best_match = None
             best_score = 0
             label_col = -1
@@ -796,37 +852,59 @@ def merge_monthly_data(current_year_data, previous_year_data, year_map):
 # ============================================================================
 
 def update_budget_initial(wb, previous_year_data, parking_code):
+    """
+    Fill Budget Initial Column S with Year Totals from previous year P&L.
+    Searches Column A for French labels, then writes P&L year total to Column S.
+    """
     updates = []
     try:
         sheet_name = find_sheet_by_pattern(wb, SHEET_PATTERNS["Budget Initial"])
         if not sheet_name:
             return ["❌ Budget Initial: Sheet not found"]
         ws = wb[sheet_name]
-        total = 0
-        if previous_year_data:
-            total_alternatives = [
-                "TOTAL REVENUE", "Total Revenue", "total revenus", "revenu total",
-                "REVENU TOTAL", "Total Revenus", "TOTAL DES REVENUS", "Total des revenus"
-            ]
-            total = find_pnl_value(previous_year_data, total_alternatives)
-        if total > 0:
-            ws["S8"] = total
-            ws["S8"].number_format = '$#,##0.00'
-            updates.append(f"✅ Budget Initial: S8 = ${total:,.2f} (previous year)")
+        
+        if previous_year_data is None:
+            updates.append("⚠️ Budget Initial: No previous year P&L data available")
+            return updates
+        
+        cells_updated = 0
+        
+        for french_label, pnl_labels in BI_LABEL_MAPPING:
+            # Search Column A for the French label
+            found_row = None
+            for row_idx in range(1, min(ws.max_row + 1, 100)):
+                cell_value = ws.cell(row=row_idx, column=1).value
+                if cell_value is None:
+                    continue
+                if isinstance(cell_value, str) and cell_value.startswith('='):
+                    continue
+                
+                cell_text = str(cell_value).strip()
+                cell_clean = clean_text_for_matching(cell_text)
+                label_clean = clean_text_for_matching(french_label)
+                
+                if label_clean in cell_clean:
+                    found_row = row_idx
+                    break
+            
+            if found_row is None:
+                continue
+            
+            # Find the year total from P&L
+            yearly_value = find_pnl_value(previous_year_data, pnl_labels)
+            
+            if yearly_value != 0:
+                # Write to Column S on the found row
+                ws[f"S{found_row}"] = yearly_value
+                ws[f"S{found_row}"].number_format = '#,##0.00 $'
+                cells_updated += 1
+                updates.append(f"✅ BI Row {found_row} ({french_label}): ${yearly_value:,.2f}")
+        
+        if cells_updated > 0:
+            updates.append(f"✅ Budget Initial: {cells_updated} cells updated in Column S")
         else:
-            backup_alternatives = ["Parking Revenue", "Total Revenus Bruts", "Revenue", "Total"]
-            found = False
-            for alt in backup_alternatives:
-                if previous_year_data:
-                    total = previous_year_data['yearly'].get(alt, 0)
-                    if total > 0:
-                        ws["S8"] = total
-                        ws["S8"].number_format = '$#,##0.00'
-                        updates.append(f"✅ Budget Initial: S8 = ${total:,.2f} (from '{alt}')")
-                        found = True
-                        break
-            if not found:
-                updates.append("⚠️ Budget Initial: No TOTAL REVENUE found in previous year P&L")
+            updates.append("⚠️ Budget Initial: No cells updated")
+    
     except Exception as e:
         updates.append(f"❌ Budget Initial: {str(e)}")
     return updates
@@ -845,7 +923,7 @@ def update_fiche_stationnement(wb, year_minus_2_data, parking_code, word_data=No
             yearly_value = find_pnl_value(year_minus_2_data, pnl_labels)
             if yearly_value != 0:
                 ws[cell] = yearly_value
-                ws[cell].number_format = '$#,##0.00'
+                ws[cell].number_format = '#,##0.00 $'
                 updates.append(f"✅ {cell} = ${yearly_value:,.2f}")
             else:
                 updates.append(f"⚠️ {cell} = Not found in P&L (tried: {pnl_labels[0]})")
@@ -889,7 +967,7 @@ def update_donnees_historiques(wb, merged_monthly_data, parking_code, monthly_to
                         col_letter = get_column_letter(month_idx + 2)
                         cell_ref = f"{col_letter}{dh_row}"
                         ws_dh[cell_ref] = val
-                        ws_dh[cell_ref].number_format = '$#,##0.00'
+                        ws_dh[cell_ref].number_format = '#,##0.00 $'
                         cells_updated += 1
                         row_cells += 1
                         
@@ -927,7 +1005,7 @@ def update_donnees_historiques(wb, merged_monthly_data, parking_code, monthly_to
                         cell_ref = f"{col_letter}{catch_row}"
                         current_val = safe_float(ws_dh[cell_ref].value)
                         ws_dh[cell_ref] = current_val + revenue_gap
-                        ws_dh[cell_ref].number_format = '$#,##0.00'
+                        ws_dh[cell_ref].number_format = '#,##0.00 $'
                         balancing_updates.append(
                             f"  ⚖️ {month_name}: Added ${revenue_gap:,.2f} to Row {catch_row} "
                             f"(expected ${expected_revenue:,.2f}, actual ${actual_revenue:,.2f})"
@@ -943,7 +1021,7 @@ def update_donnees_historiques(wb, merged_monthly_data, parking_code, monthly_to
                         cell_ref = f"{col_letter}{catch_row}"
                         current_val = safe_float(ws_dh[cell_ref].value)
                         ws_dh[cell_ref] = current_val + expense_gap
-                        ws_dh[cell_ref].number_format = '$#,##0.00'
+                        ws_dh[cell_ref].number_format = '#,##0.00 $'
                         balancing_updates.append(
                             f"  ⚖️ {month_name}: Added ${expense_gap:,.2f} to Row {catch_row} "
                             f"(expected ${expected_expense:,.2f}, actual ${actual_expense:,.2f})"
