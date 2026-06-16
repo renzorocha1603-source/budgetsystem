@@ -95,7 +95,7 @@ DH_ROW_MAPPING = {
 }
 
 # ============================================================================
-# FICHE STATIONNEMENT MAPPING: Cell -> P&L Year Total labels
+# FICHE STATIONNEMENT MAPPING
 # ============================================================================
 FICHE_STATIONNEMENT_MAP = [
     ("K17", ["Transient Revenue", "transient revenue"]),
@@ -111,10 +111,9 @@ FICHE_STATIONNEMENT_MAP = [
 ]
 
 # ============================================================================
-# MONTHLY REPORT LABEL MAPPING: Monthly description -> Standard P&L label
+# MONTHLY REPORT LABEL MAPPING
 # ============================================================================
 MONTHLY_REPORT_MAPPING = {
-    # REVENUES - these get summed into standard P&L categories
     "Monthly Revenues": "Monthly Revenues",
     "Gratuities - Monthlies": "Discount-Gratuities - Monthly",
     "Monthlies Collected by the Owner": "Monthly Revenues",
@@ -136,7 +135,6 @@ MONTHLY_REPORT_MAPPING = {
     "Special Events": "Transient Revenue",
     "Week end visitors": "Transient Revenue",
     "Online reservation": "Transient Revenue",
-    # EXPENSES
     "Salaires stationnement": "Parking wages",
     "Salaires - Supervision": "Other wages",
     "Uniformes": "Uniforms",
@@ -367,25 +365,51 @@ def extract_parking_code_from_filename(filename):
     return parts.upper()
 
 def get_parking_codes_from_pnl(pnl_file):
+    """
+    Extract all parking codes from a P&L file or monthly report.
+    Searches sheet names AND file content for codes.
+    """
     sheets_dict, file_type = read_any_file_to_dataframes(pnl_file)
-    if sheets_dict is None:
-        return []
     codes = []
-    for sheet_name in sheets_dict.keys():
-        match = re.search(r'(CMO\d+)', sheet_name, re.IGNORECASE)
-        if match:
-            codes.append(match.group(1).upper())
-        if 'LUNA' in sheet_name.upper():
-            codes.append('LUNA')
-        if sheet_name.upper().strip() not in [c.upper() for c in codes]:
-            if re.match(r'^[A-Z0-9]{3,10}$', sheet_name.strip()):
-                codes.append(sheet_name.strip().upper())
+    
+    if sheets_dict:
+        # Search sheet names for codes
+        for sheet_name in sheets_dict.keys():
+            match = re.search(r'(CMO\d+)', sheet_name, re.IGNORECASE)
+            if match:
+                codes.append(match.group(1).upper())
+            if 'LUNA' in sheet_name.upper():
+                codes.append('LUNA')
+        
+        # Search content for CMO codes and M-pattern codes
+        for sheet_name, df in sheets_dict.items():
+            if df is None or len(df) == 0:
+                continue
+            for row_idx in range(min(10, len(df))):
+                for col_idx in range(min(10, len(df.columns))):
+                    try:
+                        cell_text = str(df.iloc[row_idx, col_idx])
+                        match = re.search(r'(CMO\d+)', cell_text, re.IGNORECASE)
+                        if match:
+                            code = match.group(1).upper()
+                            if code not in codes:
+                                codes.append(code)
+                        match2 = re.search(r'\b(M\d{3})\b', cell_text)
+                        if match2:
+                            code = match2.group(1).upper()
+                            if code not in codes:
+                                codes.append(code)
+                    except Exception:
+                        continue
+    
+    # Remove duplicates, keep order
     seen = set()
     unique_codes = []
     for code in codes:
         if code not in seen:
             seen.add(code)
             unique_codes.append(code)
+    
     return unique_codes
 
 def find_sheet_by_pattern(wb, patterns):
@@ -485,41 +509,23 @@ def read_year_mapping_from_template(wb):
     return year_map
 
 def extract_month_year_from_text(text):
-    """
-    Extract month and year from text like "LUNA - January 2026" or "janvier 2026".
-    Returns (month_name, year) or (None, None).
-    """
     if not text:
         return None, None
-    
     text_lower = text.lower()
-    
-    # Try to find year
     year_match = re.search(r'(20\d{2})', text)
     year = int(year_match.group(1)) if year_match else None
-    
-    # Try to find month name
     found_month = None
     for month_name in MONTH_NAMES_MAP:
         if month_name in text_lower:
             found_month = MONTH_NAMES_MAP[month_name]
             break
-    
     return found_month, year
 
 def extract_monthly_data_from_file(uploaded_file):
-    """
-    Extract revenue and expense data from a monthly report (Excel or PDF).
-    Returns dict: {standard_label: value} and (month_name, year).
-    """
     result = {}
     month_name = None
     year = None
-    
-    # Get file content as text for date extraction
     file_bytes = get_file_bytes(uploaded_file)
-    
-    # Try to read as Excel first
     sheets_dict = None
     if is_excel_file(uploaded_file):
         sheets_dict = read_excel_to_dataframe(uploaded_file)
@@ -528,26 +534,18 @@ def extract_monthly_data_from_file(uploaded_file):
     elif is_csv_file(uploaded_file):
         sheets_dict = read_csv_to_dataframe(uploaded_file)
     else:
-        # Try all formats
         sheets_dict = read_excel_to_dataframe(uploaded_file)
         if sheets_dict is None:
             sheets_dict = read_pdf_to_dataframe(uploaded_file)
         if sheets_dict is None:
             sheets_dict = read_csv_to_dataframe(uploaded_file)
-    
     if sheets_dict is None:
         return result, (None, None)
-    
-    # Try to extract month/year from filename
     if hasattr(uploaded_file, 'name'):
         month_name, year = extract_month_year_from_text(uploaded_file.name)
-    
-    # Process each sheet
     for sheet_name, df in sheets_dict.items():
         if df is None or len(df) == 0:
             continue
-        
-        # Try to extract month/year from content if not found yet
         if month_name is None or year is None:
             for row_idx in range(min(5, len(df))):
                 for col_idx in range(min(10, len(df.columns))):
@@ -560,24 +558,16 @@ def extract_monthly_data_from_file(uploaded_file):
                             year = y
                     except Exception:
                         continue
-        
-        # Look for data rows
-        # Monthly reports have labels in one column and amounts in another
         for row_idx in range(len(df)):
             try:
-                # Try to find a label in any column
                 for col_idx in range(min(5, len(df.columns))):
                     cell_text = str(df.iloc[row_idx, col_idx]).strip()
                     if not cell_text or len(cell_text) < 3:
                         continue
-                    
-                    # Check if this label matches our monthly mapping
                     cell_clean = clean_text_for_matching(cell_text)
-                    
                     for monthly_label, standard_label in MONTHLY_REPORT_MAPPING.items():
                         monthly_clean = clean_text_for_matching(monthly_label)
                         if monthly_clean in cell_clean or cell_clean in monthly_clean:
-                            # Found a match - look for a numeric value in adjacent columns
                             for val_col in range(col_idx + 1, min(col_idx + 4, len(df.columns))):
                                 val = safe_float(df.iloc[row_idx, val_col])
                                 if val != 0:
@@ -589,48 +579,30 @@ def extract_monthly_data_from_file(uploaded_file):
                             break
             except Exception:
                 continue
-    
     return result, (month_name, year)
 
 def build_monthly_data_from_files(monthly_files):
-    """
-    Process a list of 12 monthly report files and build the standard P&L data structure.
-    Returns dict with 'monthly' and 'yearly' data, or None if processing fails.
-    """
     if not monthly_files:
         return None
-    
-    # Initialize data structure
-    monthly_data = {}  # {label: {month_name: value}}
-    yearly_data = {}   # {label: year_total}
-    
+    monthly_data = {}
+    yearly_data = {}
     for uploaded_file in monthly_files:
         file_data, (month_name, year) = extract_monthly_data_from_file(uploaded_file)
-        
         if not file_data or month_name is None:
             continue
-        
-        # Add data to monthly structure
         for label, value in file_data.items():
             if label not in monthly_data:
                 monthly_data[label] = {}
             monthly_data[label][month_name] = value
-            
-            # Accumulate yearly total
             if label not in yearly_data:
                 yearly_data[label] = 0
             yearly_data[label] += value
-    
     if not monthly_data:
         return None
-    
-    return {
-        'monthly': monthly_data,
-        'yearly': yearly_data
-    }
+    return {'monthly': monthly_data, 'yearly': yearly_data}
 
 # ============================================================================
-# P&L DATA EXTRACTION - Works with ANY file format (yearly P&L method)
+# P&L DATA EXTRACTION
 # ============================================================================
 
 def extract_pnl_data_from_dataframe(df, sheet_name_hint=None):
@@ -903,15 +875,6 @@ def fix_excel(
     parking_code=None,
     word_data=None
 ):
-    """
-    Main function to process the Excel template.
-    
-    TWO METHODS:
-    1. Yearly P&L files: pnl_current_year, pnl_previous_year, pnl_two_years_ago
-    2. Monthly report files: monthly_files_current (12 files), monthly_files_previous (12 files)
-    
-    The code auto-detects which method is being used.
-    """
     updates = []
     
     if not parking_code and hasattr(excel_file, 'name'):
@@ -922,12 +885,10 @@ def fix_excel(
     
     updates.append(f"🔍 Processing: {parking_code}")
     
-    # ── Determine which data source to use ──────────────────────────────
     current_year_data = None
     previous_year_data = None
     two_years_ago_data = None
     
-    # Check if monthly files are provided
     if monthly_files_current and len(monthly_files_current) > 0:
         updates.append("📋 Using monthly report files (Current Year)")
         current_year_data = build_monthly_data_from_files(monthly_files_current)
@@ -940,7 +901,6 @@ def fix_excel(
         if previous_year_data:
             updates.append(f"📊 Previous year from monthlies: {len(previous_year_data['yearly'])} labels")
     
-    # If no monthly files or monthly processing failed, try yearly P&L files
     if pnl_current_year and current_year_data is None:
         current_year_data, current_file_type = extract_pnl_data(pnl_current_year, parking_code)
         if current_year_data:
@@ -962,7 +922,6 @@ def fix_excel(
     if current_year_data is None and previous_year_data is None and two_years_ago_data is None:
         return None, [f"❌ Could not find P&L data for {parking_code} in any uploaded file."]
     
-    # ── Read template ───────────────────────────────────────────────────
     try:
         excel_file.seek(0) if hasattr(excel_file, 'seek') else None
         file_bytes = excel_file.read()
@@ -972,10 +931,8 @@ def fix_excel(
     except Exception as e:
         return None, [f"❌ Error reading template: {str(e)}"]
     
-    # ── Read year mapping ───────────────────────────────────────────────
     year_map = read_year_mapping_from_template(wb_read)
     
-    # ── Merge monthly data ──────────────────────────────────────────────
     merged_monthly = {}
     if year_map and current_year_data and previous_year_data:
         merged_monthly = merge_monthly_data(current_year_data, previous_year_data, year_map)
@@ -983,7 +940,6 @@ def fix_excel(
     if not merged_monthly and current_year_data:
         merged_monthly = current_year_data['monthly']
     
-    # ── Assign data to sheets ───────────────────────────────────────────
     budget_initial_data = previous_year_data if previous_year_data else current_year_data
     
     fiche_data = None
@@ -994,17 +950,14 @@ def fix_excel(
     if not dh_data and current_year_data:
         dh_data = current_year_data['monthly']
     
-    # ── Update all sheets ───────────────────────────────────────────────
     updates.extend(update_budget_initial(wb_write, budget_initial_data, parking_code))
     updates.extend(update_fiche_stationnement(wb_write, fiche_data, parking_code, word_data))
     updates.extend(update_donnees_historiques(wb_write, dh_data, parking_code))
     
-    # ── Summary ─────────────────────────────────────────────────────────
     success_count = sum(1 for u in updates if u.startswith("✅"))
     if success_count == 0:
         updates.append("💡 No updates were made.")
     
-    # ── Reset file pointers ─────────────────────────────────────────────
     if pnl_current_year and hasattr(pnl_current_year, 'seek'):
         pnl_current_year.seek(0)
     if pnl_previous_year and hasattr(pnl_previous_year, 'seek'):
@@ -1012,7 +965,6 @@ def fix_excel(
     if pnl_two_years_ago and hasattr(pnl_two_years_ago, 'seek'):
         pnl_two_years_ago.seek(0)
     
-    # ── Save output ─────────────────────────────────────────────────────
     output = io.BytesIO()
     wb_write.save(output)
     output.seek(0)
