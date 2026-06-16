@@ -37,17 +37,6 @@ SHEET_PATTERNS = {
 }
 
 # ============================================================================
-# MONTHLY REPORT SHEET NAMES TO SEARCH
-# ============================================================================
-MONTHLY_SHEET_PATTERNS = [
-    "taxes reconciliation",
-    "conciliation de taxes",
-    "taxes",
-    "conciliation",
-    "reconciliation",
-]
-
-# ============================================================================
 # VERIFIED ROW MAPPING
 # ============================================================================
 DH_ROW_MAPPING = {
@@ -114,26 +103,45 @@ FICHE_STATIONNEMENT_MAP = [
 ]
 
 MONTHLY_REPORT_MAPPING = {
+    "Mensuels": "Monthly Revenues",
     "Monthly Revenues": "Monthly Revenues",
+    "Gratuites - Mensuels": "Discount-Gratuities - Monthly",
     "Gratuities - Monthlies": "Discount-Gratuities - Monthly",
+    "Mensuels collectés par le propriétaire": "Monthly Revenues",
     "Monthlies Collected by the Owner": "Monthly Revenues",
+    "Autres - Ouverture de dossier": "Other Monthly revenue",
     "Others - Processing Fee": "Other Monthly revenue",
+    "Revenus Visiteurs Jours": "Transient Revenue",
     "Transient Revenue - Day": "Transient Revenue",
     "Coin Box & Meter": "Transient Revenue",
+    "Revenus Remboursement": "Transient Revenue",
     "Revenues Reimbursement": "Transient Revenue",
+    "Gratuites - Journaliers": "Discount-Gratuities - Transient",
     "Gratuities - Transient": "Discount-Gratuities - Transient",
+    "Revenus validations": "Transient Revenue",
     "Validation": "Transient Revenue",
+    "Revenus hotel": "Hotel Revenue",
     "Hotel Revenues": "Hotel Revenue",
+    "Revenus navettes": "Shuttle expenses",
     "Shuttle Revenues": "Shuttle expenses",
     "Lave-Auto": "Car-Wash Revenue",
+    "Divers": "Miscellaneous",
     "Miscellaneous": "Miscellaneous",
+    "Revenus violation": "Violation",
     "Revenues Violation": "Violation",
+    "Frais de cartes perdues": "Miscellaneous",
     "Lost card fees": "Miscellaneous",
+    "Intérêts Bancaires": "Other Monthly revenue",
     "Monthly Processing Fees": "Other Monthly revenue",
+    "Visiteurs soirs": "Transient Revenue",
     "Evening Tickets": "Transient Revenue",
-    "Others Tickets": "Transient Revenue",
+    "Autres revenus": "Miscellaneous",
+    "Others Tickets": "Miscellaneous",
+    "Revenus Événement Spécial": "Transient Revenue",
     "Special Events": "Transient Revenue",
+    "Fin de semaine": "Transient Revenue",
     "Week end visitors": "Transient Revenue",
+    "Réservation en ligne": "Transient Revenue",
     "Online reservation": "Transient Revenue",
     "Salaires stationnement": "Parking wages",
     "Salaires - Supervision": "Other wages",
@@ -437,36 +445,53 @@ def find_monthly_data_sheet(sheets_dict):
     if not sheets_dict:
         return None
     
-    # Try to match sheet name patterns
+    # PRIORITY 1: Look for sheets with "conciliation" in the name
     for sheet_name in sheets_dict.keys():
-        sheet_lower = sheet_name.lower().replace('.', ' ').replace('-', ' ').replace('_', ' ')
-        for pattern in MONTHLY_SHEET_PATTERNS:
-            pattern_clean = pattern.lower().replace('.', ' ').replace('-', ' ').replace('_', ' ')
-            if pattern_clean in sheet_lower:
-                return sheet_name
+        sheet_lower = sheet_name.lower().strip()
+        if 'conciliation' in sheet_lower:
+            return sheet_name
     
-    # If no match, look for a sheet with "AMOUNT" or revenue data in first few rows
+    # PRIORITY 2: Look for sheets with "taxes" in the name
+    for sheet_name in sheets_dict.keys():
+        sheet_lower = sheet_name.lower().strip()
+        if 'taxes' in sheet_lower:
+            return sheet_name
+    
+    # PRIORITY 3: Look for sheets with "réconciliation" or "reconciliation"
+    for sheet_name in sheets_dict.keys():
+        sheet_lower = sheet_name.lower().strip()
+        if 'réconciliation' in sheet_lower or 'reconciliation' in sheet_lower:
+            return sheet_name
+    
+    # PRIORITY 4: Search by content - look for revenue-related labels
     for sheet_name, df in sheets_dict.items():
         if df is None or len(df) == 0:
             continue
-        for row_idx in range(min(5, len(df))):
-            for col_idx in range(min(10, len(df.columns))):
+        for row_idx in range(min(10, len(df))):
+            for col_idx in range(min(5, len(df.columns))):
                 try:
                     cell_text = str(df.iloc[row_idx, col_idx]).lower()
-                    if 'amount' in cell_text or 'revenu' in cell_text or 'parking' in cell_text:
+                    if any(word in cell_text for word in ['mensuels', 'monthly', 'transient', 'revenu', 'amount', 'parking']):
                         return sheet_name
                 except Exception:
                     continue
     
-    # Return first sheet as fallback
+    # PRIORITY 5: Return the sheet with the most rows
     if sheets_dict:
-        return list(sheets_dict.keys())[0]
+        best_sheet = None
+        max_rows = 0
+        for name, df in sheets_dict.items():
+            if df is not None and len(df) > max_rows:
+                max_rows = len(df)
+                best_sheet = name
+        return best_sheet
+    
     return None
 
 def extract_monthly_data_from_file(uploaded_file):
     """
     Extract revenue and expense data from a monthly report.
-    Only reads from the tax reconciliation sheet, Column C (AMOUNT).
+    Finds the "Conciliation de taxes" sheet and reads Column C (AMOUNT/NAVISION).
     """
     result = {}
     month_name = None
@@ -489,9 +514,9 @@ def extract_monthly_data_from_file(uploaded_file):
     if hasattr(uploaded_file, 'name'):
         month_name, year = extract_month_year_from_text(uploaded_file.name)
     
-    # If not found, search the sheet content
+    # If not found, search the sheet content (first 10 rows)
     if month_name is None or year is None:
-        for row_idx in range(min(5, len(df))):
+        for row_idx in range(min(10, len(df))):
             for col_idx in range(min(10, len(df.columns))):
                 try:
                     cell_text = str(df.iloc[row_idx, col_idx])
@@ -503,13 +528,12 @@ def extract_monthly_data_from_file(uploaded_file):
                 except Exception:
                     continue
     
-    # Now extract data - look for labels in any column, take value from Column C (index 2)
-    # The monthly report has: Col A = account#, Col B = description, Col C = AMOUNT
-    
+    # Extract data - look for labels in any column, take value from Column C (index 2)
+    # Column structure: A=GL Code, B=Description, C=AMOUNT (NAVISION), D-F=Tax columns
     for row_idx in range(len(df)):
         try:
-            # Check all columns for a matching label
             found_label = None
+            # Search all columns for matching label
             for col_idx in range(min(5, len(df.columns))):
                 cell_text = str(df.iloc[row_idx, col_idx]).strip()
                 if not cell_text or len(cell_text) < 3:
@@ -529,7 +553,7 @@ def extract_monthly_data_from_file(uploaded_file):
             if found_label is None:
                 continue
             
-            # Get value from Column C (index 2) - this is the AMOUNT column
+            # Get value from Column C (index 2) - this is the AMOUNT/NAVISION column
             if len(df.columns) > 2:
                 val = safe_float(df.iloc[row_idx, 2])
             elif len(df.columns) > 1:
