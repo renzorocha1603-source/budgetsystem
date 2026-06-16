@@ -37,7 +37,7 @@ SHEET_PATTERNS = {
 }
 
 # ============================================================================
-# VERIFIED ROW MAPPING
+# VERIFIED ROW MAPPING - NO short generic terms
 # ============================================================================
 DH_ROW_MAPPING = {
     12: ["Transient Revenue", "transient revenue"],
@@ -54,7 +54,7 @@ DH_ROW_MAPPING = {
     32: ["Uniforms", "uniforms", "uniformes"],
     35: ["R&M - Cleaning", "cleaning", "nettoyage"],
     36: ["R&M - General", "maintenance", "entretien stationnement"],
-    37: ["R&M - Equipement", "equipment", "entretien équipement", "entretien equipement"],
+    37: ["R&M - Equipement", "entretien équipement", "entretien equipement"],
     38: ["R&M - Signs", "signs", "signalisation", "signage"],
     39: ["R&M - Lines", "lines", "lignage", "line painting"],
     40: ["Snow Removal", "snow removal", "déneigement", "deneigement", "snow"],
@@ -399,9 +399,8 @@ def clean_text_for_matching(text):
 
 def label_match_score(cell_text, label_text):
     """
-    Calculate a match score between cell text and label text.
-    Returns a score from 0 to 1. Higher is better.
-    Requires a minimum overlap of 60% of the shorter string.
+    Calculate match score. Requires label to be fully contained in cell text
+    AND the label must represent at least 50% of the cell text length.
     """
     cell_clean = clean_text_for_matching(cell_text)
     label_clean = clean_text_for_matching(label_text)
@@ -409,17 +408,20 @@ def label_match_score(cell_text, label_text):
     if not cell_clean or not label_clean:
         return 0
     
-    # Exact match is best
     if cell_clean == label_clean:
         return 1.0
     
-    # One contains the other
     if label_clean in cell_clean:
-        # What percentage of the cell text is the label?
-        return len(label_clean) / len(cell_clean)
+        ratio = len(label_clean) / len(cell_clean)
+        if ratio >= 0.5:
+            return ratio
+        return 0
     
     if cell_clean in label_clean:
-        return len(cell_clean) / len(label_clean)
+        ratio = len(cell_clean) / len(label_clean)
+        if ratio >= 0.5:
+            return ratio
+        return 0
     
     return 0
 
@@ -467,7 +469,6 @@ def extract_month_year_from_text(text):
     return found_month, year
 
 def find_monthly_data_sheet(sheets_dict):
-    """Find the sheet that contains the tax reconciliation data."""
     if not sheets_dict:
         return None
     for sheet_name in sheets_dict.keys():
@@ -501,8 +502,7 @@ def find_monthly_data_sheet(sheets_dict):
 
 def extract_monthly_data_from_file(uploaded_file):
     """
-    Extract revenue and expense data from a monthly report.
-    Uses precise label matching to avoid duplicates.
+    Extract data from monthly report. Only the BEST match per cell wins.
     """
     result = {}
     month_name = None
@@ -549,12 +549,13 @@ def extract_monthly_data_from_file(uploaded_file):
                 
                 for monthly_label, standard_label in MONTHLY_REPORT_MAPPING.items():
                     score = label_match_score(cell_text, monthly_label)
-                    if score > best_score and score >= 0.6:
+                    if score > best_score:
                         best_score = score
                         best_match = standard_label
                         label_col = col_idx
             
-            if best_match is None:
+            # Only accept if score is at least 0.5 (label is at least half the cell text)
+            if best_match is None or best_score < 0.5:
                 continue
             
             val = 0
