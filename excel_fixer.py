@@ -18,11 +18,6 @@ MONTHS_EN = [
     "July", "August", "September", "October", "November", "December"
 ]
 
-MONTHS_FR = [
-    "janvier", "février", "fevrier", "mars", "avril", "mai", "juin",
-    "juillet", "août", "aout", "septembre", "octobre", "novembre", "décembre", "decembre"
-]
-
 MONTH_NAMES_MAP = {
     "january": "January", "february": "February", "march": "March",
     "april": "April", "may": "May", "june": "June",
@@ -42,7 +37,18 @@ SHEET_PATTERNS = {
 }
 
 # ============================================================================
-# VERIFIED ROW MAPPING: Donnees Historiques row -> P&L labels
+# MONTHLY REPORT SHEET NAMES TO SEARCH
+# ============================================================================
+MONTHLY_SHEET_PATTERNS = [
+    "taxes reconciliation",
+    "conciliation de taxes",
+    "taxes",
+    "conciliation",
+    "reconciliation",
+]
+
+# ============================================================================
+# VERIFIED ROW MAPPING
 # ============================================================================
 DH_ROW_MAPPING = {
     12: ["Transient Revenue", "transient revenue"],
@@ -94,9 +100,6 @@ DH_ROW_MAPPING = {
     76: ["Meal & Entertainment", "meal", "représentation repas", "representation repas", "repas", "entertainment"],
 }
 
-# ============================================================================
-# FICHE STATIONNEMENT MAPPING
-# ============================================================================
 FICHE_STATIONNEMENT_MAP = [
     ("K17", ["Transient Revenue", "transient revenue"]),
     ("K18", ["Monthly Revenues", "monthly revenues"]),
@@ -110,9 +113,6 @@ FICHE_STATIONNEMENT_MAP = [
     ("K26", ["TOTAL REVENUE", "Total Revenue", "total revenus", "TOTAL DES REVENUS"]),
 ]
 
-# ============================================================================
-# MONTHLY REPORT LABEL MAPPING
-# ============================================================================
 MONTHLY_REPORT_MAPPING = {
     "Monthly Revenues": "Monthly Revenues",
     "Gratuities - Monthlies": "Discount-Gratuities - Monthly",
@@ -179,20 +179,6 @@ def is_pdf_file(file_bytes_or_obj):
             return True
     return False
 
-def is_docx_file(file_bytes_or_obj):
-    if hasattr(file_bytes_or_obj, 'name'):
-        name = file_bytes_or_obj.name.lower()
-        if name.endswith('.docx'):
-            return True
-    return False
-
-def is_txt_file(file_bytes_or_obj):
-    if hasattr(file_bytes_or_obj, 'name'):
-        name = file_bytes_or_obj.name.lower()
-        if name.endswith(('.txt', '.tsv', '.text')):
-            return True
-    return False
-
 def get_file_bytes(uploaded_file):
     if hasattr(uploaded_file, 'read'):
         uploaded_file.seek(0)
@@ -255,62 +241,6 @@ def read_pdf_to_dataframe(uploaded_file):
     except Exception:
         return None
 
-def read_docx_to_dataframe(uploaded_file):
-    try:
-        file_bytes = get_file_bytes(uploaded_file)
-        sheets = {}
-        with zipfile.ZipFile(io.BytesIO(file_bytes)) as z:
-            if 'word/document.xml' in z.namelist():
-                xml_content = z.read('word/document.xml')
-                tree = ElementTree.fromstring(xml_content)
-                ns = {'w': 'http://schemas.openxmlformats.org/wordprocessingml/2006/main'}
-                tables = tree.findall('.//w:tbl', ns)
-                for table_num, table in enumerate(tables):
-                    rows = table.findall('.//w:tr', ns)
-                    table_data = []
-                    for row in rows:
-                        cells = row.findall('.//w:tc', ns)
-                        row_data = []
-                        for cell in cells:
-                            texts = cell.findall('.//w:t', ns)
-                            cell_text = ''.join(t.text for t in texts if t.text)
-                            row_data.append(cell_text.strip())
-                        if row_data:
-                            table_data.append(row_data)
-                    if table_data and len(table_data) >= 2:
-                        headers = table_data[0]
-                        data = table_data[1:]
-                        df = pd.DataFrame(data, columns=headers)
-                        sheets[f"Table_{table_num+1}"] = df
-        return sheets if sheets else None
-    except Exception:
-        return None
-
-def read_txt_to_dataframe(uploaded_file):
-    try:
-        file_bytes = get_file_bytes(uploaded_file)
-        text = file_bytes.decode('utf-8', errors='ignore')
-        lines = text.strip().split('\n')
-        if not lines:
-            return None
-        if '\t' in lines[0]:
-            reader = csv.reader(io.StringIO(text), delimiter='\t')
-            data = list(reader)
-            if data and len(data) >= 2:
-                headers = data[0]
-                df = pd.DataFrame(data[1:], columns=headers)
-                return {"Sheet1": df}
-        if ',' in lines[0]:
-            reader = csv.reader(io.StringIO(text))
-            data = list(reader)
-            if data and len(data) >= 2:
-                headers = data[0]
-                df = pd.DataFrame(data[1:], columns=headers)
-                return {"Sheet1": df}
-        return None
-    except Exception:
-        return None
-
 def read_any_file_to_dataframes(uploaded_file):
     if uploaded_file is None:
         return None, None
@@ -326,14 +256,6 @@ def read_any_file_to_dataframes(uploaded_file):
         result = read_pdf_to_dataframe(uploaded_file)
         if result:
             return result, "pdf"
-    if is_docx_file(uploaded_file):
-        result = read_docx_to_dataframe(uploaded_file)
-        if result:
-            return result, "docx"
-    if is_txt_file(uploaded_file):
-        result = read_txt_to_dataframe(uploaded_file)
-        if result:
-            return result, "txt"
     try:
         result = read_excel_to_dataframe(uploaded_file)
         if result:
@@ -365,23 +287,15 @@ def extract_parking_code_from_filename(filename):
     return parts.upper()
 
 def get_parking_codes_from_pnl(pnl_file):
-    """
-    Extract all parking codes from a P&L file or monthly report.
-    Searches sheet names AND file content for codes.
-    """
     sheets_dict, file_type = read_any_file_to_dataframes(pnl_file)
     codes = []
-    
     if sheets_dict:
-        # Search sheet names for codes
         for sheet_name in sheets_dict.keys():
             match = re.search(r'(CMO\d+)', sheet_name, re.IGNORECASE)
             if match:
                 codes.append(match.group(1).upper())
             if 'LUNA' in sheet_name.upper():
                 codes.append('LUNA')
-        
-        # Search content for CMO codes and M-pattern codes
         for sheet_name, df in sheets_dict.items():
             if df is None or len(df) == 0:
                 continue
@@ -401,15 +315,12 @@ def get_parking_codes_from_pnl(pnl_file):
                                 codes.append(code)
                     except Exception:
                         continue
-    
-    # Remove duplicates, keep order
     seen = set()
     unique_codes = []
     for code in codes:
         if code not in seen:
             seen.add(code)
             unique_codes.append(code)
-    
     return unique_codes
 
 def find_sheet_by_pattern(wb, patterns):
@@ -521,64 +432,120 @@ def extract_month_year_from_text(text):
             break
     return found_month, year
 
-def extract_monthly_data_from_file(uploaded_file):
-    result = {}
-    month_name = None
-    year = None
-    file_bytes = get_file_bytes(uploaded_file)
-    sheets_dict = None
-    if is_excel_file(uploaded_file):
-        sheets_dict = read_excel_to_dataframe(uploaded_file)
-    elif is_pdf_file(uploaded_file):
-        sheets_dict = read_pdf_to_dataframe(uploaded_file)
-    elif is_csv_file(uploaded_file):
-        sheets_dict = read_csv_to_dataframe(uploaded_file)
-    else:
-        sheets_dict = read_excel_to_dataframe(uploaded_file)
-        if sheets_dict is None:
-            sheets_dict = read_pdf_to_dataframe(uploaded_file)
-        if sheets_dict is None:
-            sheets_dict = read_csv_to_dataframe(uploaded_file)
-    if sheets_dict is None:
-        return result, (None, None)
-    if hasattr(uploaded_file, 'name'):
-        month_name, year = extract_month_year_from_text(uploaded_file.name)
+def find_monthly_data_sheet(sheets_dict):
+    """Find the sheet that contains the tax reconciliation data."""
+    if not sheets_dict:
+        return None
+    
+    # Try to match sheet name patterns
+    for sheet_name in sheets_dict.keys():
+        sheet_lower = sheet_name.lower().replace('.', ' ').replace('-', ' ').replace('_', ' ')
+        for pattern in MONTHLY_SHEET_PATTERNS:
+            pattern_clean = pattern.lower().replace('.', ' ').replace('-', ' ').replace('_', ' ')
+            if pattern_clean in sheet_lower:
+                return sheet_name
+    
+    # If no match, look for a sheet with "AMOUNT" or revenue data in first few rows
     for sheet_name, df in sheets_dict.items():
         if df is None or len(df) == 0:
             continue
-        if month_name is None or year is None:
-            for row_idx in range(min(5, len(df))):
-                for col_idx in range(min(10, len(df.columns))):
-                    try:
-                        cell_text = str(df.iloc[row_idx, col_idx])
-                        m, y = extract_month_year_from_text(cell_text)
-                        if m:
-                            month_name = m
-                        if y:
-                            year = y
-                    except Exception:
-                        continue
-        for row_idx in range(len(df)):
-            try:
-                for col_idx in range(min(5, len(df.columns))):
-                    cell_text = str(df.iloc[row_idx, col_idx]).strip()
-                    if not cell_text or len(cell_text) < 3:
-                        continue
-                    cell_clean = clean_text_for_matching(cell_text)
-                    for monthly_label, standard_label in MONTHLY_REPORT_MAPPING.items():
-                        monthly_clean = clean_text_for_matching(monthly_label)
-                        if monthly_clean in cell_clean or cell_clean in monthly_clean:
-                            for val_col in range(col_idx + 1, min(col_idx + 4, len(df.columns))):
-                                val = safe_float(df.iloc[row_idx, val_col])
-                                if val != 0:
-                                    if standard_label in result:
-                                        result[standard_label] += val
-                                    else:
-                                        result[standard_label] = val
-                                    break
-                            break
-            except Exception:
+        for row_idx in range(min(5, len(df))):
+            for col_idx in range(min(10, len(df.columns))):
+                try:
+                    cell_text = str(df.iloc[row_idx, col_idx]).lower()
+                    if 'amount' in cell_text or 'revenu' in cell_text or 'parking' in cell_text:
+                        return sheet_name
+                except Exception:
+                    continue
+    
+    # Return first sheet as fallback
+    if sheets_dict:
+        return list(sheets_dict.keys())[0]
+    return None
+
+def extract_monthly_data_from_file(uploaded_file):
+    """
+    Extract revenue and expense data from a monthly report.
+    Only reads from the tax reconciliation sheet, Column C (AMOUNT).
+    """
+    result = {}
+    month_name = None
+    year = None
+    
+    sheets_dict, file_type = read_any_file_to_dataframes(uploaded_file)
+    if sheets_dict is None:
+        return result, (None, None)
+    
+    # Find the right sheet
+    target_sheet = find_monthly_data_sheet(sheets_dict)
+    if target_sheet is None:
+        return result, (None, None)
+    
+    df = sheets_dict[target_sheet]
+    if df is None or len(df) == 0:
+        return result, (None, None)
+    
+    # Try to extract month/year from filename
+    if hasattr(uploaded_file, 'name'):
+        month_name, year = extract_month_year_from_text(uploaded_file.name)
+    
+    # If not found, search the sheet content
+    if month_name is None or year is None:
+        for row_idx in range(min(5, len(df))):
+            for col_idx in range(min(10, len(df.columns))):
+                try:
+                    cell_text = str(df.iloc[row_idx, col_idx])
+                    m, y = extract_month_year_from_text(cell_text)
+                    if m:
+                        month_name = m
+                    if y:
+                        year = y
+                except Exception:
+                    continue
+    
+    # Now extract data - look for labels in any column, take value from Column C (index 2)
+    # The monthly report has: Col A = account#, Col B = description, Col C = AMOUNT
+    
+    for row_idx in range(len(df)):
+        try:
+            # Check all columns for a matching label
+            found_label = None
+            for col_idx in range(min(5, len(df.columns))):
+                cell_text = str(df.iloc[row_idx, col_idx]).strip()
+                if not cell_text or len(cell_text) < 3:
+                    continue
+                
+                cell_clean = clean_text_for_matching(cell_text)
+                
+                for monthly_label, standard_label in MONTHLY_REPORT_MAPPING.items():
+                    monthly_clean = clean_text_for_matching(monthly_label)
+                    if monthly_clean in cell_clean or cell_clean in monthly_clean:
+                        found_label = standard_label
+                        break
+                
+                if found_label:
+                    break
+            
+            if found_label is None:
                 continue
+            
+            # Get value from Column C (index 2) - this is the AMOUNT column
+            if len(df.columns) > 2:
+                val = safe_float(df.iloc[row_idx, 2])
+            elif len(df.columns) > 1:
+                val = safe_float(df.iloc[row_idx, 1])
+            else:
+                continue
+            
+            if val != 0:
+                if found_label in result:
+                    result[found_label] += val
+                else:
+                    result[found_label] = val
+        
+        except Exception:
+            continue
+    
     return result, (month_name, year)
 
 def build_monthly_data_from_files(monthly_files):
