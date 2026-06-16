@@ -108,7 +108,6 @@ FICHE_STATIONNEMENT_MAP = [
 ]
 
 MONTHLY_REPORT_MAPPING = {
-    # REVENUES
     "Mensuels": "Monthly Revenues",
     "Monthly Revenues": "Monthly Revenues",
     "Gratuities - Monthlies": "Discount-Gratuities - Monthly",
@@ -149,7 +148,6 @@ MONTHLY_REPORT_MAPPING = {
     "Week end visitors": "Transient Revenue",
     "Réservation en ligne": "Transient Revenue",
     "Online reservation": "Transient Revenue",
-    # EXPENSES
     "Salaires stationnement": "Parking wages",
     "Salaires - Supervision": "Other wages",
     "Uniformes": "Uniforms",
@@ -813,7 +811,7 @@ def update_budget_initial(wb, previous_year_data, parking_code):
             total = find_pnl_value(previous_year_data, total_alternatives)
         if total > 0:
             ws["S8"] = total
-            ws["S8"].number_format = '#,##0.00'
+            ws["S8"].number_format = '$#,##0.00'
             updates.append(f"✅ Budget Initial: S8 = ${total:,.2f} (previous year)")
         else:
             backup_alternatives = ["Parking Revenue", "Total Revenus Bruts", "Revenue", "Total"]
@@ -823,7 +821,7 @@ def update_budget_initial(wb, previous_year_data, parking_code):
                     total = previous_year_data['yearly'].get(alt, 0)
                     if total > 0:
                         ws["S8"] = total
-                        ws["S8"].number_format = '#,##0.00'
+                        ws["S8"].number_format = '$#,##0.00'
                         updates.append(f"✅ Budget Initial: S8 = ${total:,.2f} (from '{alt}')")
                         found = True
                         break
@@ -847,7 +845,7 @@ def update_fiche_stationnement(wb, year_minus_2_data, parking_code, word_data=No
             yearly_value = find_pnl_value(year_minus_2_data, pnl_labels)
             if yearly_value != 0:
                 ws[cell] = yearly_value
-                ws[cell].number_format = '#,##0.00'
+                ws[cell].number_format = '$#,##0.00'
                 updates.append(f"✅ {cell} = ${yearly_value:,.2f}")
             else:
                 updates.append(f"⚠️ {cell} = Not found in P&L (tried: {pnl_labels[0]})")
@@ -891,7 +889,7 @@ def update_donnees_historiques(wb, merged_monthly_data, parking_code, monthly_to
                         col_letter = get_column_letter(month_idx + 2)
                         cell_ref = f"{col_letter}{dh_row}"
                         ws_dh[cell_ref] = val
-                        ws_dh[cell_ref].number_format = '#,##0.00'
+                        ws_dh[cell_ref].number_format = '$#,##0.00'
                         cells_updated += 1
                         row_cells += 1
                         
@@ -929,7 +927,7 @@ def update_donnees_historiques(wb, merged_monthly_data, parking_code, monthly_to
                         cell_ref = f"{col_letter}{catch_row}"
                         current_val = safe_float(ws_dh[cell_ref].value)
                         ws_dh[cell_ref] = current_val + revenue_gap
-                        ws_dh[cell_ref].number_format = '#,##0.00'
+                        ws_dh[cell_ref].number_format = '$#,##0.00'
                         balancing_updates.append(
                             f"  ⚖️ {month_name}: Added ${revenue_gap:,.2f} to Row {catch_row} "
                             f"(expected ${expected_revenue:,.2f}, actual ${actual_revenue:,.2f})"
@@ -945,7 +943,7 @@ def update_donnees_historiques(wb, merged_monthly_data, parking_code, monthly_to
                         cell_ref = f"{col_letter}{catch_row}"
                         current_val = safe_float(ws_dh[cell_ref].value)
                         ws_dh[cell_ref] = current_val + expense_gap
-                        ws_dh[cell_ref].number_format = '#,##0.00'
+                        ws_dh[cell_ref].number_format = '$#,##0.00'
                         balancing_updates.append(
                             f"  ⚖️ {month_name}: Added ${expense_gap:,.2f} to Row {catch_row} "
                             f"(expected ${expected_expense:,.2f}, actual ${actual_expense:,.2f})"
