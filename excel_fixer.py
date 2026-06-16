@@ -397,6 +397,32 @@ def clean_text_for_matching(text):
     text = re.sub(r'\s+', ' ', text).strip()
     return text
 
+def label_match_score(cell_text, label_text):
+    """
+    Calculate a match score between cell text and label text.
+    Returns a score from 0 to 1. Higher is better.
+    Requires a minimum overlap of 60% of the shorter string.
+    """
+    cell_clean = clean_text_for_matching(cell_text)
+    label_clean = clean_text_for_matching(label_text)
+    
+    if not cell_clean or not label_clean:
+        return 0
+    
+    # Exact match is best
+    if cell_clean == label_clean:
+        return 1.0
+    
+    # One contains the other
+    if label_clean in cell_clean:
+        # What percentage of the cell text is the label?
+        return len(label_clean) / len(cell_clean)
+    
+    if cell_clean in label_clean:
+        return len(cell_clean) / len(label_clean)
+    
+    return 0
+
 def read_year_mapping_from_template(wb):
     dh_sheet_name = find_sheet_by_pattern(wb, SHEET_PATTERNS["Donnees Historiques"])
     if not dh_sheet_name:
@@ -452,10 +478,6 @@ def find_monthly_data_sheet(sheets_dict):
         sheet_lower = sheet_name.lower().strip()
         if 'taxes' in sheet_lower:
             return sheet_name
-    for sheet_name in sheets_dict.keys():
-        sheet_lower = sheet_name.lower().strip()
-        if 'réconciliation' in sheet_lower or 'reconciliation' in sheet_lower:
-            return sheet_name
     for sheet_name, df in sheets_dict.items():
         if df is None or len(df) == 0:
             continue
@@ -480,7 +502,7 @@ def find_monthly_data_sheet(sheets_dict):
 def extract_monthly_data_from_file(uploaded_file):
     """
     Extract revenue and expense data from a monthly report.
-    Finds labels then searches for the first non-zero value in subsequent columns.
+    Uses precise label matching to avoid duplicates.
     """
     result = {}
     month_name = None
@@ -516,7 +538,8 @@ def extract_monthly_data_from_file(uploaded_file):
     
     for row_idx in range(len(df)):
         try:
-            found_label = None
+            best_match = None
+            best_score = 0
             label_col = -1
             
             for col_idx in range(min(10, len(df.columns))):
@@ -524,19 +547,14 @@ def extract_monthly_data_from_file(uploaded_file):
                 if not cell_text or len(cell_text) < 3:
                     continue
                 
-                cell_clean = clean_text_for_matching(cell_text)
-                
                 for monthly_label, standard_label in MONTHLY_REPORT_MAPPING.items():
-                    monthly_clean = clean_text_for_matching(monthly_label)
-                    if monthly_clean in cell_clean or cell_clean in monthly_clean:
-                        found_label = standard_label
+                    score = label_match_score(cell_text, monthly_label)
+                    if score > best_score and score >= 0.6:
+                        best_score = score
+                        best_match = standard_label
                         label_col = col_idx
-                        break
-                
-                if found_label:
-                    break
             
-            if found_label is None:
+            if best_match is None:
                 continue
             
             val = 0
@@ -547,10 +565,10 @@ def extract_monthly_data_from_file(uploaded_file):
                     break
             
             if val != 0:
-                if found_label in result:
-                    result[found_label] += val
+                if best_match in result:
+                    result[best_match] += val
                 else:
-                    result[found_label] = val
+                    result[best_match] = val
         
         except Exception:
             continue
@@ -699,7 +717,7 @@ def find_monthly_pnl_value(monthly_data, label_alternatives):
             if alt_clean in key_clean or key_clean in alt_clean:
                 shorter = min(len(alt_clean), len(key_clean))
                 longer = max(len(alt_clean), len(key_clean))
-                if shorter >= 5 and (shorter / longer) >= 0.5:
+                if shorter >= 5 and (shorter / longer) >= 0.6:
                     return monthly_data[key]
     return {}
 
