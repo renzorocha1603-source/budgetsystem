@@ -445,25 +445,25 @@ def find_monthly_data_sheet(sheets_dict):
     if not sheets_dict:
         return None
     
-    # PRIORITY 1: Look for sheets with "conciliation" in the name
+    # PRIORITY 1: "conciliation" in name
     for sheet_name in sheets_dict.keys():
         sheet_lower = sheet_name.lower().strip()
         if 'conciliation' in sheet_lower:
             return sheet_name
     
-    # PRIORITY 2: Look for sheets with "taxes" in the name
+    # PRIORITY 2: "taxes" in name
     for sheet_name in sheets_dict.keys():
         sheet_lower = sheet_name.lower().strip()
         if 'taxes' in sheet_lower:
             return sheet_name
     
-    # PRIORITY 3: Look for sheets with "réconciliation" or "reconciliation"
+    # PRIORITY 3: "réconciliation" or "reconciliation"
     for sheet_name in sheets_dict.keys():
         sheet_lower = sheet_name.lower().strip()
         if 'réconciliation' in sheet_lower or 'reconciliation' in sheet_lower:
             return sheet_name
     
-    # PRIORITY 4: Search by content - look for revenue-related labels
+    # PRIORITY 4: Search content for revenue labels
     for sheet_name, df in sheets_dict.items():
         if df is None or len(df) == 0:
             continue
@@ -476,7 +476,7 @@ def find_monthly_data_sheet(sheets_dict):
                 except Exception:
                     continue
     
-    # PRIORITY 5: Return the sheet with the most rows
+    # PRIORITY 5: Sheet with most rows
     if sheets_dict:
         best_sheet = None
         max_rows = 0
@@ -499,22 +499,48 @@ def extract_monthly_data_from_file(uploaded_file):
     
     sheets_dict, file_type = read_any_file_to_dataframes(uploaded_file)
     if sheets_dict is None:
+        result["_DEBUG_"] = "No sheets found"
         return result, (None, None)
+    
+    # Debug: store sheet names
+    available_sheets = list(sheets_dict.keys())
+    result["_DEBUG_SHEETS_"] = str(available_sheets)
     
     # Find the right sheet
     target_sheet = find_monthly_data_sheet(sheets_dict)
+    result["_DEBUG_TARGET_"] = str(target_sheet) if target_sheet else "None"
+    
     if target_sheet is None:
         return result, (None, None)
     
     df = sheets_dict[target_sheet]
     if df is None or len(df) == 0:
+        result["_DEBUG_ROWS_"] = "0"
         return result, (None, None)
     
-    # Try to extract month/year from filename
+    result["_DEBUG_ROWS_"] = str(len(df))
+    result["_DEBUG_COLS_"] = str(len(df.columns))
+    
+    # Debug: sample first 3 rows
+    sample = []
+    for row_idx in range(min(3, len(df))):
+        row_data = []
+        for col_idx in range(min(5, len(df.columns))):
+            try:
+                row_data.append(str(df.iloc[row_idx, col_idx])[:40])
+            except:
+                row_data.append("?")
+        sample.append(" | ".join(row_data))
+    result["_DEBUG_SAMPLE_"] = " || ".join(sample)
+    
+    # Extract month/year from filename
     if hasattr(uploaded_file, 'name'):
         month_name, year = extract_month_year_from_text(uploaded_file.name)
+        result["_DEBUG_FILE_"] = str(uploaded_file.name)
+        result["_DEBUG_MONTH_"] = str(month_name)
+        result["_DEBUG_YEAR_"] = str(year)
     
-    # If not found, search the sheet content (first 10 rows)
+    # If not found, search content
     if month_name is None or year is None:
         for row_idx in range(min(10, len(df))):
             for col_idx in range(min(10, len(df.columns))):
@@ -528,12 +554,11 @@ def extract_monthly_data_from_file(uploaded_file):
                 except Exception:
                     continue
     
-    # Extract data - look for labels in any column, take value from Column C (index 2)
-    # Column structure: A=GL Code, B=Description, C=AMOUNT (NAVISION), D-F=Tax columns
+    # Extract data from Column C (index 2)
+    matches_found = 0
     for row_idx in range(len(df)):
         try:
             found_label = None
-            # Search all columns for matching label
             for col_idx in range(min(5, len(df.columns))):
                 cell_text = str(df.iloc[row_idx, col_idx]).strip()
                 if not cell_text or len(cell_text) < 3:
@@ -553,7 +578,9 @@ def extract_monthly_data_from_file(uploaded_file):
             if found_label is None:
                 continue
             
-            # Get value from Column C (index 2) - this is the AMOUNT/NAVISION column
+            matches_found += 1
+            
+            # Get value from Column C (index 2)
             if len(df.columns) > 2:
                 val = safe_float(df.iloc[row_idx, 2])
             elif len(df.columns) > 1:
@@ -570,6 +597,8 @@ def extract_monthly_data_from_file(uploaded_file):
         except Exception:
             continue
     
+    result["_DEBUG_MATCHES_"] = str(matches_found)
+    
     return result, (month_name, year)
 
 def build_monthly_data_from_files(monthly_files):
@@ -577,10 +606,33 @@ def build_monthly_data_from_files(monthly_files):
         return None
     monthly_data = {}
     yearly_data = {}
+    debug_info = []
+    
     for uploaded_file in monthly_files:
         file_data, (month_name, year) = extract_monthly_data_from_file(uploaded_file)
+        
+        # Collect debug info
+        debug_entry = {
+            'file': getattr(uploaded_file, 'name', 'unknown'),
+            'month': month_name,
+            'year': year,
+            'sheets': file_data.pop('_DEBUG_SHEETS_', '?'),
+            'target': file_data.pop('_DEBUG_TARGET_', '?'),
+            'rows': file_data.pop('_DEBUG_ROWS_', '?'),
+            'cols': file_data.pop('_DEBUG_COLS_', '?'),
+            'sample': file_data.pop('_DEBUG_SAMPLE_', '?'),
+            'matches': file_data.pop('_DEBUG_MATCHES_', '?'),
+            'file_name': file_data.pop('_DEBUG_FILE_', '?'),
+            'dbg_month': file_data.pop('_DEBUG_MONTH_', '?'),
+            'dbg_year': file_data.pop('_DEBUG_YEAR_', '?'),
+            'labels': len(file_data),
+        }
+        file_data.pop('_DEBUG_', None)
+        debug_info.append(debug_entry)
+        
         if not file_data or month_name is None:
             continue
+        
         for label, value in file_data.items():
             if label not in monthly_data:
                 monthly_data[label] = {}
@@ -588,9 +640,15 @@ def build_monthly_data_from_files(monthly_files):
             if label not in yearly_data:
                 yearly_data[label] = 0
             yearly_data[label] += value
+    
     if not monthly_data:
-        return None
-    return {'monthly': monthly_data, 'yearly': yearly_data}
+        # Return debug info even if no data
+        return {'monthly': {}, 'yearly': {}, '_debug': debug_info}
+    
+    result = {'monthly': monthly_data, 'yearly': yearly_data}
+    if debug_info:
+        result['_debug'] = debug_info
+    return result
 
 # ============================================================================
 # P&L DATA EXTRACTION
@@ -884,13 +942,27 @@ def fix_excel(
         updates.append("📋 Using monthly report files (Current Year)")
         current_year_data = build_monthly_data_from_files(monthly_files_current)
         if current_year_data:
-            updates.append(f"📊 Current year from monthlies: {len(current_year_data['yearly'])} labels")
+            # Show debug info if available
+            debug_info = current_year_data.pop('_debug', None)
+            if debug_info:
+                for d in debug_info:
+                    updates.append(f"🔧 File: {d['file']} | Sheets: {d['sheets']} | Target: {d['target']} | Rows: {d['rows']} | Cols: {d['cols']} | Month: {d['month']} | Year: {d['year']} | Labels: {d['labels']} | Matches: {d['matches']}")
+                    updates.append(f"🔧 Sample: {d['sample'][:150]}")
+            
+            num_labels = len(current_year_data.get('yearly', {}))
+            updates.append(f"📊 Current year from monthlies: {num_labels} labels")
     
     if monthly_files_previous and len(monthly_files_previous) > 0:
         updates.append("📋 Using monthly report files (Previous Year)")
         previous_year_data = build_monthly_data_from_files(monthly_files_previous)
         if previous_year_data:
-            updates.append(f"📊 Previous year from monthlies: {len(previous_year_data['yearly'])} labels")
+            debug_info = previous_year_data.pop('_debug', None)
+            if debug_info:
+                for d in debug_info:
+                    updates.append(f"🔧 File: {d['file']} | Sheets: {d['sheets']} | Target: {d['target']} | Rows: {d['rows']} | Labels: {d['labels']} | Matches: {d['matches']}")
+            
+            num_labels = len(previous_year_data.get('yearly', {}))
+            updates.append(f"📊 Previous year from monthlies: {num_labels} labels")
     
     if pnl_current_year and current_year_data is None:
         current_year_data, current_file_type = extract_pnl_data(pnl_current_year, parking_code)
