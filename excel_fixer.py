@@ -37,7 +37,7 @@ SHEET_PATTERNS = {
 }
 
 # ============================================================================
-# VERIFIED ROW MAPPING - NO short generic terms
+# VERIFIED ROW MAPPING
 # ============================================================================
 DH_ROW_MAPPING = {
     12: ["Transient Revenue", "transient revenue"],
@@ -73,7 +73,7 @@ DH_ROW_MAPPING = {
     57: ["Insurance & Guarantee", "insurance", "assurances et cautionnement", "assurance", "cautionnement"],
     58: ["Tax & license", "tax", "taxes et permis", "taxes", "permis", "license"],
     59: ["Professional services", "accounting", "comptabilité", "comptabilite", "professional services"],
-    60: ["Equipment rent", "equipment rent", "location d'équipement", "location d'equipement", "location équipement"],
+    60: ["Equipment rent", "location d'équipement", "location d'equipement", "location équipement"],
     61: ["Ad. & Promotion", "advertising", "publicité et promotion", "publicite et promotion", "promotion"],
     62: ["Percent Management fee", "management fee", "honoraires de gestion en pourcentage", "honoraires de gestion en %"],
     63: ["Management Fees (Basic)", "management fees basic", "honoraires de gestion de base", "honoraires de base"],
@@ -89,6 +89,15 @@ DH_ROW_MAPPING = {
     76: ["Meal & Entertainment", "meal", "représentation repas", "representation repas", "repas", "entertainment"],
 }
 
+# ============================================================================
+# CATCH-ALL ROWS FOR BALANCING
+# ============================================================================
+# When there's a gap between expected and actual totals,
+# the difference goes to these catch-all rows.
+REVENUE_CATCH_ALL_ROW = 17  # "Autres revenus" - for missing revenue
+EXPENSE_CATCH_ALL_ROW = 76  # "Représentation repas" - for missing expenses
+# We'll use Row 17 for revenue gaps and add to "Miscellaneous"
+
 FICHE_STATIONNEMENT_MAP = [
     ("K17", ["Transient Revenue", "transient revenue"]),
     ("K18", ["Monthly Revenues", "monthly revenues"]),
@@ -103,10 +112,11 @@ FICHE_STATIONNEMENT_MAP = [
 ]
 
 MONTHLY_REPORT_MAPPING = {
+    # REVENUES
     "Mensuels": "Monthly Revenues",
     "Monthly Revenues": "Monthly Revenues",
-    "Gratuites - Mensuels": "Discount-Gratuities - Monthly",
     "Gratuities - Monthlies": "Discount-Gratuities - Monthly",
+    "Gratuites - Mensuels": "Discount-Gratuities - Monthly",
     "Mensuels collectés par le propriétaire": "Monthly Revenues",
     "Monthlies Collected by the Owner": "Monthly Revenues",
     "Autres - Ouverture de dossier": "Other Monthly revenue",
@@ -116,8 +126,8 @@ MONTHLY_REPORT_MAPPING = {
     "Coin Box & Meter": "Transient Revenue",
     "Revenus Remboursement": "Transient Revenue",
     "Revenues Reimbursement": "Transient Revenue",
-    "Gratuites - Journaliers": "Discount-Gratuities - Transient",
     "Gratuities - Transient": "Discount-Gratuities - Transient",
+    "Gratuites - Journaliers": "Discount-Gratuities - Transient",
     "Revenus validations": "Transient Revenue",
     "Validation": "Transient Revenue",
     "Revenus hotel": "Hotel Revenue",
@@ -143,6 +153,10 @@ MONTHLY_REPORT_MAPPING = {
     "Week end visitors": "Transient Revenue",
     "Réservation en ligne": "Transient Revenue",
     "Online reservation": "Transient Revenue",
+    # SPECIAL MARKERS for balancing
+    "REVENUE TOTAL": "_REVENUE_TOTAL_",
+    "CHARGE TOTALE": "_EXPENSE_TOTAL_",
+    # EXPENSES
     "Salaires stationnement": "Parking wages",
     "Salaires - Supervision": "Other wages",
     "Uniformes": "Uniforms",
@@ -155,6 +169,7 @@ MONTHLY_REPORT_MAPPING = {
     "Vehicle Expenses": "Vehicle expenses",
     "Telecommunication": "Telecommunication",
     "Serv. info. - Général": "Computer services",
+    "Serv,info-Intrnet": "Computer services",
     "Publicité et promotion": "Ad. & Promotion",
     "Frais de banque & C.C.": "Credit Card fees",
     "Honoraires de gestion (base)": "Management Fees (Basic)",
@@ -502,7 +517,9 @@ def find_monthly_data_sheet(sheets_dict):
 
 def extract_monthly_data_from_file(uploaded_file):
     """
-    Extract data from monthly report. Only the BEST match per cell wins.
+    Extract data from monthly report.
+    Only the BEST match per cell wins.
+    Also extracts REVENUE TOTAL and CHARGE TOTALE for balancing.
     """
     result = {}
     month_name = None
@@ -554,7 +571,6 @@ def extract_monthly_data_from_file(uploaded_file):
                         best_match = standard_label
                         label_col = col_idx
             
-            # Only accept if score is at least 0.5 (label is at least half the cell text)
             if best_match is None or best_score < 0.5:
                 continue
             
@@ -581,20 +597,44 @@ def build_monthly_data_from_files(monthly_files):
         return None
     monthly_data = {}
     yearly_data = {}
+    monthly_totals = {}  # {month_name: {"revenue_total": X, "expense_total": Y}}
+    
     for uploaded_file in monthly_files:
         file_data, (month_name, year) = extract_monthly_data_from_file(uploaded_file)
         if not file_data or month_name is None:
             continue
+        
+        # Extract the special totals before adding to data
+        revenue_total = file_data.pop('_REVENUE_TOTAL_', None)
+        expense_total = file_data.pop('_EXPENSE_TOTAL_', None)
+        
+        if revenue_total is not None or expense_total is not None:
+            monthly_totals[month_name] = {
+                "revenue_total": revenue_total,
+                "expense_total": expense_total
+            }
+        
         for label, value in file_data.items():
+            if label.startswith('_') and label.endswith('_'):
+                continue
             if label not in monthly_data:
                 monthly_data[label] = {}
             monthly_data[label][month_name] = value
             if label not in yearly_data:
                 yearly_data[label] = 0
             yearly_data[label] += value
+    
     if not monthly_data:
         return None
-    return {'monthly': monthly_data, 'yearly': yearly_data}
+    
+    result = {
+        'monthly': monthly_data,
+        'yearly': yearly_data
+    }
+    if monthly_totals:
+        result['_monthly_totals'] = monthly_totals
+    
+    return result
 
 # ============================================================================
 # P&L DATA EXTRACTION
@@ -806,7 +846,7 @@ def update_fiche_stationnement(wb, year_minus_2_data, parking_code, word_data=No
         updates.append(f"❌ Fiche Stationnement: {str(e)}")
     return updates
 
-def update_donnees_historiques(wb, merged_monthly_data, parking_code):
+def update_donnees_historiques(wb, merged_monthly_data, parking_code, monthly_totals=None):
     updates = []
     try:
         dh_sheet_name = find_sheet_by_pattern(wb, SHEET_PATTERNS["Donnees Historiques"])
@@ -821,8 +861,19 @@ def update_donnees_historiques(wb, merged_monthly_data, parking_code):
         if not merged_monthly_data:
             updates.append("⚠️ Donnees Historiques: No merged monthly data available")
             return updates
+        
+        # Track what we fill per month for balancing
+        monthly_filled_revenue = {}  # {month_name: sum of revenue filled}
+        monthly_filled_expense = {}  # {month_name: sum of expense filled}
+        
         cells_updated = 0
         rows_filled = []
+        
+        # Revenue rows: 12, 13, 14, 15, 16, 17, 20, 22
+        revenue_rows = [12, 13, 14, 15, 16, 17, 20, 22]
+        # Expense rows: all others
+        expense_rows = [r for r in DH_ROW_MAPPING.keys() if r not in revenue_rows]
+        
         for dh_row, pnl_labels in DH_ROW_MAPPING.items():
             monthly_values = find_monthly_pnl_value(merged_monthly_data, pnl_labels)
             if not monthly_values:
@@ -840,8 +891,75 @@ def update_donnees_historiques(wb, merged_monthly_data, parking_code):
                         ws_dh[cell_ref].number_format = '#,##0.00'
                         cells_updated += 1
                         row_cells += 1
+                        
+                        # Track for balancing
+                        if dh_row in revenue_rows:
+                            if month_name not in monthly_filled_revenue:
+                                monthly_filled_revenue[month_name] = 0
+                            monthly_filled_revenue[month_name] += val
+                        elif dh_row in expense_rows:
+                            if month_name not in monthly_filled_expense:
+                                monthly_filled_expense[month_name] = 0
+                            monthly_filled_expense[month_name] += val
+            
             if row_cells > 0:
                 rows_filled.append(f"  Row {dh_row}: {pnl_labels[0]} ({row_cells} months)")
+        
+        # ── BALANCING: Fill gaps using monthly totals ──────────────────
+        if monthly_totals:
+            balancing_updates = []
+            for month_name, totals in monthly_totals.items():
+                if month_name not in MONTHS_EN:
+                    continue
+                
+                month_idx = MONTHS_EN.index(month_name)
+                col_letter = get_column_letter(month_idx + 2)
+                
+                expected_revenue = totals.get("revenue_total")
+                expected_expense = totals.get("expense_total")
+                
+                # Balance revenue
+                if expected_revenue is not None and expected_revenue != 0:
+                    actual_revenue = monthly_filled_revenue.get(month_name, 0)
+                    revenue_gap = expected_revenue - actual_revenue
+                    
+                    # Allow small rounding differences (less than $1)
+                    if abs(revenue_gap) > 0.99:
+                        # Add gap to catch-all revenue row (Row 17)
+                        catch_row = REVENUE_CATCH_ALL_ROW
+                        cell_ref = f"{col_letter}{catch_row}"
+                        current_val = safe_float(ws_dh[cell_ref].value)
+                        ws_dh[cell_ref] = current_val + revenue_gap
+                        ws_dh[cell_ref].number_format = '#,##0.00'
+                        balancing_updates.append(
+                            f"  ⚖️ {month_name}: Added ${revenue_gap:,.2f} to Row {catch_row} "
+                            f"(expected revenue ${expected_revenue:,.2f}, actual ${actual_revenue:,.2f})"
+                        )
+                        cells_updated += 1
+                
+                # Balance expenses
+                if expected_expense is not None and expected_expense != 0:
+                    actual_expense = monthly_filled_expense.get(month_name, 0)
+                    expense_gap = expected_expense - actual_expense
+                    
+                    if abs(expense_gap) > 0.99:
+                        # Add gap to catch-all expense row (Row 76 - Représentation repas)
+                        catch_row = EXPENSE_CATCH_ALL_ROW
+                        cell_ref = f"{col_letter}{catch_row}"
+                        current_val = safe_float(ws_dh[cell_ref].value)
+                        ws_dh[cell_ref] = current_val + expense_gap
+                        ws_dh[cell_ref].number_format = '#,##0.00'
+                        balancing_updates.append(
+                            f"  ⚖️ {month_name}: Added ${expense_gap:,.2f} to Row {catch_row} "
+                            f"(expected expenses ${expected_expense:,.2f}, actual ${actual_expense:,.2f})"
+                        )
+                        cells_updated += 1
+            
+            if balancing_updates:
+                updates.append(f"⚖️ Balancing applied ({len(balancing_updates)} adjustments):")
+                for bu in balancing_updates:
+                    updates.append(bu)
+        
         if cells_updated > 0:
             updates.append(f"✅ Donnees Historiques: {cells_updated} cells in {len(rows_filled)} rows")
             for row_info in rows_filled:
@@ -883,6 +1001,7 @@ def fix_excel(
     current_year_data = None
     previous_year_data = None
     two_years_ago_data = None
+    monthly_totals = None
     
     if monthly_files_current and len(monthly_files_current) > 0:
         updates.append("📋 Using monthly report files (Current Year)")
@@ -890,6 +1009,10 @@ def fix_excel(
         if current_year_data:
             num_labels = len(current_year_data.get('yearly', {}))
             updates.append(f"📊 Current year from monthlies: {num_labels} labels")
+            # Extract monthly totals for balancing
+            if '_monthly_totals' in current_year_data:
+                monthly_totals = current_year_data.pop('_monthly_totals')
+                updates.append(f"📊 Monthly totals available for balancing: {len(monthly_totals)} months")
     
     if monthly_files_previous and len(monthly_files_previous) > 0:
         updates.append("📋 Using monthly report files (Previous Year)")
@@ -897,6 +1020,12 @@ def fix_excel(
         if previous_year_data:
             num_labels = len(previous_year_data.get('yearly', {}))
             updates.append(f"📊 Previous year from monthlies: {num_labels} labels")
+            # Merge monthly totals
+            if '_monthly_totals' in previous_year_data:
+                prev_totals = previous_year_data.pop('_monthly_totals')
+                if monthly_totals is None:
+                    monthly_totals = {}
+                monthly_totals.update(prev_totals)
     
     if pnl_current_year and current_year_data is None:
         current_year_data, current_file_type = extract_pnl_data(pnl_current_year, parking_code)
@@ -949,7 +1078,7 @@ def fix_excel(
     
     updates.extend(update_budget_initial(wb_write, budget_initial_data, parking_code))
     updates.extend(update_fiche_stationnement(wb_write, fiche_data, parking_code, word_data))
-    updates.extend(update_donnees_historiques(wb_write, dh_data, parking_code))
+    updates.extend(update_donnees_historiques(wb_write, dh_data, parking_code, monthly_totals))
     
     success_count = sum(1 for u in updates if u.startswith("✅"))
     if success_count == 0:
