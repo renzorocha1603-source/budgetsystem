@@ -311,39 +311,115 @@ def read_csv_to_dataframe(uploaded_file):
         except Exception:
             return None
 
-def read_pdf_with_ocr(uploaded_file):
-    """Extract text from image-based PDF using OCR."""
+def read_pdf_with_fitz(uploaded_file):
+    """
+    Extract text from born-digital PDF using PyMuPDF (fitz).
+    Uses column-based text extraction for the 'Mois Courant' column.
+    """
     try:
-        from pdf2image import convert_from_bytes
-        import pytesseract
+        import fitz
         
         file_bytes = get_file_bytes(uploaded_file)
-        images = convert_from_bytes(file_bytes, dpi=200)
+        doc = fitz.open(stream=file_bytes, filetype="pdf")
         
         sheets = {}
-        for page_num, image in enumerate(images):
-            try:
-                text = pytesseract.image_to_string(image, lang='fra+eng')
-            except:
-                try:
-                    text = pytesseract.image_to_string(image, lang='eng')
-                except:
-                    continue
-            
-            if text and len(text.strip()) > 50:
-                lines = text.strip().split('\n')
-                lines = [l for l in lines if l.strip()]
-                if lines:
-                    df = pd.DataFrame(lines, columns=['Text'])
-                    sheet_key = f"Page{page_num+1}_OCR"
-                    sheets[sheet_key] = df
         
+        for page_num in range(len(doc)):
+            page = doc[page_num]
+            
+            # Get the full page text first for label extraction
+            full_text = page.get_text("text")
+            
+            # Get word-level data with positions for column extraction
+            words = page.get_text("words")
+            
+            if not words:
+                continue
+            
+            # Sort words by vertical position (top to bottom), then horizontal (left to right)
+            words.sort(key=lambda w: (round(w[1], 1), w[0]))
+            
+            # Group words into lines based on Y position
+            lines = []
+            current_line = []
+            current_y = None
+            
+            for word in words:
+                word_text = word[4]
+                word_y = round(word[1], 1)
+                word_x0 = word[0]
+                word_x1 = word[2]
+                
+                if current_y is None:
+                    current_y = word_y
+                    current_line = [(word_text, word_x0, word_x1)]
+                elif abs(word_y - current_y) < 5:
+                    current_line.append((word_text, word_x0, word_x1))
+                    current_y = word_y
+                else:
+                    if current_line:
+                        lines.append(current_line)
+                    current_y = word_y
+                    current_line = [(word_text, word_x0, word_x1)]
+            
+            if current_line:
+                lines.append(current_line)
+            
+            # Process each line: extract label (left side) and first number (Mois Courant column)
+            extracted_data = []
+            
+            for line in lines:
+                if not line:
+                    continue
+                
+                # Build the full line text
+                full_line_text = " ".join([w[0] for w in line])
+                
+                # The first word(s) are the label (left side of page)
+                # The first number after the label is the Mois Courant value
+                label_parts = []
+                value_found = None
+                
+                for word_text, x0, x1 in line:
+                    # Try to parse as number
+                    cleaned = word_text.replace(' ', '').replace('$', '').replace(',', '.')
+                    # Handle French number format: "13 398,08" -> "13398.08"
+                    if re.match(r'^[\d\s,.]+$', cleaned.replace('.', '').replace(',', '').replace(' ', '')):
+                        try:
+                            # Convert French format to float
+                            num_text = word_text.replace(' ', '')
+                            # If there's a comma, it's the decimal separator
+                            if ',' in num_text:
+                                num_text = num_text.replace('.', '').replace(',', '.')
+                            else:
+                                num_text = num_text.replace(',', '')
+                            val = float(num_text)
+                            if value_found is None and val != 0:
+                                value_found = val
+                                break
+                        except:
+                            pass
+                    else:
+                        label_parts.append(word_text)
+                
+                if label_parts:
+                    label_text = " ".join(label_parts).strip()
+                    if label_text and len(label_text) > 2:
+                        extracted_data.append((label_text, value_found))
+            
+            # Create DataFrame from extracted data
+            if extracted_data:
+                df = pd.DataFrame(extracted_data, columns=['Label', 'Value'])
+                sheet_key = f"Page{page_num+1}_Fitz"
+                sheets[sheet_key] = df
+        
+        doc.close()
         return sheets if sheets else None
     except Exception:
         return None
 
 def read_pdf_to_dataframe(uploaded_file):
-    """Try pdfplumber first, fall back to OCR."""
+    """Try pdfplumber first, then PyMuPDF."""
     try:
         file_bytes = get_file_bytes(uploaded_file)
         sheets = {}
@@ -387,13 +463,13 @@ def read_pdf_to_dataframe(uploaded_file):
                         has_real_data = True
         
         if not has_real_data:
-            ocr_sheets = read_pdf_with_ocr(uploaded_file)
-            if ocr_sheets:
-                sheets.update(ocr_sheets)
+            fitz_sheets = read_pdf_with_fitz(uploaded_file)
+            if fitz_sheets:
+                sheets.update(fitz_sheets)
         
         return sheets if sheets else None
     except Exception:
-        return read_pdf_with_ocr(uploaded_file)
+        return read_pdf_with_fitz(uploaded_file)
 
 def read_any_file_to_dataframes(uploaded_file):
     if uploaded_file is None:
@@ -562,102 +638,6 @@ def label_match_score(cell_text, label_text):
         return 0
     return 0
 
-def preprocess_number_text(text):
-    """Fix OCR issues: join split numbers like '43 880.03' into '43880.03'"""
-    if not text:
-        return text
-    
-    # Pattern: "digits space digits.decimals" -> joindigits.decimals
-    text = re.sub(r'(\d+)\s+(\d{3}\.\d{2})', r'\1\2', text)
-    
-    # Pattern: "digits space digits space digits" -> joindigits.joindigits
-    text = re.sub(r'(\d+)\s+(\d{3})\s+(\d{2})(?!\d)', r'\1\2.\3', text)
-    
-    # Pattern: "digits space digits" where digits is 3 digits (thousands)
-    text = re.sub(r'(\d+)\s+(\d{3})(?!\d)', r'\1\2', text)
-    
-    return text
-
-def extract_dollar_amount_from_text(text):
-    """Extract a dollar amount from any text. Handles OCR split numbers."""
-    if not text:
-        return None
-    
-    # Preprocess to fix OCR number splitting
-    processed = preprocess_number_text(text)
-    
-    patterns = [
-        r'\$([\d,]+\.?\d*)',
-        r'([\d,]+\.?\d*)\s*\$',
-        r'\$?\s*([\d,]+\.\d{2})\s*\$?',
-        r'\(?\$?([\d,]+\.?\d*)\)?',
-    ]
-    
-    for pattern in patterns:
-        match = re.search(pattern, processed)
-        if match:
-            try:
-                return float(match.group(1).replace(',', ''))
-            except:
-                continue
-    
-    match = re.search(r'([\d,]+\.\d{2})', processed)
-    if match:
-        try:
-            return float(match.group(1).replace(',', ''))
-        except:
-            pass
-    
-    return None
-
-def parse_text_line_for_data(line):
-    """
-    Parse a text line for label and dollar amount.
-    Label matching on ORIGINAL text, value extraction on preprocessed text.
-    """
-    if not line or len(line) < 5:
-        return None, None
-    
-    line = line.strip()
-    
-    # Try to match label on ORIGINAL line
-    for mapping_label, standard_label in PAGE10_FRENCH_LABELS.items():
-        if label_match_score(line, mapping_label) >= 0.6:
-            val = extract_dollar_amount_from_text(line)
-            if val and val != 0:
-                return standard_label, val
-            return standard_label, None
-    
-    for mapping_label, standard_label in ALL_LABEL_MAPPINGS.items():
-        if mapping_label in PAGE10_FRENCH_LABELS:
-            continue
-        if label_match_score(line, mapping_label) >= 0.6:
-            val = extract_dollar_amount_from_text(line)
-            if val and val != 0:
-                return standard_label, val
-            return standard_label, None
-    
-    # No label found, just try to extract value
-    val = extract_dollar_amount_from_text(line)
-    
-    # If value found, try to find label by removing the amount
-    if val is not None:
-        label_text = re.sub(r'\$?[\d,]+\.?\d*\s*\$?', '', line).strip()
-        label_text = re.sub(r'\(?[\d,]+\.?\d*\)?', '', label_text).strip()
-        label_text = re.sub(r'\s+', ' ', label_text).strip()
-        
-        if len(label_text) > 2:
-            for mapping_label, standard_label in PAGE10_FRENCH_LABELS.items():
-                if label_match_score(label_text, mapping_label) >= 0.6:
-                    return standard_label, val
-            for mapping_label, standard_label in ALL_LABEL_MAPPINGS.items():
-                if mapping_label in PAGE10_FRENCH_LABELS:
-                    continue
-                if label_match_score(label_text, mapping_label) >= 0.6:
-                    return standard_label, val
-    
-    return None, val
-
 def read_year_mapping_from_template(wb):
     dh_sheet_name = find_sheet_by_pattern(wb, SHEET_PATTERNS["Donnees Historiques"])
     if not dh_sheet_name:
@@ -711,6 +691,13 @@ def find_best_data_sheet(sheets_dict):
         if df is None or len(df) == 0:
             continue
         
+        # Check if this is a Fitz sheet (has Label and Value columns)
+        if 'Label' in df.columns and 'Value' in df.columns:
+            valid_values = sum(1 for v in df['Value'] if v is not None and v != 0)
+            if valid_values > 3:
+                candidates.append((sheet_name, df, valid_values * 50, valid_values, valid_values, len(df)))
+                continue
+        
         text_cells = 0
         numeric_cells = 0
         dollar_cells = 0
@@ -738,7 +725,7 @@ def find_best_data_sheet(sheets_dict):
         
         score = numeric_cells * 10 + dollar_cells * 20 + text_cells + revenue_keywords * 15
         
-        if text_cells > 3:
+        if text_cells > 3 or numeric_cells > 3:
             candidates.append((sheet_name, df, score, numeric_cells, dollar_cells, len(df)))
     
     if not candidates:
@@ -751,106 +738,6 @@ def find_best_data_sheet(sheets_dict):
     
     candidates.sort(key=lambda x: x[2], reverse=True)
     return candidates[0][0]
-
-def find_amount_column(df):
-    if df is None or len(df) == 0:
-        return None
-    if 'Text' in df.columns:
-        return None
-    
-    for row_idx in range(min(5, len(df))):
-        for col_idx in range(min(15, len(df.columns))):
-            try:
-                cell_text = str(df.iloc[row_idx, col_idx]).lower().strip()
-                if any(term in cell_text for term in [
-                    'current month actual', 'mois courant', 'courant',
-                    'amount', 'navision', 'actual'
-                ]):
-                    if 'ytd' not in cell_text and 'previous' not in cell_text and 'budget' not in cell_text:
-                        return col_idx
-            except:
-                continue
-    
-    best_col = None
-    best_count = 0
-    for col_idx in range(1, min(8, len(df.columns))):
-        numeric_count = 0
-        for row_idx in range(min(30, len(df))):
-            val = safe_float(df.iloc[row_idx, col_idx])
-            if val != 0:
-                numeric_count += 1
-        if numeric_count > best_count:
-            best_count = numeric_count
-            best_col = col_idx
-    
-    if best_count >= 3:
-        return best_col
-    
-    return 2
-
-def extract_data_from_text_sheet(df, month_name, year):
-    """Extract data from OCR/Text sheet."""
-    result = {}
-    
-    all_lines = []
-    for row_idx in range(len(df)):
-        try:
-            if 'Text' in df.columns:
-                line = str(df.iloc[row_idx, 0]).strip()
-            else:
-                parts = []
-                for col_idx in range(min(10, len(df.columns))):
-                    cell = str(df.iloc[row_idx, col_idx]).strip()
-                    if cell and cell.lower() != 'nan' and cell.lower() != 'none':
-                        parts.append(cell)
-                line = ' '.join(parts)
-            
-            if line and len(line) > 2:
-                all_lines.append(line)  # Keep original line for label matching
-        except:
-            continue
-    
-    for i, line in enumerate(all_lines):
-        line_upper = line.upper()
-        
-        if 'TOTAL REVENUS' in line_upper:
-            val = extract_dollar_amount_from_text(line)
-            if not val and i + 1 < len(all_lines):
-                val = extract_dollar_amount_from_text(all_lines[i+1])
-            if val and val != 0:
-                result['_REVENUE_TOTAL_'] = val
-            continue
-        
-        if 'TOTAL DES FRAIS' in line_upper or 'TOTAL OPERATING' in line_upper:
-            val = extract_dollar_amount_from_text(line)
-            if not val and i + 1 < len(all_lines):
-                val = extract_dollar_amount_from_text(all_lines[i+1])
-            if val and val != 0:
-                result['_EXPENSE_TOTAL_'] = val
-            continue
-        
-        std_label, val = parse_text_line_for_data(line)
-        
-        if std_label and not val:
-            if i + 1 < len(all_lines):
-                val = extract_dollar_amount_from_text(all_lines[i+1])
-            if not val and i + 2 < len(all_lines):
-                val = extract_dollar_amount_from_text(all_lines[i+2])
-        
-        if not std_label and val:
-            if i > 0:
-                std_label, _ = parse_text_line_for_data(all_lines[i-1])
-            if not std_label and i > 1:
-                std_label, _ = parse_text_line_for_data(all_lines[i-2])
-        
-        if std_label and val and val != 0:
-            if std_label in result:
-                result[std_label] += val
-            else:
-                result[std_label] = val
-    
-    result['_DEBUG_MATCHES_'] = str(len([k for k in result.keys() if not k.startswith('_')]))
-    return result
 
 def extract_monthly_data_from_file(uploaded_file):
     """Extract monthly data from Excel or PDF file."""
@@ -897,16 +784,106 @@ def extract_monthly_data_from_file(uploaded_file):
                 except Exception:
                     continue
     
-    is_text_sheet = ('Text' in df.columns or target_sheet.endswith('_OCR') or target_sheet.endswith('_Text'))
+    # Check if this is a Fitz-extracted sheet (Label + Value columns)
+    is_fitz_sheet = ('Label' in df.columns and 'Value' in df.columns)
+    is_text_sheet = ('Text' in df.columns)
     
-    if is_text_sheet:
-        data = extract_data_from_text_sheet(df, month_name, year)
-        for key, value in data.items():
-            result[key] = value
+    if is_fitz_sheet:
+        matches_found = 0
+        for row_idx in range(len(df)):
+            try:
+                label_text = str(df.iloc[row_idx, 0]).strip() if pd.notna(df.iloc[row_idx, 0]) else ""
+                value = df.iloc[row_idx, 1] if pd.notna(df.iloc[row_idx, 1]) else None
+                
+                if not label_text or len(label_text) < 3:
+                    continue
+                
+                if value is None or value == 0:
+                    continue
+                
+                # Check for special markers
+                label_upper = label_text.upper()
+                if 'TOTAL REVENUS' in label_upper or 'TOTAL REVENUE' in label_upper:
+                    result['_REVENUE_TOTAL_'] = float(value)
+                    continue
+                if 'TOTAL DES FRAIS' in label_upper or 'TOTAL OPERATING' in label_upper:
+                    result['_EXPENSE_TOTAL_'] = float(value)
+                    continue
+                
+                # Try to match label
+                best_match = None
+                best_score = 0
+                
+                for mapping_label, standard_label in ALL_LABEL_MAPPINGS.items():
+                    score = label_match_score(label_text, mapping_label)
+                    if score > best_score and score >= 0.6:
+                        best_score = score
+                        best_match = standard_label
+                
+                if best_match and best_score >= 0.5:
+                    matches_found += 1
+                    val = float(value)
+                    if val != 0:
+                        if best_match in result:
+                            result[best_match] += val
+                        else:
+                            result[best_match] = val
+            
+            except Exception:
+                continue
+        
+        result['_DEBUG_MATCHES_'] = str(matches_found)
+    
+    elif is_text_sheet:
+        # Original text-based extraction
+        all_lines = []
+        for row_idx in range(len(df)):
+            try:
+                line = str(df.iloc[row_idx, 0]).strip()
+                if line and len(line) > 2:
+                    all_lines.append(line)
+            except:
+                continue
+        
+        for i, line in enumerate(all_lines):
+            line_upper = line.upper()
+            
+            if 'TOTAL REVENUS' in line_upper:
+                # Try to extract dollar amount
+                val = safe_float(re.sub(r'[^\d,.-]', '', line.replace(',', '')))
+                if val == 0 and i + 1 < len(all_lines):
+                    val = safe_float(re.sub(r'[^\d,.-]', '', all_lines[i+1].replace(',', '')))
+                if val != 0:
+                    result['_REVENUE_TOTAL_'] = val
+                continue
+            
+            if 'TOTAL DES FRAIS' in line_upper or 'TOTAL OPERATING' in line_upper:
+                val = safe_float(re.sub(r'[^\d,.-]', '', line.replace(',', '')))
+                if val == 0 and i + 1 < len(all_lines):
+                    val = safe_float(re.sub(r'[^\d,.-]', '', all_lines[i+1].replace(',', '')))
+                if val != 0:
+                    result['_EXPENSE_TOTAL_'] = val
+                continue
+            
+            # Try label matching on this line
+            for mapping_label, standard_label in ALL_LABEL_MAPPINGS.items():
+                if label_match_score(line, mapping_label) >= 0.6:
+                    # Try to extract value from this line or next
+                    val = safe_float(re.sub(r'[^\d,.-]', '', line.replace(',', '')))
+                    if val == 0 and i + 1 < len(all_lines):
+                        val = safe_float(re.sub(r'[^\d,.-]', '', all_lines[i+1].replace(',', '')))
+                    if val != 0:
+                        if standard_label in result:
+                            result[standard_label] += val
+                        else:
+                            result[standard_label] = val
+                    break
+    
     else:
-        amount_col = find_amount_column(df)
-        if amount_col is None:
-            amount_col = 2
+        # Original table-based extraction for Excel files
+        amount_col = 1
+        if len(df.columns) > 2:
+            amount_col = 1
         
         matches_found = 0
         
@@ -1032,34 +1009,8 @@ def build_monthly_data_from_files(monthly_files):
 # PAGE 3/10 FINANCIAL SUMMARY EXTRACTION (for yearly data)
 # ============================================================================
 
-def find_ytd_column(df):
-    if df is None or len(df) == 0:
-        return None
-    if 'Text' in df.columns:
-        return None
-    
-    for row_idx in range(min(5, len(df))):
-        for col_idx in range(min(15, len(df.columns))):
-            try:
-                cell_text = str(df.iloc[row_idx, col_idx]).lower().strip()
-                if any(term in cell_text for term in ['ytd actual', 'cumulatif courant', 'ytd', 'cumulatif', 'year to date']):
-                    return col_idx
-            except:
-                continue
-    
-    for col_idx in [5, 6, 7]:
-        if col_idx < len(df.columns):
-            has_numbers = False
-            for row_idx in range(min(20, len(df))):
-                if safe_float(df.iloc[row_idx, col_idx]) != 0:
-                    has_numbers = True
-                    break
-            if has_numbers:
-                return col_idx
-    
-    return None
-
 def extract_page3_data(uploaded_file):
+    """Extract YTD Actual data from Page 3/10 Financial Summary."""
     result = {'monthly': {}, 'yearly': {}}
     
     sheets_dict, file_type = read_any_file_to_dataframes(uploaded_file)
@@ -1074,16 +1025,44 @@ def extract_page3_data(uploaded_file):
     if df is None or len(df) == 0:
         return None
     
-    if 'Text' in df.columns:
-        data = extract_data_from_text_sheet(df, None, None)
-        for key, value in data.items():
-            if not key.startswith('_'):
-                result['yearly'][key] = value
-    else:
-        ytd_col = find_ytd_column(df)
-        if ytd_col is None:
-            return None
+    # Check if Fitz sheet
+    if 'Label' in df.columns and 'Value' in df.columns:
+        for row_idx in range(len(df)):
+            try:
+                label_text = str(df.iloc[row_idx, 0]).strip() if pd.notna(df.iloc[row_idx, 0]) else ""
+                value = df.iloc[row_idx, 1] if pd.notna(df.iloc[row_idx, 1]) else None
+                
+                if not label_text or value is None or value == 0:
+                    continue
+                
+                for mapping_label, standard_label in ALL_LABEL_MAPPINGS.items():
+                    if label_match_score(label_text, mapping_label) >= 0.6:
+                        result['yearly'][standard_label] = float(value)
+                        break
+            except:
+                continue
+    
+    elif 'Text' in df.columns:
+        all_lines = []
+        for row_idx in range(len(df)):
+            try:
+                line = str(df.iloc[row_idx, 0]).strip()
+                if line and len(line) > 2:
+                    all_lines.append(line)
+            except:
+                continue
         
+        for i, line in enumerate(all_lines):
+            for mapping_label, standard_label in ALL_LABEL_MAPPINGS.items():
+                if label_match_score(line, mapping_label) >= 0.6:
+                    val = safe_float(re.sub(r'[^\d,.-]', '', line.replace(',', '')))
+                    if val == 0 and i + 1 < len(all_lines):
+                        val = safe_float(re.sub(r'[^\d,.-]', '', all_lines[i+1].replace(',', '')))
+                    if val != 0:
+                        result['yearly'][standard_label] = val
+                    break
+    else:
+        # Table-based extraction
         for row_idx in range(len(df)):
             try:
                 for col_idx in range(min(10, len(df.columns))):
@@ -1093,9 +1072,11 @@ def extract_page3_data(uploaded_file):
                     
                     for label, standard in ALL_LABEL_MAPPINGS.items():
                         if label_match_score(cell_text, label) >= 0.6:
-                            val = safe_float(df.iloc[row_idx, ytd_col])
-                            if val != 0:
-                                result['yearly'][standard] = val
+                            for vcol in range(1, min(10, len(df.columns))):
+                                val = safe_float(df.iloc[row_idx, vcol])
+                                if val != 0:
+                                    result['yearly'][standard] = val
+                                    break
                             break
             except:
                 continue
