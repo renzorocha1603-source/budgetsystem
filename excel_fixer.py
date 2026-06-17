@@ -1,7 +1,7 @@
 import io
 import re
 import pandas as pd
-from openpyxl import load_workbook
+from openpyxl import load_workbook, Workbook
 from openpyxl.utils import get_column_letter
 from datetime import datetime
 import pdfplumber
@@ -252,11 +252,10 @@ ALL_LABEL_MAPPINGS.update({
 })
 
 # ============================================================================
-# HARDCODED PAGE 10 STRUCTURE - VERIFIED FROM SPATIAL MAPPING
+# HARDCODED PAGE 10 STRUCTURE
 # ============================================================================
 
 PAGE10_STRUCTURE = [
-    # SECTION 1: REVENUES (Rows 1-7)
     ("Monthly Revenues", ["Revenus mensuels"], False, False),
     ("Transient Revenue", ["Revenus Journaliers", "Revenus journaliers"], False, False),
     ("Car-Wash Revenue", ["Revenus Lave-Auto", "Lave-Auto"], False, False),
@@ -264,7 +263,6 @@ PAGE10_STRUCTURE = [
     ("Parking Revenue", ["Revenus de stationnement"], True, False),
     ("Discount-Gratuities - Monthly", ["Gratuités - mensuels", "Gratuites", "Gratuités"], False, False),
     ("TOTAL REVENUE", ["TOTAL REVENUS", "TOTAL DES REVENUS"], True, False),
-    # SECTION 2: EXPENSES (Rows 8-22)
     (None, ["DÉPENSES", "DEPENSES"], False, True),
     (None, ["DÉPENSES D'EXPLOITATION", "DEPENSES D'EXPLOITATION"], False, True),
     ("Parking wages", ["Salaires Stationnement", "Salaires stationnement"], False, False),
@@ -280,16 +278,13 @@ PAGE10_STRUCTURE = [
     ("Credit Card fees", ["Frais de cartes de crédit", "Frais de cartes de credit"], False, False),
     ("Office expenses", ["Frais de bureau"], False, False),
     ("Total Operation expenses", ["Total des frais d'exploitation"], True, False),
-    # SECTION 3: OPERATING SURPLUS (Row 23)
     ("OPERATION SURPLUS", ["RÉSULTAT D'EXPLOITATION", "RESULTAT D'EXPLOITATION"], True, False),
-    # SECTION 4: OTHER EXPENSES & NET INCOME (Rows 24-27)
     (None, ["AUTRES FRAIS"], False, True),
     ("Percent Management fee", ["Honoraires de gestion"], False, False),
     ("Total other expenses", ["Total des autres frais"], True, False),
     ("NET INCOME", ["BÉNÉFICE NET", "BENEFICE NET"], True, False),
 ]
 
-# FIXED: Removed MOIS COURANT and CUMULATIF - they are legitimate Page 10 column headers
 PAGE10_EXCLUDE_KEYWORDS = [
     'CONCILIATION BI', 'ÉCARTS AU BUDGET', 'ECARTS AU BUDGET',
     'SECTION 1', 'SECTION 2', 'SECTION 3', 'SECTION 4',
@@ -395,13 +390,9 @@ def read_pdf_with_ocr(uploaded_file):
         return None
 
 def read_pdf_with_fitz(uploaded_file):
-    """
-    Extract text from PDF using PyMuPDF (fitz).
-    Uses 'blocks' method for better table structure preservation.
-    Falls back to plain text if blocks don't give enough.
-    """
+    """Extract text from PDF using PyMuPDF (fitz) as fallback."""
     try:
-        import fitz  # PyMuPDF
+        import fitz
 
         file_bytes = get_file_bytes(uploaded_file)
         doc = fitz.open(stream=file_bytes, filetype="pdf")
@@ -411,32 +402,16 @@ def read_pdf_with_fitz(uploaded_file):
 
         for page_num in range(len(doc)):
             page = doc[page_num]
-            lines = []
-            
-            # Method 1: Try 'blocks' first - preserves table structure better
-            try:
-                blocks = page.get_text("blocks")
-                for block in blocks:
-                    if len(block) >= 7 and block[6] == 0:  # Text block
-                        text = block[4].strip() if len(block) > 4 else ""
-                        if text:
-                            block_lines = text.split('\n')
-                            lines.extend([l.strip() for l in block_lines if l.strip()])
-            except:
-                pass
-            
-            # Method 2: If blocks didn't give enough, try plain text
-            if len(lines) < 10:
-                text = page.get_text("text")
-                if text and len(text.strip()) > 30:
-                    text_lines = text.strip().split('\n')
-                    lines = [l.strip() for l in text_lines if l.strip()]
+            text = page.get_text("text")
 
-            if lines and len(lines) > 5:
-                df = pd.DataFrame(lines, columns=['Text'])
-                sheet_key = f"Page{page_num+1}_Fitz"
-                sheets[sheet_key] = df
-                total_text_lines += len(lines)
+            if text and len(text.strip()) > 30:
+                lines = text.strip().split('\n')
+                lines = [l.strip() for l in lines if l.strip()]
+                if lines:
+                    df = pd.DataFrame(lines, columns=['Text'])
+                    sheet_key = f"Page{page_num+1}_Fitz"
+                    sheets[sheet_key] = df
+                    total_text_lines += len(lines)
 
         doc.close()
 
@@ -447,15 +422,250 @@ def read_pdf_with_fitz(uploaded_file):
 
     except ImportError:
         return None
+    except Exception:
+        return None
+
+# ============================================================================
+# PDF TO EXCEL CONVERTER - FINDS PAGE 10 BY CONTENT, NOT PAGE NUMBER
+# ============================================================================
+
+def find_page10_in_pdf(doc):
+    """
+    Search ALL pages in the PDF for Page 10 by checking content.
+    Uses the known spatial structure to identify the correct page.
+    Returns the page number (0-indexed) or None.
+    """
+    for page_num in range(len(doc)):
+        page = doc[page_num]
+        words = page.get_text("words")
+
+        if not words or len(words) < 20:
+            continue
+
+        # Build full text
+        full_text = ' '.join([w[4] for w in words]).upper()
+
+        # Group words into lines by y-position for paired text
+        rows = {}
+        for w in words:
+            y_key = round(w[1] / 15) * 15
+            if y_key not in rows:
+                rows[y_key] = []
+            rows[y_key].append(w[4])
+
+        sorted_rows = sorted(rows.items())
+        line_texts = [' '.join(row_words).upper() for _, row_words in sorted_rows]
+
+        # Create paired lines for split keywords
+        paired_lines = []
+        for i in range(len(line_texts) - 1):
+            paired_lines.append(line_texts[i] + ' ' + line_texts[i+1])
+
+        combined_text = ' '.join(line_texts) + ' ' + ' '.join(paired_lines)
+
+        # Check exclude keywords
+        excluded = False
+        for kw in PAGE10_EXCLUDE_KEYWORDS:
+            if kw in combined_text:
+                excluded = True
+                break
+
+        if excluded:
+            continue
+
+        # Check for required sequence
+        seq = ['REVENUS MENSUELS', 'REVENUS JOURNALIERS', 'REVENUS LAVE-AUTO']
+        last_pos = -1
+        seq_ok = True
+        for term in seq:
+            pos = combined_text.find(term)
+            if pos == -1:
+                seq_ok = False
+                break
+            if pos <= last_pos:
+                seq_ok = False
+                break
+            last_pos = pos
+
+        if not seq_ok:
+            continue
+
+        # Check for at least one expense
+        expense_found = False
+        for term in ['SALAIRES STATIONNEMENT', 'UNIFORMES', 'ENTRETIEN',
+                     'TAXES ET PERMIS', 'ASSURANCES', 'TÉLÉCOMMUNICATION']:
+            if term in combined_text:
+                expense_found = True
+                break
+
+        if not expense_found:
+            continue
+
+        # Check for TOTAL REVENUS
+        if 'TOTAL REVENUS' not in combined_text and 'TOTAL DES REVENUS' not in combined_text:
+            continue
+
+        # Check for BÉNÉFICE NET
+        if 'BÉNÉFICE NET' not in combined_text and 'BENEFICE NET' not in combined_text:
+            continue
+
+        # ALL checks passed!
+        return page_num
+
+    return None
+
+
+def convert_page10_to_excel(uploaded_file):
+    """
+    Find Page 10 in the PDF and convert it to an Excel file.
+    
+    Uses PyMuPDF to extract text with coordinates, then reconstructs
+    the table using the known 9-column layout.
+    
+    Returns: BytesIO containing Excel file, or None if Page 10 not found.
+    """
+    try:
+        import fitz
+        from openpyxl import Workbook
+
+        file_bytes = get_file_bytes(uploaded_file)
+        doc = fitz.open(stream=file_bytes, filetype="pdf")
+
+        # Find which page is Page 10
+        page10_num = find_page10_in_pdf(doc)
+
+        if page10_num is None:
+            doc.close()
+            return None
+
+        page = doc[page10_num]
+        words = page.get_text("words")
+
+        if not words:
+            doc.close()
+            return None
+
+        # Group words into rows by y-position
+        rows_dict = {}
+        for word in words:
+            x0, y0, x1, y1, text, block, line, word_no = word
+            y_key = round(y0 / 10) * 10
+
+            if y_key not in rows_dict:
+                rows_dict[y_key] = []
+            rows_dict[y_key].append((x0, text))
+
+        # Sort rows
+        sorted_y = sorted(rows_dict.keys())
+
+        # Find column boundaries
+        all_x = []
+        for y_key in sorted_y:
+            for x, text in rows_dict[y_key]:
+                all_x.append(x)
+
+        if not all_x:
+            doc.close()
+            return None
+
+        min_x = min(all_x)
+        max_x = max(all_x)
+        col_width = (max_x - min_x) / 9
+
+        # Create Excel workbook
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "Page10"
+
+        # Headers
+        headers = ["Account", "Mois Courant", "Budget période", "Écart Budget",
+                   "An. Préc.", "Cumulatif courant", "Cumulatif budget",
+                   "Écart Budget Cumul.", "An. Préc. Cumul."]
+        for col, header in enumerate(headers, 1):
+            ws.cell(row=1, column=col, value=header)
+            ws.cell(row=1, column=col).font = openpyxl.styles.Font(bold=True) if 'openpyxl' in dir() else None
+
+        # Extract each row
+        excel_row = 2
+        for y_key in sorted_y:
+            row_items = rows_dict[y_key]
+            row_items.sort(key=lambda item: item[0])
+
+            # Assign to columns
+            cols = [''] * 9
+            for x, text in row_items:
+                col_idx = min(8, max(0, int((x - min_x) / col_width)))
+
+                if cols[col_idx]:
+                    cols[col_idx] += ' ' + text
+                else:
+                    cols[col_idx] = text
+
+            # Write to Excel
+            has_content = False
+            for col in range(9):
+                val = cols[col].strip()
+                if val:
+                    has_content = True
+                    # Try to convert to number
+                    try:
+                        clean = val.replace('$', '').replace(',', '').replace(' ', '')
+                        if clean.startswith('(') and clean.endswith(')'):
+                            clean = '-' + clean[1:-1]
+                        if clean.replace('.', '').replace('-', '').isdigit():
+                            num = float(clean)
+                            ws.cell(row=excel_row, column=col+1, value=num)
+                            ws.cell(row=excel_row, column=col+1).number_format = '#,##0.00'
+                        else:
+                            ws.cell(row=excel_row, column=col+1, value=val)
+                    except:
+                        ws.cell(row=excel_row, column=col+1, value=val)
+
+            if has_content:
+                excel_row += 1
+
+        doc.close()
+
+        # Save to BytesIO
+        output = io.BytesIO()
+        wb.save(output)
+        output.seek(0)
+
+        return output
+
     except Exception as e:
         return None
 
+
 def read_pdf_to_dataframe(uploaded_file):
-    """MAIN PDF READER - Fitz FIRST with blocks method, pdfplumber as fallback."""
+    """
+    MAIN PDF READER:
+    1. Try to convert Page 10 to Excel (coordinate-based, most reliable)
+    2. Fall back to Fitz text extraction
+    3. Fall back to pdfplumber
+    4. Last resort: OCR
+    """
+
+    # STEP 1: Try Page 10 → Excel converter
+    excel_output = convert_page10_to_excel(uploaded_file)
+    if excel_output:
+        try:
+            xl = pd.ExcelFile(excel_output, engine='openpyxl')
+            sheets = {}
+            for sheet_name in xl.sheet_names:
+                df = pd.read_excel(xl, sheet_name=sheet_name, engine='openpyxl')
+                sheets[sheet_name] = df
+            if sheets:
+                return sheets
+        except:
+            pass
+
+    # STEP 2: Try Fitz text extraction
     fitz_sheets = read_pdf_with_fitz(uploaded_file)
     if fitz_sheets:
         return fitz_sheets
 
+    # STEP 3: Fall back to pdfplumber
     try:
         file_bytes = get_file_bytes(uploaded_file)
         sheets = {}
@@ -492,7 +702,9 @@ def read_pdf_to_dataframe(uploaded_file):
     except Exception:
         pass
 
+    # STEP 4: Last resort - OCR
     return read_pdf_with_ocr(uploaded_file)
+
 
 def read_any_file_to_dataframes(uploaded_file):
     if uploaded_file is None:
@@ -508,7 +720,7 @@ def read_any_file_to_dataframes(uploaded_file):
     if is_pdf_file(uploaded_file):
         result = read_pdf_to_dataframe(uploaded_file)
         if result:
-            return result, "pdf"
+            return result, "pdf_converted"
     try:
         result = read_excel_to_dataframe(uploaded_file)
         if result:
@@ -662,7 +874,6 @@ def label_match_score(cell_text, label_text):
     return 0
 
 def extract_dollar_amount_from_text(text):
-    """Extract a dollar amount from any text. Returns the value or None."""
     if not text:
         return None
 
@@ -688,7 +899,6 @@ def extract_dollar_amount_from_text(text):
         except:
             pass
 
-    # Handle space-separated numbers like "48 726,96"
     text_normalized = text.replace(',', '.')
     match = re.search(r'(\d{1,3}(?:\s+\d{3})*\.?\d*)', text_normalized)
     if match:
@@ -778,279 +988,6 @@ def extract_month_year_from_text(text):
     return found_month, year
 
 # ============================================================================
-# PAGE 10 DETECTION AND EXTRACTION
-# ============================================================================
-
-def is_actual_page10(text_lines):
-    """
-    Verify this is REALLY Page 10 (P&L statement).
-    Checks across ALL text combined, not line-by-line.
-    """
-    if not text_lines or len(text_lines) < 8:
-        return False
-    
-    full_text = ' '.join(text_lines).upper()
-    
-    # STEP 1: Exclude non-Page 10 pages
-    for kw in PAGE10_EXCLUDE_KEYWORDS:
-        if kw in full_text:
-            return False
-    
-    # STEP 2: Check for the EXACT sequence of revenue accounts in order
-    required_sequence = [
-        'REVENUS MENSUELS',
-        'REVENUS JOURNALIERS', 
-        'REVENUS LAVE-AUTO',
-    ]
-    
-    last_pos = -1
-    for account in required_sequence:
-        pos = full_text.find(account)
-        if pos == -1:
-            account_no_accents = account.replace('É', 'E').replace('È', 'E')
-            pos = full_text.find(account_no_accents)
-        if pos == -1:
-            return False
-        if pos <= last_pos:
-            return False
-        last_pos = pos
-    
-    # STEP 3: Need at least ONE expense account
-    expense_indicators = [
-        'SALAIRES STATIONNEMENT', 'UNIFORMES', 'FOURN. DE STATIONNEMENT',
-        'ENTRETIEN', 'TAXES ET PERMIS', 'ASSURANCES',
-        'TÉLÉCOMMUNICATION', 'FRAIS DE BUREAU', 'FRAIS DE CARTES',
-    ]
-    
-    has_expense = False
-    for kw in expense_indicators:
-        if kw in full_text or kw.replace('É','E').replace('È','E') in full_text:
-            has_expense = True
-            break
-    
-    if not has_expense:
-        return False
-    
-    # STEP 4: Must have TOTAL REVENUS
-    if 'TOTAL REVENUS' not in full_text and 'TOTAL DES REVENUS' not in full_text:
-        return False
-    
-    # STEP 5: Must have BÉNÉFICE NET
-    if 'BÉNÉFICE NET' not in full_text and 'BENEFICE NET' not in full_text:
-        return False
-    
-    return True
-
-
-def find_page10_sheet(sheets_dict):
-    """
-    Search ALL sheets for the real Page 10.
-    Returns (sheet_name, score) or (None, debug_info_list).
-    """
-    if not sheets_dict:
-        return None, ["no_sheets"]
-    
-    candidates = []
-    debug_info = []
-    
-    for sheet_name, df in sheets_dict.items():
-        if df is None or len(df) < 5:
-            debug_info.append(f"{sheet_name}:too_small({len(df) if df is not None else 0})")
-            continue
-        
-        text_lines = []
-        
-        if 'Text' in df.columns:
-            for row_idx in range(min(80, len(df))):
-                try:
-                    line = str(df.iloc[row_idx, 0]).strip()
-                    if line and len(line) > 2:
-                        text_lines.append(line)
-                except:
-                    continue
-        else:
-            for row_idx in range(min(80, len(df))):
-                try:
-                    parts = []
-                    for col_idx in range(min(10, len(df.columns))):
-                        cell = str(df.iloc[row_idx, col_idx]).strip()
-                        if cell and cell.lower() not in ['nan', 'none', '']:
-                            parts.append(cell)
-                    line = ' '.join(parts)
-                    if line and len(line) > 2:
-                        text_lines.append(line)
-                except:
-                    continue
-        
-        if not text_lines:
-            debug_info.append(f"{sheet_name}:no_text")
-            continue
-        
-        is_page10 = is_actual_page10(text_lines)
-        
-        if is_page10:
-            full_text = ' '.join(text_lines).upper()
-            
-            # Calculate score
-            all_accounts = [
-                'REVENUS MENSUELS', 'REVENUS JOURNALIERS', 'REVENUS LAVE-AUTO',
-                'DIVERS', 'REVENUS DE STATIONNEMENT', 'GRATUITÉS',
-                'TOTAL REVENUS', 'DÉPENSES', "DÉPENSES D'EXPLOITATION",
-                'SALAIRES STATIONNEMENT', 'UNIFORMES', 'FOURN. DE STATIONNEMENT',
-                'ENTRETIEN', 'TAXES ET PERMIS', 'ASSURANCES',
-                'RÉCLAMATIONS', 'TÉLÉCOMMUNICATION', 'FRAIS DE CARTES',
-                'FRAIS DE BUREAU', 'TOTAL DES FRAIS',
-                "RÉSULTAT D'EXPLOITATION", 'AUTRES FRAIS',
-                'HONORAIRES DE GESTION', 'BÉNÉFICE NET',
-            ]
-            
-            score = 0
-            for kw in all_accounts:
-                if kw in full_text:
-                    score += 1
-            
-            if 'Fitz' in sheet_name:
-                score += 5
-            
-            candidates.append((sheet_name, score, len(text_lines)))
-            debug_info.append(f"{sheet_name}:MATCHED(score={score})")
-        else:
-            full_text = ' '.join(text_lines).upper()
-            excluded = False
-            for kw in PAGE10_EXCLUDE_KEYWORDS:
-                if kw in full_text:
-                    excluded = True
-                    debug_info.append(f"{sheet_name}:excluded_by_{kw[:25]}")
-                    break
-            if not excluded:
-                count = 0
-                for kw in ['REVENUS MENSUELS', 'REVENUS JOURNALIERS', 'TOTAL REVENUS', 'BÉNÉFICE NET']:
-                    if kw in full_text:
-                        count += 1
-                debug_info.append(f"{sheet_name}:kw={count}")
-    
-    if not candidates:
-        return None, debug_info
-    
-    candidates.sort(key=lambda x: (x[1], x[2]), reverse=True)
-    return candidates[0][0], debug_info
-
-
-def extract_page10_from_fitz_text(df):
-    """
-    Extract data from Page 10 using HARDCODED 27-row structure.
-    Extracts Column 2 (Mois Courant / Current Month Actual).
-    """
-    result = {}
-
-    text_lines = []
-    for row_idx in range(len(df)):
-        try:
-            if 'Text' in df.columns:
-                line = str(df.iloc[row_idx, 0]).strip()
-            else:
-                parts = [str(df.iloc[row_idx, c]).strip()
-                        for c in range(min(10, len(df.columns)))
-                        if str(df.iloc[row_idx, c]).strip().lower() not in ['nan', 'none', '']]
-                line = ' '.join(parts)
-
-            if line and len(line) > 2:
-                text_lines.append(line)
-        except:
-            continue
-
-    result['_DEBUG_ALL_LINES_'] = ' || '.join(text_lines[:50])[:800]
-    
-    # Extract ALL dollar amounts
-    all_values = []
-    for idx, line in enumerate(text_lines):
-        amounts = re.findall(r'[\d\s,]+\\.?\\d*', line)
-        for amt_str in amounts:
-            try:
-                val = float(amt_str.replace(' ', '').replace(',', ''))
-                if val != 0:
-                    all_values.append((idx, val, amt_str.strip()))
-            except:
-                pass
-    
-    result['_DEBUG_ALL_VALUES_'] = '; '.join([f"L{v[0]}:${v[1]:,.2f}" for v in all_values[:30]])
-
-    found_accounts = []
-    accounts_not_found = []
-
-    account_index = 0
-    i = 0
-    
-    while i < len(text_lines) and account_index < len(PAGE10_STRUCTURE):
-        line = text_lines[i]
-        english_name, french_names, is_total, is_header = PAGE10_STRUCTURE[account_index]
-        
-        matched = False
-        for french_name in french_names:
-            if clean_text_for_matching(french_name) in clean_text_for_matching(line):
-                matched = True
-                break
-        
-        if not matched:
-            i += 1
-            continue
-        
-        if english_name is None or is_header:
-            account_index += 1
-            i += 1
-            continue
-        
-        # Found the account! Find its value
-        val = None
-        
-        # Strategy 1: Dollar amount on this exact line
-        val = extract_dollar_amount_from_text(line)
-        
-        # Strategy 2: Look at next 1-3 lines
-        if val is None:
-            for offset in range(1, 4):
-                if i + offset < len(text_lines):
-                    val = extract_dollar_amount_from_text(text_lines[i + offset])
-                    if val is not None:
-                        break
-        
-        # Strategy 3: Previous line
-        if val is None and i > 0:
-            val = extract_dollar_amount_from_text(text_lines[i - 1])
-        
-        # Strategy 4: Space-separated numbers
-        if val is None:
-            compact_line = line.replace(' ', '')
-            match = re.search(r'(\d+[.,]?\d*)', compact_line)
-            if match:
-                try:
-                    val = float(match.group(1).replace(',', '.'))
-                except:
-                    pass
-        
-        # Strategy 5: First dollar amount after this line
-        if val is None:
-            for v_idx, v_val, v_str in all_values:
-                if v_idx >= i:
-                    val = v_val
-                    break
-        
-        if val is not None and val != 0:
-            result[english_name] = val
-            found_accounts.append(f"{english_name}: ${val:,.2f}")
-        else:
-            accounts_not_found.append(f"{english_name}(L{i})")
-        
-        account_index += 1
-        i += 1
-
-    result['_DEBUG_MATCHES_'] = str(len(found_accounts))
-    result['_DEBUG_FOUND_'] = '; '.join(found_accounts[:25])
-    result['_DEBUG_NOT_FOUND_'] = '; '.join(accounts_not_found[:25])
-
-    return result
-
-# ============================================================================
 # MONTHLY DATA EXTRACTION
 # ============================================================================
 
@@ -1122,12 +1059,49 @@ def extract_data_from_text_sheet(df, month_name, year):
     result['_DEBUG_MATCHES_'] = str(len([k for k in result.keys() if not k.startswith('_')]))
     return result
 
+def find_amount_column(df):
+    """Find the column with monthly actual values."""
+    if df is None or len(df) == 0:
+        return None
+
+    if 'Text' in df.columns:
+        return None
+
+    for row_idx in range(min(5, len(df))):
+        for col_idx in range(min(15, len(df.columns))):
+            try:
+                cell_text = str(df.iloc[row_idx, col_idx]).lower().strip()
+                if any(term in cell_text for term in [
+                    'current month actual', 'mois courant', 'courant',
+                    'amount', 'navision', 'actual'
+                ]):
+                    if 'ytd' not in cell_text and 'previous' not in cell_text and 'budget' not in cell_text:
+                        return col_idx
+            except:
+                continue
+
+    best_col = None
+    best_count = 0
+    for col_idx in range(1, min(8, len(df.columns))):
+        numeric_count = 0
+        for row_idx in range(min(30, len(df))):
+            val = safe_float(df.iloc[row_idx, col_idx])
+            if val != 0:
+                numeric_count += 1
+        if numeric_count > best_count:
+            best_count = numeric_count
+            best_col = col_idx
+
+    if best_count >= 3:
+        return best_col
+
+    return 2
+
 def extract_monthly_data_from_file(uploaded_file):
     """
     Main extraction function.
-    1. Find the real Page 10 using hardcoded structure
-    2. Extract values using the known 27-row layout
-    3. Fall back to generic extraction if Page 10 not found
+    For PDFs: Page 10 is converted to Excel by the converter,
+    so this function now receives clean Excel data.
     """
     result = {}
     month_name = None
@@ -1144,17 +1118,17 @@ def extract_monthly_data_from_file(uploaded_file):
     available_sheets = list(sheets_dict.keys())
     result['_DEBUG_SHEETS_'] = str(available_sheets)[:200]
 
-    page10_sheet, debug_info = find_page10_sheet(sheets_dict)
+    # Find best sheet
+    target_sheet = None
+    for name in sheets_dict:
+        if 'Page10' in name:
+            target_sheet = name
+            break
     
-    if isinstance(debug_info, list):
-        result['_DEBUG_PAGE10_SEARCH_'] = '; '.join(debug_info[:15])
-    
-    if page10_sheet:
-        target_sheet = page10_sheet
-        result['_DEBUG_TARGET_'] = f"Page10_FOUND: {target_sheet}"
-    else:
+    if target_sheet is None:
         target_sheet = find_best_data_sheet(sheets_dict)
-        result['_DEBUG_TARGET_'] = str(target_sheet) if target_sheet else "None"
+    
+    result['_DEBUG_TARGET_'] = str(target_sheet) if target_sheet else "None"
 
     if target_sheet is None:
         result['_DEBUG_ERROR_'] = "No suitable sheet found"
@@ -1171,25 +1145,65 @@ def extract_monthly_data_from_file(uploaded_file):
     if hasattr(uploaded_file, 'name'):
         month_name, year = extract_month_year_from_text(uploaded_file.name)
 
-    if page10_sheet and 'Text' in df.columns:
-        result['_DEBUG_METHOD_'] = "Page10_hardcoded_structure"
-        data = extract_page10_from_fitz_text(df)
+    # Check if this is the converted Page 10 Excel (has headers like "Mois Courant")
+    is_page10_excel = False
+    if len(df.columns) >= 2:
+        first_row = str(df.iloc[0, 1]).lower() if len(df) > 0 else ""
+        if 'mois courant' in first_row or 'account' in str(df.iloc[0, 0]).lower():
+            is_page10_excel = True
 
-        for key, value in data.items():
-            if not key.startswith('_'):
-                result[key] = value
+    if is_page10_excel:
+        result['_DEBUG_METHOD_'] = "Page10_converted_excel"
+        
+        # The converter creates: Col0=Account, Col1=Mois Courant, Col2=Budget, etc.
+        # We want Col1 (Mois Courant / Current Month Actual)
+        amount_col = 1
+        
+        matches_found = 0
+        
+        for row_idx in range(1, len(df)):  # Skip header row
+            try:
+                account_name = str(df.iloc[row_idx, 0]).strip()
+                if not account_name or account_name.lower() == 'nan':
+                    continue
+                
+                # Match account name to standard labels
+                best_match = None
+                best_score = 0
+                
+                for label, standard in ALL_LABEL_MAPPINGS.items():
+                    score = label_match_score(account_name, label)
+                    if score > best_score and score >= 0.6:
+                        best_score = score
+                        best_match = standard
+                
+                if best_match:
+                    val = safe_float(df.iloc[row_idx, amount_col])
+                    if val != 0:
+                        matches_found += 1
+                        if best_match in result:
+                            result[best_match] += val
+                        else:
+                            result[best_match] = val
+                
+                # Also check for totals
+                account_upper = account_name.upper()
+                if 'TOTAL REVENUS' in account_upper or 'TOTAL REVENUE' in account_upper:
+                    val = safe_float(df.iloc[row_idx, amount_col])
+                    if val != 0:
+                        result['_REVENUE_TOTAL_'] = val
+                
+                if 'TOTAL DES FRAIS' in account_upper or 'TOTAL OPERATING' in account_upper:
+                    val = safe_float(df.iloc[row_idx, amount_col])
+                    if val != 0:
+                        result['_EXPENSE_TOTAL_'] = val
+                        
+            except Exception:
+                continue
+        
+        result['_DEBUG_MATCHES_'] = str(matches_found)
 
-        if 'TOTAL REVENUE' in data:
-            result['_REVENUE_TOTAL_'] = data['TOTAL REVENUE']
-        if 'Total Operation expenses' in data:
-            result['_EXPENSE_TOTAL_'] = data['Total Operation expenses']
-
-        for key in ['_DEBUG_MATCHES_', '_DEBUG_FOUND_', '_DEBUG_NOT_FOUND_',
-                     '_DEBUG_ALL_LINES_', '_DEBUG_ALL_VALUES_']:
-            if key in data:
-                result[key] = data[key]
-
-    elif 'Text' in df.columns or target_sheet.endswith('_OCR') or target_sheet.endswith('_Text'):
+    elif 'Text' in df.columns:
         result['_DEBUG_METHOD_'] = "text_based"
         data = extract_data_from_text_sheet(df, month_name, year)
         for key, value in data.items():
@@ -1250,6 +1264,11 @@ def find_best_data_sheet(sheets_dict):
     if not sheets_dict:
         return None
 
+    # Prefer Page10 sheets
+    for name in sheets_dict:
+        if 'Page10' in name:
+            return name
+
     fitz_sheets = [name for name in sheets_dict.keys() if 'Fitz' in name]
 
     if fitz_sheets:
@@ -1294,45 +1313,6 @@ def find_best_data_sheet(sheets_dict):
 
     return None
 
-
-def find_amount_column(df):
-    """Find the column with monthly actual values."""
-    if df is None or len(df) == 0:
-        return None
-
-    if 'Text' in df.columns:
-        return None
-
-    for row_idx in range(min(5, len(df))):
-        for col_idx in range(min(15, len(df.columns))):
-            try:
-                cell_text = str(df.iloc[row_idx, col_idx]).lower().strip()
-                if any(term in cell_text for term in [
-                    'current month actual', 'mois courant', 'courant',
-                    'amount', 'navision', 'actual'
-                ]):
-                    if 'ytd' not in cell_text and 'previous' not in cell_text and 'budget' not in cell_text:
-                        return col_idx
-            except:
-                continue
-
-    best_col = None
-    best_count = 0
-    for col_idx in range(1, min(8, len(df.columns))):
-        numeric_count = 0
-        for row_idx in range(min(30, len(df))):
-            val = safe_float(df.iloc[row_idx, col_idx])
-            if val != 0:
-                numeric_count += 1
-        if numeric_count > best_count:
-            best_count = numeric_count
-            best_col = col_idx
-
-    if best_count >= 3:
-        return best_col
-
-    return 2
-
 # ============================================================================
 # BUILD MONTHLY DATA
 # ============================================================================
@@ -1358,11 +1338,6 @@ def build_monthly_data_from_files(monthly_files):
             'cols': file_data.pop('_DEBUG_COLS_', '?'),
             'method': file_data.pop('_DEBUG_METHOD_', '?'),
             'matches': file_data.pop('_DEBUG_MATCHES_', '?'),
-            'page10_search': file_data.pop('_DEBUG_PAGE10_SEARCH_', '?'),
-            'found': file_data.pop('_DEBUG_FOUND_', '?'),
-            'not_found': file_data.pop('_DEBUG_NOT_FOUND_', '?'),
-            'all_values': file_data.pop('_DEBUG_ALL_VALUES_', '?'),
-            'all_lines': file_data.pop('_DEBUG_ALL_LINES_', '?'),
             'error': file_data.pop('_DEBUG_ERROR_', None),
         }
 
@@ -1868,16 +1843,6 @@ def fix_excel(
                         updates.append(f"🔧 {d['file']}: ERROR - {d['error']}")
                     else:
                         updates.append(f"🔧 {d['file']}: type={d['type']}, target={d['target']}, rows={d['rows']}x{d['cols']}, method={d.get('method','?')}, matches={d['matches']}, month={d['month']}")
-                        if d.get('page10_search'):
-                            updates.append(f"   🔍 Page10 search: {d['page10_search']}")
-                        if d.get('found'):
-                            updates.append(f"   ✅ Found: {d['found']}")
-                        if d.get('not_found'):
-                            updates.append(f"   ❌ Not found: {d['not_found']}")
-                        if d.get('all_values'):
-                            updates.append(f"   💰 All values: {d['all_values']}")
-                        if d.get('all_lines'):
-                            updates.append(f"   📝 Text lines (first 800 chars): {d['all_lines']}")
 
             num_labels = len(dh_current_year_data.get('yearly', {}))
             updates.append(f"📊 Current year: {num_labels} labels")
@@ -1896,12 +1861,6 @@ def fix_excel(
                         updates.append(f"🔧 {d['file']}: ERROR - {d['error']}")
                     else:
                         updates.append(f"🔧 {d['file']}: type={d['type']}, target={d['target']}, method={d.get('method','?')}, matches={d['matches']}")
-                        if d.get('page10_search'):
-                            updates.append(f"   🔍 Page10 search: {d['page10_search']}")
-                        if d.get('found'):
-                            updates.append(f"   ✅ Found: {d['found']}")
-                        if d.get('not_found'):
-                            updates.append(f"   ❌ Not found: {d['not_found']}")
 
             num_labels = len(dh_previous_year_data.get('yearly', {}))
             updates.append(f"📊 Previous year: {num_labels} labels")
