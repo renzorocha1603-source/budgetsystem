@@ -108,26 +108,46 @@ FICHE_STATIONNEMENT_MAP = [
 ]
 
 # ============================================================================
-# PAGE 3 FINANCIAL SUMMARY MAPPING
+# PAGE 3 / PAGE 10 FINANCIAL SUMMARY MAPPING
 # ============================================================================
 PAGE3_LABEL_MAPPING = {
+    # REVENUES
     "Monthly Revenue": "Monthly Revenues",
+    "Monthly Revenues": "Monthly Revenues",
+    "Daily Revenues": "Transient Revenue",
+    "Daily Revenue": "Transient Revenue",
     "Transient Revenue": "Transient Revenue",
+    "Car Wash Revenues": "Car-Wash Revenue",
+    "Car Wash Revenue": "Car-Wash Revenue",
     "Violation": "Violation",
     "Total Parking Revenue": "Parking Revenue",
+    "Gratuities - Monthly": "Discount-Gratuities - Monthly",
     "Discounts - Gratuities (Monthly)": "Discount-Gratuities - Monthly",
     "TOTAL REVENUE": "TOTAL REVENUE",
+    "Miscellaneous": "Miscellaneous",
+    # EXPENSES
+    "Parking Salaries": "Parking wages",
     "Parking Wages": "Parking wages",
     "Uniforms": "Uniforms",
     "Parking Supplies": "Parking supplies",
+    "Maintenance - Cleaning": "R&M - Cleaning",
+    "Maintenance - Equipment": "R&M - Equipement",
+    "Maintenance - General": "R&M - General",
     "Repair & Maintenance": "R&M - General",
+    "Taxes & Permits": "Tax & license",
+    "Insurance & Bonding": "Insurance & Guarantee",
     "Insurance & Guarantee": "Insurance & Guarantee",
+    "Claims": "Claims",
     "Telecommunication": "Telecommunication",
-    "Ad. & Promotion": "Ad. & Promotion",
+    "Credit Card Fees": "Credit Card fees",
     "Bank Fees": "Credit Card fees",
-    "Miscellaneous": "Miscellaneous",
+    "Office Expenses": "Office expenses",
+    "Ad. & Promotion": "Ad. & Promotion",
+    "TOTAL OPERATING EXPENSES": "Total Operation expenses",
     "TOTAL OPERATION EXPENSES": "Total Operation expenses",
+    "OPERATING SURPLUS": "OPERATION SURPLUS",
     "OPERATION SURPLUS": "OPERATION SURPLUS",
+    "Management Fees": "Percent Management fee",
     "Percent Management Fee": "Percent Management fee",
     "Incentives": "Incentives",
     "TOTAL OTHER EXPENSES": "Total other expenses",
@@ -137,23 +157,34 @@ PAGE3_LABEL_MAPPING = {
 PAGE3_LABEL_MAPPING_FR = {
     "Revenus mensuels": "Monthly Revenues",
     "Revenus horaires": "Transient Revenue",
+    "Revenus quotidiens": "Transient Revenue",
     "Revenus de stationnement": "Parking Revenue",
     "Total des revenus": "TOTAL REVENUE",
     "Salaires": "Parking wages",
     "Uniformes": "Uniforms",
     "Fournitures": "Parking supplies",
-    "Réparations": "R&M - General",
+    "Entretien": "R&M - General",
+    "Nettoyage": "R&M - Cleaning",
+    "Équipement": "R&M - Equipement",
     "Assurances": "Insurance & Guarantee",
     "Télécommunications": "Telecommunication",
     "Publicité": "Ad. & Promotion",
     "Frais bancaires": "Credit Card fees",
+    "Frais de cartes de crédit": "Credit Card fees",
     "Divers": "Miscellaneous",
     "Total des dépenses": "Total Operation expenses",
     "Surplus": "OPERATION SURPLUS",
     "Frais de gestion": "Percent Management fee",
     "Incitatifs": "Incentives",
     "Revenu net": "NET INCOME",
+    "Réclamations": "Claims",
+    "Taxes": "Tax & license",
 }
+
+# Combined mapping for monthly extraction
+ALL_PAGE3_MAPPINGS = {}
+ALL_PAGE3_MAPPINGS.update(PAGE3_LABEL_MAPPING)
+ALL_PAGE3_MAPPINGS.update(PAGE3_LABEL_MAPPING_FR)
 
 MONTHLY_REPORT_MAPPING = {
     "Mensuels": "Monthly Revenues",
@@ -514,41 +545,114 @@ def extract_month_year_from_text(text):
     return found_month, year
 
 def find_monthly_data_sheet(sheets_dict):
+    """Find the sheet that contains the financial data."""
     if not sheets_dict:
         return None
-    for sheet_name in sheets_dict.keys():
-        sheet_lower = sheet_name.lower().strip()
-        if 'conciliation' in sheet_lower:
-            return sheet_name
-    for sheet_name in sheets_dict.keys():
-        sheet_lower = sheet_name.lower().strip()
-        if 'taxes' in sheet_lower:
-            return sheet_name
+    
+    # Filter to sheets with actual text content
+    candidates = []
     for sheet_name, df in sheets_dict.items():
         if df is None or len(df) == 0:
             continue
+        
+        text_cells = 0
+        for row_idx in range(min(10, len(df))):
+            for col_idx in range(min(5, len(df.columns))):
+                try:
+                    cell_text = str(df.iloc[row_idx, col_idx]).strip()
+                    if cell_text and cell_text.lower() != 'nan' and len(cell_text) > 2:
+                        text_cells += 1
+                except:
+                    pass
+        
+        if text_cells > 3:
+            candidates.append((sheet_name, df, text_cells, len(df)))
+    
+    if not candidates:
+        for sheet_name, df in sheets_dict.items():
+            if df is not None and len(df) > 0:
+                candidates.append((sheet_name, df, 0, len(df)))
+    
+    if not candidates:
+        return None
+    
+    # PRIORITY 1: Look for financial content keywords
+    for sheet_name, df, text_cells, rows in candidates:
+        for row_idx in range(min(15, len(df))):
+            for col_idx in range(min(8, len(df.columns))):
+                try:
+                    cell_text = str(df.iloc[row_idx, col_idx]).lower()
+                    if any(word in cell_text for word in ['total revenue', 'total parking', 'operating expense', 'net income', 'monthly revenue', 'parking salaries']):
+                        return sheet_name
+                except:
+                    continue
+    
+    # PRIORITY 2: "conciliation" or "taxes" in name
+    for sheet_name, df, text_cells, rows in candidates:
+        sheet_lower = sheet_name.lower().strip()
+        if 'conciliation' in sheet_lower or 'taxes' in sheet_lower:
+            return sheet_name
+    
+    # PRIORITY 3: Content keywords
+    for sheet_name, df, text_cells, rows in candidates:
         for row_idx in range(min(10, len(df))):
             for col_idx in range(min(5, len(df.columns))):
                 try:
                     cell_text = str(df.iloc[row_idx, col_idx]).lower()
-                    if any(word in cell_text for word in ['mensuels', 'monthly', 'transient', 'revenu', 'amount', 'parking']):
+                    if any(word in cell_text for word in ['mensuels', 'monthly', 'transient', 'revenu', 'amount', 'parking', 'mois courant', 'conciliation', 'salaries', 'expense']):
                         return sheet_name
-                except Exception:
+                except:
                     continue
-    if sheets_dict:
-        best_sheet = None
-        max_rows = 0
-        for name, df in sheets_dict.items():
-            if df is not None and len(df) > max_rows:
-                max_rows = len(df)
-                best_sheet = name
-        return best_sheet
-    return None
+    
+    # PRIORITY 4: Most text cells
+    candidates.sort(key=lambda x: x[2], reverse=True)
+    return candidates[0][0]
+
+def find_amount_column(df):
+    """
+    Find the column that contains the monthly actual values.
+    Looks for: 'Current Month Actual', 'Mois courant', 'Actual', 'Amount', 'NAVISION'
+    """
+    if df is None or len(df) == 0:
+        return None
+    
+    # Search first 5 rows for headers
+    for row_idx in range(min(5, len(df))):
+        for col_idx in range(min(15, len(df.columns))):
+            try:
+                cell_text = str(df.iloc[row_idx, col_idx]).lower().strip()
+                if any(term in cell_text for term in [
+                    'current month actual', 'mois courant', 'courant',
+                    'amount', 'navision', 'actual'
+                ]):
+                    # Make sure it's not "YTD Actual" or "Previous Year"
+                    if 'ytd' not in cell_text and 'previous' not in cell_text and 'budget' not in cell_text:
+                        return col_idx
+            except:
+                continue
+    
+    # Fallback: find first column with consistent numeric values after labels
+    best_col = None
+    best_count = 0
+    for col_idx in range(1, min(8, len(df.columns))):
+        numeric_count = 0
+        for row_idx in range(min(30, len(df))):
+            val = safe_float(df.iloc[row_idx, col_idx])
+            if val != 0:
+                numeric_count += 1
+        if numeric_count > best_count:
+            best_count = numeric_count
+            best_col = col_idx
+    
+    if best_count >= 5:
+        return best_col
+    
+    return 2  # Default to column C
 
 def extract_monthly_data_from_file(uploaded_file):
     """
-    Extract data from monthly report (Excel or PDF).
-    Returns dict with extracted data and debug info.
+    Extract monthly data from Excel or PDF file.
+    Handles both Conciliation de taxes (Excel) and Page 10 Financial Summary (PDF) formats.
     """
     result = {}
     month_name = None
@@ -556,28 +660,16 @@ def extract_monthly_data_from_file(uploaded_file):
     
     sheets_dict, file_type = read_any_file_to_dataframes(uploaded_file)
     
-    # Store debug info
     result['_DEBUG_TYPE_'] = str(file_type)
     
     if sheets_dict is None:
-        result['_DEBUG_ERROR_'] = "No sheets found - file could not be read"
+        result['_DEBUG_ERROR_'] = "No sheets found"
         return result, (None, None)
     
     available_sheets = list(sheets_dict.keys())
     result['_DEBUG_SHEETS_'] = str(available_sheets)
     
     target_sheet = find_monthly_data_sheet(sheets_dict)
-    
-    if target_sheet is None and sheets_dict:
-        # Just use the sheet with the most rows
-        best_sheet = None
-        max_rows = 0
-        for name, df in sheets_dict.items():
-            if df is not None and len(df) > max_rows:
-                max_rows = len(df)
-                best_sheet = name
-        target_sheet = best_sheet
-    
     result['_DEBUG_TARGET_'] = str(target_sheet) if target_sheet else "None"
     
     if target_sheet is None:
@@ -592,7 +684,7 @@ def extract_monthly_data_from_file(uploaded_file):
     result['_DEBUG_ROWS_'] = str(len(df))
     result['_DEBUG_COLS_'] = str(len(df.columns))
     
-    # Debug: show first 5 rows sample
+    # Show sample for debugging
     sample_rows = []
     for row_idx in range(min(5, len(df))):
         row_data = []
@@ -607,9 +699,18 @@ def extract_monthly_data_from_file(uploaded_file):
         sample_rows.append(" | ".join(row_data))
     result['_DEBUG_SAMPLE_'] = " || ".join(sample_rows)
     
+    # Find the AMOUNT column
+    amount_col = find_amount_column(df)
+    result['_DEBUG_AMOUNT_COL_'] = str(amount_col) if amount_col is not None else "None"
+    
+    if amount_col is None:
+        amount_col = 2
+    
+    # Extract month/year from filename
     if hasattr(uploaded_file, 'name'):
         month_name, year = extract_month_year_from_text(uploaded_file.name)
     
+    # Also search content for month/year
     if month_name is None or year is None:
         for row_idx in range(min(10, len(df))):
             for col_idx in range(min(10, len(df.columns))):
@@ -627,60 +728,51 @@ def extract_monthly_data_from_file(uploaded_file):
     
     for row_idx in range(len(df)):
         try:
-            # ── FIRST: Check for special markers ──────────────────────
+            # Check for special markers
             for col_idx in range(min(10, len(df.columns))):
                 cell_text = str(df.iloc[row_idx, col_idx]).strip().upper()
                 
-                if 'REVENUE TOTAL' in cell_text:
-                    val = 0
-                    for vcol in range(col_idx + 1, min(col_idx + 5, len(df.columns))):
-                        candidate = safe_float(df.iloc[row_idx, vcol])
-                        if candidate != 0:
-                            val = candidate
-                            break
+                if 'REVENUE TOTAL' in cell_text or 'TOTAL REVENUE' in cell_text:
+                    val = safe_float(df.iloc[row_idx, amount_col])
                     if val != 0:
                         result['_REVENUE_TOTAL_'] = val
                     break
                 
-                if 'CHARGE TOTALE' in cell_text:
-                    val = 0
-                    for vcol in range(col_idx + 1, min(col_idx + 5, len(df.columns))):
-                        candidate = safe_float(df.iloc[row_idx, vcol])
-                        if candidate != 0:
-                            val = candidate
-                            break
+                if 'CHARGE TOTALE' in cell_text or 'TOTAL OPERATING EXPENSES' in cell_text or 'TOTAL OPERATION EXPENSES' in cell_text:
+                    val = safe_float(df.iloc[row_idx, amount_col])
                     if val != 0:
                         result['_EXPENSE_TOTAL_'] = val
                     break
             
-            # ── SECOND: Regular label matching ─────────────────────────
+            # Try ALL mappings (both Page3 and monthly report mappings)
             best_match = None
             best_score = 0
-            label_col = -1
             
             for col_idx in range(min(10, len(df.columns))):
                 cell_text = str(df.iloc[row_idx, col_idx]).strip()
                 if not cell_text or len(cell_text) < 3:
                     continue
                 
-                for monthly_label, standard_label in MONTHLY_REPORT_MAPPING.items():
-                    score = label_match_score(cell_text, monthly_label)
-                    if score > best_score:
+                # Try Page 3 mappings first (for PDF financial summaries)
+                for label, standard in ALL_PAGE3_MAPPINGS.items():
+                    score = label_match_score(cell_text, label)
+                    if score > best_score and score >= 0.6:
                         best_score = score
-                        best_match = standard_label
-                        label_col = col_idx
+                        best_match = standard
+                
+                # Try monthly report mappings (for Excel conciliation sheets)
+                for label, standard in MONTHLY_REPORT_MAPPING.items():
+                    score = label_match_score(cell_text, label)
+                    if score > best_score and score >= 0.6:
+                        best_score = score
+                        best_match = standard
             
             if best_match is None or best_score < 0.5:
                 continue
             
             matches_found += 1
             
-            val = 0
-            for col_idx in range(label_col + 1, min(label_col + 5, len(df.columns))):
-                candidate = safe_float(df.iloc[row_idx, col_idx])
-                if candidate != 0:
-                    val = candidate
-                    break
+            val = safe_float(df.iloc[row_idx, amount_col])
             
             if val != 0:
                 if best_match in result:
@@ -705,7 +797,6 @@ def build_monthly_data_from_files(monthly_files):
     for uploaded_file in monthly_files:
         file_data, (month_name, year) = extract_monthly_data_from_file(uploaded_file)
         
-        # Collect debug info
         debug_info = {
             'file': getattr(uploaded_file, 'name', 'unknown'),
             'month': month_name,
@@ -717,6 +808,7 @@ def build_monthly_data_from_files(monthly_files):
             'cols': file_data.pop('_DEBUG_COLS_', '?'),
             'sample': file_data.pop('_DEBUG_SAMPLE_', '?'),
             'matches': file_data.pop('_DEBUG_MATCHES_', '?'),
+            'amount_col': file_data.pop('_DEBUG_AMOUNT_COL_', '?'),
             'error': file_data.pop('_DEBUG_ERROR_', None),
         }
         
@@ -748,7 +840,6 @@ def build_monthly_data_from_files(monthly_files):
                 yearly_data[label] = 0
             yearly_data[label] += value
     
-    # Remove debug info from data
     debug_list = monthly_data.pop('_debug_info', None)
     
     if not monthly_data:
@@ -768,13 +859,11 @@ def build_monthly_data_from_files(monthly_files):
     return result
 
 # ============================================================================
-# PAGE 3 FINANCIAL SUMMARY EXTRACTION
+# PAGE 3 FINANCIAL SUMMARY EXTRACTION (for yearly data)
 # ============================================================================
 
 def find_ytd_column(df):
-    """
-    Find the column index that contains YTD Actual / Cumulatif courant data.
-    """
+    """Find the column index that contains YTD Actual / Cumulatif courant data."""
     if df is None or len(df) == 0:
         return None
     
@@ -787,7 +876,6 @@ def find_ytd_column(df):
             except Exception:
                 continue
     
-    # Fallback: look for columns with numeric values in later columns
     for col_idx in [5, 6, 7]:
         if col_idx < len(df.columns):
             has_numbers = False
@@ -801,9 +889,7 @@ def find_ytd_column(df):
     return None
 
 def extract_page3_data(uploaded_file):
-    """
-    Extract YTD Actual data from Page 3 Financial Summary.
-    """
+    """Extract YTD Actual data from Page 3/10 Financial Summary."""
     result = {'monthly': {}, 'yearly': {}}
     
     sheets_dict, file_type = read_any_file_to_dataframes(uploaded_file)
@@ -816,18 +902,6 @@ def extract_page3_data(uploaded_file):
         
         ytd_col = find_ytd_column(df)
         if ytd_col is None:
-            for col_idx in [5, 6, 7]:
-                if col_idx < len(df.columns):
-                    has_numbers = False
-                    for row_idx in range(min(20, len(df))):
-                        if safe_float(df.iloc[row_idx, col_idx]) != 0:
-                            has_numbers = True
-                            break
-                    if has_numbers:
-                        ytd_col = col_idx
-                        break
-        
-        if ytd_col is None:
             continue
         
         for row_idx in range(len(df)):
@@ -837,20 +911,12 @@ def extract_page3_data(uploaded_file):
                     if not cell_text or len(cell_text) < 3:
                         continue
                     
-                    for page3_label, standard_label in PAGE3_LABEL_MAPPING.items():
+                    for page3_label, standard_label in ALL_PAGE3_MAPPINGS.items():
                         if label_match_score(cell_text, page3_label) >= 0.6:
                             val = safe_float(df.iloc[row_idx, ytd_col])
                             if val != 0:
                                 result['yearly'][standard_label] = val
                             break
-                    
-                    for page3_label, standard_label in PAGE3_LABEL_MAPPING_FR.items():
-                        if label_match_score(cell_text, page3_label) >= 0.6:
-                            val = safe_float(df.iloc[row_idx, ytd_col])
-                            if val != 0:
-                                result['yearly'][standard_label] = val
-                            break
-            
             except Exception:
                 continue
     
@@ -1015,9 +1081,7 @@ def merge_monthly_data(current_year_data, previous_year_data, year_map):
 # ============================================================================
 
 def update_budget_initial(wb, bi_data, parking_code):
-    """
-    Fill Budget Initial Column S with Year Totals from Page 3 or P&L data.
-    """
+    """Fill Budget Initial Column S with Year Totals."""
     updates = []
     try:
         sheet_name = find_sheet_by_pattern(wb, SHEET_PATTERNS["Budget Initial"])
@@ -1058,11 +1122,6 @@ def update_budget_initial(wb, bi_data, parking_code):
             updates.append(f"🔍 BI Validation: Expected NET INCOME = ${expected_net:,.2f}")
             updates.append(f"🔍 BI: Filled Revenue = ${filled_revenue:,.2f}, Filled Expense = ${filled_expense:,.2f}")
             updates.append(f"🔍 BI: Calculated Net = ${calculated_net:,.2f}, Gap = ${gap:,.2f}")
-            
-            if abs(gap) > 0.99:
-                updates.append(f"⚠️ BI Gap: ${gap:,.2f} - some items may not be mapped")
-            else:
-                updates.append(f"✅ BI Balanced within tolerance")
         
         if cells_updated > 0:
             updates.append(f"✅ Budget Initial: {cells_updated} cells updated")
@@ -1237,16 +1296,15 @@ def fix_excel(
         updates.append("📋 Processing Current Year monthly files")
         dh_current_year_data = build_monthly_data_from_files(monthly_files_current)
         if dh_current_year_data:
-            # Show debug info if available
             debug_info = dh_current_year_data.pop('_debug_info', None)
             if debug_info:
                 for d in debug_info:
                     if d.get('error'):
                         updates.append(f"🔧 {d['file']}: ERROR - {d['error']}")
                     else:
-                        updates.append(f"🔧 {d['file']}: type={d['type']}, sheets={d['sheets']}, target={d['target']}, rows={d['rows']}x{d['cols']}, matches={d['matches']}, month={d['month']}")
+                        updates.append(f"🔧 {d['file']}: type={d['type']}, target={d['target']}, rows={d['rows']}x{d['cols']}, matches={d['matches']}, month={d['month']}, amount_col={d.get('amount_col','?')}")
                         if d.get('sample'):
-                            updates.append(f"🔧 Sample: {d['sample'][:200]}")
+                            updates.append(f"🔧 Sample: {d['sample'][:250]}")
             
             num_labels = len(dh_current_year_data.get('yearly', {}))
             updates.append(f"📊 Current year: {num_labels} labels")
@@ -1274,7 +1332,7 @@ def fix_excel(
                     monthly_totals = {}
                 monthly_totals.update(prev_totals)
     
-    # ── Budget Initial data from Page 3 ───────────────────────────
+    # ── Budget Initial data ───────────────────────────────────────
     bi_data = None
     if budget_initial_file:
         updates.append("📋 Processing Budget Initial source")
@@ -1282,12 +1340,12 @@ def fix_excel(
         if bi_data:
             num_labels = len(bi_data.get('yearly', {}))
             updates.append(f"📊 Budget Initial (Page 3): {num_labels} labels")
-        if bi_data is None or num_labels == 0:
+        if bi_data is None or (bi_data and len(bi_data.get('yearly', {})) == 0):
             bi_data, _ = extract_pnl_data(budget_initial_file, parking_code)
             if bi_data:
                 updates.append(f"📊 Budget Initial (P&L fallback): {len(bi_data.get('yearly', {}))} labels")
     
-    # ── Fiche Stationnement data from Page 3 ──────────────────────
+    # ── Fiche Stationnement data ──────────────────────────────────
     fs_data = None
     if fiche_stationnement_file:
         updates.append("📋 Processing Fiche Stationnement source")
@@ -1295,7 +1353,7 @@ def fix_excel(
         if fs_data:
             num_labels = len(fs_data.get('yearly', {}))
             updates.append(f"📊 Fiche Stationnement (Page 3): {num_labels} labels")
-        if fs_data is None or num_labels == 0:
+        if fs_data is None or (fs_data and len(fs_data.get('yearly', {})) == 0):
             fs_data, _ = extract_pnl_data(fiche_stationnement_file, parking_code)
             if fs_data:
                 updates.append(f"📊 Fiche Stationnement (P&L fallback): {len(fs_data.get('yearly', {}))} labels")
