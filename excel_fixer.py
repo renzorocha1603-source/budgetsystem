@@ -110,16 +110,13 @@ FICHE_STATIONNEMENT_MAP = [
 # ============================================================================
 # PAGE 3 FINANCIAL SUMMARY MAPPING
 # ============================================================================
-# Maps labels from the Page 3 Financial Summary to standard P&L labels
 PAGE3_LABEL_MAPPING = {
-    # REVENUES
     "Monthly Revenue": "Monthly Revenues",
     "Transient Revenue": "Transient Revenue",
     "Violation": "Violation",
     "Total Parking Revenue": "Parking Revenue",
     "Discounts - Gratuities (Monthly)": "Discount-Gratuities - Monthly",
     "TOTAL REVENUE": "TOTAL REVENUE",
-    # EXPENSES
     "Parking Wages": "Parking wages",
     "Uniforms": "Uniforms",
     "Parking Supplies": "Parking supplies",
@@ -137,7 +134,6 @@ PAGE3_LABEL_MAPPING = {
     "NET INCOME": "NET INCOME",
 }
 
-# French versions
 PAGE3_LABEL_MAPPING_FR = {
     "Revenus mensuels": "Monthly Revenues",
     "Revenus horaires": "Transient Revenue",
@@ -550,21 +546,66 @@ def find_monthly_data_sheet(sheets_dict):
     return None
 
 def extract_monthly_data_from_file(uploaded_file):
+    """
+    Extract data from monthly report (Excel or PDF).
+    Returns dict with extracted data and debug info.
+    """
     result = {}
     month_name = None
     year = None
     
     sheets_dict, file_type = read_any_file_to_dataframes(uploaded_file)
+    
+    # Store debug info
+    result['_DEBUG_TYPE_'] = str(file_type)
+    
     if sheets_dict is None:
+        result['_DEBUG_ERROR_'] = "No sheets found - file could not be read"
         return result, (None, None)
     
+    available_sheets = list(sheets_dict.keys())
+    result['_DEBUG_SHEETS_'] = str(available_sheets)
+    
     target_sheet = find_monthly_data_sheet(sheets_dict)
+    
+    if target_sheet is None and sheets_dict:
+        # Just use the sheet with the most rows
+        best_sheet = None
+        max_rows = 0
+        for name, df in sheets_dict.items():
+            if df is not None and len(df) > max_rows:
+                max_rows = len(df)
+                best_sheet = name
+        target_sheet = best_sheet
+    
+    result['_DEBUG_TARGET_'] = str(target_sheet) if target_sheet else "None"
+    
     if target_sheet is None:
+        result['_DEBUG_ERROR_'] = "No suitable sheet found"
         return result, (None, None)
     
     df = sheets_dict[target_sheet]
     if df is None or len(df) == 0:
+        result['_DEBUG_ERROR_'] = "Sheet has no data"
         return result, (None, None)
+    
+    result['_DEBUG_ROWS_'] = str(len(df))
+    result['_DEBUG_COLS_'] = str(len(df.columns))
+    
+    # Debug: show first 5 rows sample
+    sample_rows = []
+    for row_idx in range(min(5, len(df))):
+        row_data = []
+        for col_idx in range(min(8, len(df.columns))):
+            try:
+                cell = str(df.iloc[row_idx, col_idx])
+                if len(cell) > 50:
+                    cell = cell[:50] + "..."
+                row_data.append(cell)
+            except:
+                row_data.append("?")
+        sample_rows.append(" | ".join(row_data))
+    result['_DEBUG_SAMPLE_'] = " || ".join(sample_rows)
     
     if hasattr(uploaded_file, 'name'):
         month_name, year = extract_month_year_from_text(uploaded_file.name)
@@ -582,8 +623,11 @@ def extract_monthly_data_from_file(uploaded_file):
                 except Exception:
                     continue
     
+    matches_found = 0
+    
     for row_idx in range(len(df)):
         try:
+            # ── FIRST: Check for special markers ──────────────────────
             for col_idx in range(min(10, len(df.columns))):
                 cell_text = str(df.iloc[row_idx, col_idx]).strip().upper()
                 
@@ -609,6 +653,7 @@ def extract_monthly_data_from_file(uploaded_file):
                         result['_EXPENSE_TOTAL_'] = val
                     break
             
+            # ── SECOND: Regular label matching ─────────────────────────
             best_match = None
             best_score = 0
             label_col = -1
@@ -628,6 +673,8 @@ def extract_monthly_data_from_file(uploaded_file):
             if best_match is None or best_score < 0.5:
                 continue
             
+            matches_found += 1
+            
             val = 0
             for col_idx in range(label_col + 1, min(label_col + 5, len(df.columns))):
                 candidate = safe_float(df.iloc[row_idx, col_idx])
@@ -644,6 +691,8 @@ def extract_monthly_data_from_file(uploaded_file):
         except Exception:
             continue
     
+    result['_DEBUG_MATCHES_'] = str(matches_found)
+    
     return result, (month_name, year)
 
 def build_monthly_data_from_files(monthly_files):
@@ -655,6 +704,28 @@ def build_monthly_data_from_files(monthly_files):
     
     for uploaded_file in monthly_files:
         file_data, (month_name, year) = extract_monthly_data_from_file(uploaded_file)
+        
+        # Collect debug info
+        debug_info = {
+            'file': getattr(uploaded_file, 'name', 'unknown'),
+            'month': month_name,
+            'year': year,
+            'type': file_data.pop('_DEBUG_TYPE_', '?'),
+            'sheets': file_data.pop('_DEBUG_SHEETS_', '?'),
+            'target': file_data.pop('_DEBUG_TARGET_', '?'),
+            'rows': file_data.pop('_DEBUG_ROWS_', '?'),
+            'cols': file_data.pop('_DEBUG_COLS_', '?'),
+            'sample': file_data.pop('_DEBUG_SAMPLE_', '?'),
+            'matches': file_data.pop('_DEBUG_MATCHES_', '?'),
+            'error': file_data.pop('_DEBUG_ERROR_', None),
+        }
+        
+        if not monthly_data:
+            monthly_data['_debug_info'] = []
+        if '_debug_info' not in monthly_data:
+            monthly_data['_debug_info'] = []
+        monthly_data['_debug_info'].append(debug_info)
+        
         if not file_data or month_name is None:
             continue
         
@@ -677,7 +748,12 @@ def build_monthly_data_from_files(monthly_files):
                 yearly_data[label] = 0
             yearly_data[label] += value
     
+    # Remove debug info from data
+    debug_list = monthly_data.pop('_debug_info', None)
+    
     if not monthly_data:
+        if debug_list:
+            return {'monthly': {}, 'yearly': {}, '_debug_info': debug_list}
         return None
     
     result = {
@@ -686,6 +762,8 @@ def build_monthly_data_from_files(monthly_files):
     }
     if monthly_totals:
         result['_monthly_totals'] = monthly_totals
+    if debug_list:
+        result['_debug_info'] = debug_list
     
     return result
 
@@ -696,28 +774,35 @@ def build_monthly_data_from_files(monthly_files):
 def find_ytd_column(df):
     """
     Find the column index that contains YTD Actual / Cumulatif courant data.
-    Looks for headers like 'YTD Actual', 'Cumulatif courant', 'YTD', 'Cumulatif'.
     """
     if df is None or len(df) == 0:
         return None
     
-    # Search first 5 rows for YTD indicators
     for row_idx in range(min(5, len(df))):
         for col_idx in range(min(15, len(df.columns))):
             try:
                 cell_text = str(df.iloc[row_idx, col_idx]).lower().strip()
-                if any(term in cell_text for term in ['ytd actual', 'cumulatif courant', 'ytd', 'cumulatif']):
+                if any(term in cell_text for term in ['ytd actual', 'cumulatif courant', 'ytd', 'cumulatif', 'year to date']):
                     return col_idx
             except Exception:
                 continue
+    
+    # Fallback: look for columns with numeric values in later columns
+    for col_idx in [5, 6, 7]:
+        if col_idx < len(df.columns):
+            has_numbers = False
+            for row_idx in range(min(20, len(df))):
+                if safe_float(df.iloc[row_idx, col_idx]) != 0:
+                    has_numbers = True
+                    break
+            if has_numbers:
+                return col_idx
     
     return None
 
 def extract_page3_data(uploaded_file):
     """
     Extract YTD Actual data from Page 3 Financial Summary.
-    Finds the YTD column and maps labels to standard P&L labels.
-    Returns dict with 'yearly' data (YTD values).
     """
     result = {'monthly': {}, 'yearly': {}}
     
@@ -725,19 +810,14 @@ def extract_page3_data(uploaded_file):
     if sheets_dict is None:
         return None
     
-    # Try each sheet
     for sheet_name, df in sheets_dict.items():
         if df is None or len(df) == 0:
             continue
         
-        # Find the YTD column
         ytd_col = find_ytd_column(df)
         if ytd_col is None:
-            # Fallback: look for any column with numeric values that could be YTD
-            # Usually the 6th or 7th column in the Page 3 format
             for col_idx in [5, 6, 7]:
                 if col_idx < len(df.columns):
-                    # Check if this column has numeric values
                     has_numbers = False
                     for row_idx in range(min(20, len(df))):
                         if safe_float(df.iloc[row_idx, col_idx]) != 0:
@@ -750,16 +830,13 @@ def extract_page3_data(uploaded_file):
         if ytd_col is None:
             continue
         
-        # Extract data using label matching
         for row_idx in range(len(df)):
             try:
-                # Search all columns for a matching label
                 for col_idx in range(min(10, len(df.columns))):
                     cell_text = str(df.iloc[row_idx, col_idx]).strip()
                     if not cell_text or len(cell_text) < 3:
                         continue
                     
-                    # Try English mapping
                     for page3_label, standard_label in PAGE3_LABEL_MAPPING.items():
                         if label_match_score(cell_text, page3_label) >= 0.6:
                             val = safe_float(df.iloc[row_idx, ytd_col])
@@ -767,7 +844,6 @@ def extract_page3_data(uploaded_file):
                                 result['yearly'][standard_label] = val
                             break
                     
-                    # Try French mapping
                     for page3_label, standard_label in PAGE3_LABEL_MAPPING_FR.items():
                         if label_match_score(cell_text, page3_label) >= 0.6:
                             val = safe_float(df.iloc[row_idx, ytd_col])
@@ -971,7 +1047,6 @@ def update_budget_initial(wb, bi_data, parking_code):
                 elif dh_row in EXPENSE_ROWS:
                     filled_expense += yearly_value
         
-        # Validate against NET INCOME
         expected_net = find_pnl_value(bi_data, [
             "NET INCOME", "net income", "revenus nets", "REVENUS NETS"
         ])
@@ -1033,7 +1108,7 @@ def update_donnees_historiques(wb, merged_monthly_data, parking_code, monthly_to
             f"May={year_map.get(4)}, Dec={year_map.get(11)}"
         )
         if not merged_monthly_data:
-            updates.append("⚠️ Donnees Historiques: No data available")
+            updates.append("⚠️ Donnees Historiques: No merged monthly data available")
             return updates
         
         monthly_filled_revenue = {}
@@ -1162,6 +1237,17 @@ def fix_excel(
         updates.append("📋 Processing Current Year monthly files")
         dh_current_year_data = build_monthly_data_from_files(monthly_files_current)
         if dh_current_year_data:
+            # Show debug info if available
+            debug_info = dh_current_year_data.pop('_debug_info', None)
+            if debug_info:
+                for d in debug_info:
+                    if d.get('error'):
+                        updates.append(f"🔧 {d['file']}: ERROR - {d['error']}")
+                    else:
+                        updates.append(f"🔧 {d['file']}: type={d['type']}, sheets={d['sheets']}, target={d['target']}, rows={d['rows']}x{d['cols']}, matches={d['matches']}, month={d['month']}")
+                        if d.get('sample'):
+                            updates.append(f"🔧 Sample: {d['sample'][:200]}")
+            
             num_labels = len(dh_current_year_data.get('yearly', {}))
             updates.append(f"📊 Current year: {num_labels} labels")
             if '_monthly_totals' in dh_current_year_data:
@@ -1172,6 +1258,14 @@ def fix_excel(
         updates.append("📋 Processing Previous Year monthly files")
         dh_previous_year_data = build_monthly_data_from_files(monthly_files_previous)
         if dh_previous_year_data:
+            debug_info = dh_previous_year_data.pop('_debug_info', None)
+            if debug_info:
+                for d in debug_info:
+                    if d.get('error'):
+                        updates.append(f"🔧 {d['file']}: ERROR - {d['error']}")
+                    else:
+                        updates.append(f"🔧 {d['file']}: type={d['type']}, target={d['target']}, matches={d['matches']}")
+            
             num_labels = len(dh_previous_year_data.get('yearly', {}))
             updates.append(f"📊 Previous year: {num_labels} labels")
             if '_monthly_totals' in dh_previous_year_data:
@@ -1183,29 +1277,28 @@ def fix_excel(
     # ── Budget Initial data from Page 3 ───────────────────────────
     bi_data = None
     if budget_initial_file:
-        updates.append("📋 Processing Budget Initial source (Page 3)")
+        updates.append("📋 Processing Budget Initial source")
         bi_data = extract_page3_data(budget_initial_file)
         if bi_data:
             num_labels = len(bi_data.get('yearly', {}))
-            updates.append(f"📊 Budget Initial: {num_labels} labels extracted")
-            # Also try as regular P&L if Page 3 extraction fails
-            if num_labels == 0:
-                bi_data, _ = extract_pnl_data(budget_initial_file, parking_code)
-                if bi_data:
-                    updates.append(f"📊 Budget Initial (P&L fallback): {len(bi_data.get('yearly', {}))} labels")
+            updates.append(f"📊 Budget Initial (Page 3): {num_labels} labels")
+        if bi_data is None or num_labels == 0:
+            bi_data, _ = extract_pnl_data(budget_initial_file, parking_code)
+            if bi_data:
+                updates.append(f"📊 Budget Initial (P&L fallback): {len(bi_data.get('yearly', {}))} labels")
     
     # ── Fiche Stationnement data from Page 3 ──────────────────────
     fs_data = None
     if fiche_stationnement_file:
-        updates.append("📋 Processing Fiche Stationnement source (Page 3)")
+        updates.append("📋 Processing Fiche Stationnement source")
         fs_data = extract_page3_data(fiche_stationnement_file)
         if fs_data:
             num_labels = len(fs_data.get('yearly', {}))
-            updates.append(f"📊 Fiche Stationnement: {num_labels} labels extracted")
-            if num_labels == 0:
-                fs_data, _ = extract_pnl_data(fiche_stationnement_file, parking_code)
-                if fs_data:
-                    updates.append(f"📊 Fiche Stationnement (P&L fallback): {len(fs_data.get('yearly', {}))} labels")
+            updates.append(f"📊 Fiche Stationnement (Page 3): {num_labels} labels")
+        if fs_data is None or num_labels == 0:
+            fs_data, _ = extract_pnl_data(fiche_stationnement_file, parking_code)
+            if fs_data:
+                updates.append(f"📊 Fiche Stationnement (P&L fallback): {len(fs_data.get('yearly', {}))} labels")
     
     # ── Check if we have any data ─────────────────────────────────
     if dh_current_year_data is None and dh_previous_year_data is None:
