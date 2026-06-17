@@ -306,16 +306,10 @@ T_DATA = {
         "no_msgs": "No messages yet — start a conversation with Allison.",
         "files_title": "File Upload",
         "excel_lbl": "📊 Upload Excel Template (.xlsx)",
-        "upload_method_lbl": "📋 Upload Method for Current & Previous Year Data",
-        "method_yearly": "Yearly P&L Files",
-        "method_monthly": "Monthly Reports (PDF/Excel)",
-        "pnl_current_lbl": "📁 P&L CURRENT Year (e.g., 2026) - Any format",
-        "pnl_previous_lbl": "📁 P&L PREVIOUS Year (e.g., 2025) - Any format",
-        "pnl_previous_bi_lbl": "📁 P&L PREVIOUS Year for Budget Initial (e.g., 2025) - Any format",
-        "pnl_previous_bi_note": "Required for Budget Initial page. Upload the yearly P&L file for the previous year.",
-        "pnl_two_ya_lbl": "📁 P&L 2 Years Ago (e.g., 2024) - Any format (for Fiche Stationnement)",
-        "monthly_current_lbl": "📁 Monthly Reports CURRENT Year (4 files: Jan-Apr 2026)",
-        "monthly_previous_lbl": "📁 Monthly Reports PREVIOUS Year (8 files: May-Dec 2025)",
+        "monthly_current_lbl": "📁 Current Year Monthly Reports (4 files: Jan-Apr 2026)",
+        "monthly_previous_lbl": "📁 Previous Year Monthly Reports (8 files: May-Dec 2025)",
+        "budget_initial_lbl": "📁 Budget Initial Source (Dec 2025 Page 3 / P&L)",
+        "fiche_stationnement_lbl": "📁 Fiche Stationnement Source (Dec 2024 Page 3 / P&L)",
         "processing": "Processing files…",
         "files_ready": "✅ All files ready — you can now run the workflow.",
         "files_ready_partial": "✅ Template + Current Year data ready. Other files recommended.",
@@ -339,10 +333,12 @@ T_DATA = {
         "clear_workflow": "🔄 Clear Workflow",
         "speak_now": "🎤 SPEAK NOW",
         "allison_online": "🟢 Allison is online and ready",
-        "word_data_upload": "📄 Upload Word Data (optional)",
         "parking_code_lbl": "🏢 Select Parking Code",
-        "parking_code_help": "Choose the parking location from the P&L file",
+        "parking_code_help": "Choose the parking location",
         "no_parking_codes": "No parking codes detected in uploaded files",
+        "file_note_monthly": "Upload PDF or Excel files. Each file should be named with the month (e.g., January 2026.xlsx).",
+        "file_note_page3": "Upload the December Page 3 Financial Summary (PDF or Excel). Extracts YTD Actual / Cumulatif courant values.",
+        "file_note_accept": "Accepts: Excel, PDF, CSV",
     },
     "fr": {
         "brand": "SYSTÈME BUDGÉTAIRE",
@@ -358,16 +354,10 @@ T_DATA = {
         "no_msgs": "Aucun message — commencez une conversation avec Allison.",
         "files_title": "Fichiers",
         "excel_lbl": "📊 Téléverser le modèle Excel (.xlsx)",
-        "upload_method_lbl": "📋 Méthode pour les données annuelles",
-        "method_yearly": "Fichiers P&L annuels",
-        "method_monthly": "Rapports mensuels (PDF/Excel)",
-        "pnl_current_lbl": "📁 P&L année EN COURS (ex: 2026) - Tout format",
-        "pnl_previous_lbl": "📁 P&L année PRÉCÉDENTE (ex: 2025) - Tout format",
-        "pnl_previous_bi_lbl": "📁 P&L année PRÉCÉDENTE pour Budget Initial (ex: 2025) - Tout format",
-        "pnl_previous_bi_note": "Requis pour la page Budget Initial. Téléversez le fichier P&L annuel de l'année précédente.",
-        "pnl_two_ya_lbl": "📁 P&L il y a 2 ans (ex: 2024) - Tout format (pour Fiche Stationnement)",
-        "monthly_current_lbl": "📁 Rapports mensuels année EN COURS (4 fichiers: Jan-Avr 2026)",
-        "monthly_previous_lbl": "📁 Rapports mensuels année PRÉCÉDENTE (8 fichiers: Mai-Déc 2025)",
+        "monthly_current_lbl": "📁 Rapports mensuels année courante (4 fichiers: Jan-Avr 2026)",
+        "monthly_previous_lbl": "📁 Rapports mensuels année précédente (8 fichiers: Mai-Déc 2025)",
+        "budget_initial_lbl": "📁 Source Budget Initial (Déc 2025 Page 3 / P&L)",
+        "fiche_stationnement_lbl": "📁 Source Fiche Stationnement (Déc 2024 Page 3 / P&L)",
         "processing": "Traitement…",
         "files_ready": "✅ Tous les fichiers prêts — exécutez le workflow.",
         "files_ready_partial": "✅ Modèle + données année courante prêts. Autres fichiers recommandés.",
@@ -391,10 +381,12 @@ T_DATA = {
         "clear_workflow": "🔄 Effacer Workflow",
         "speak_now": "🎤 PARLEZ",
         "allison_online": "🟢 Allison est en ligne et prête",
-        "word_data_upload": "📄 Téléverser données Word (optionnel)",
         "parking_code_lbl": "🏢 Sélectionner le code stationnement",
-        "parking_code_help": "Choisissez le stationnement du fichier P&L",
+        "parking_code_help": "Choisissez le stationnement",
         "no_parking_codes": "Aucun code stationnement détecté dans les fichiers",
+        "file_note_monthly": "Téléversez des fichiers PDF ou Excel. Chaque fichier doit être nommé avec le mois (ex: Janvier 2026.xlsx).",
+        "file_note_page3": "Téléversez le Page 3 Résumé Financier de décembre (PDF ou Excel). Extrait les valeurs YTD Actual / Cumulatif courant.",
+        "file_note_accept": "Accepte: Excel, PDF, CSV",
     },
 }
 
@@ -520,15 +512,10 @@ _D = dict(
     theme="dark",
     messages=[],
     excel_bytes=None,
-    pnl_current_bytes=None,
-    pnl_previous_bytes=None,
-    pnl_previous_bi_bytes=None,
-    pnl_two_ya_bytes=None,
     monthly_current_files=[],
     monthly_previous_files=[],
-    upload_method="yearly",
-    word_bytes=None,
-    extracted_rev={},
+    budget_initial_file=None,
+    fiche_stationnement_file=None,
     files_ready=False,
     fixed_excel=None,
     workflow_log=[],
@@ -1264,127 +1251,72 @@ def page_dashboard():
         # 1. Excel Template (REQUIRED)
         excel_file = st.file_uploader(T("excel_lbl"), type=["xlsx"], key="xl")
 
-        # 2. Upload Method for Current & Previous Years
-        upload_method = st.radio(
-            T("upload_method_lbl"),
-            options=["yearly", "monthly"],
-            format_func=lambda x: T(f"method_{x}"),
-            key="upload_method_radio",
-            horizontal=True
+        st.markdown('<div class="hr"></div>', unsafe_allow_html=True)
+
+        # 2. Current Year Monthly Reports
+        monthly_current = st.file_uploader(
+            T("monthly_current_lbl"),
+            type=["xlsx", "xls", "xlsm", "pdf", "csv"],
+            accept_multiple_files=True,
+            key="monthly_current"
         )
-        st.session_state.upload_method = upload_method
+        st.markdown(f'<div class="file-upload-note">{T("file_note_monthly")}</div>', unsafe_allow_html=True)
+
+        # 3. Previous Year Monthly Reports
+        monthly_previous = st.file_uploader(
+            T("monthly_previous_lbl"),
+            type=["xlsx", "xls", "xlsm", "pdf", "csv"],
+            accept_multiple_files=True,
+            key="monthly_previous"
+        )
+        st.markdown(f'<div class="file-upload-note">{T("file_note_monthly")}</div>', unsafe_allow_html=True)
 
         st.markdown('<div class="hr"></div>', unsafe_allow_html=True)
 
-        if upload_method == "yearly":
-            pnl_current_file = st.file_uploader(
-                T("pnl_current_lbl"),
-                type=["xlsx", "xls", "xlsm", "pdf", "csv", "tsv", "txt", "docx"],
-                key="pnl_current"
-            )
-            st.markdown('<div class="file-upload-note">Accepts: Excel, PDF, CSV, DOCX, TXT</div>', unsafe_allow_html=True)
-
-            pnl_previous_file = st.file_uploader(
-                T("pnl_previous_lbl"),
-                type=["xlsx", "xls", "xlsm", "pdf", "csv", "tsv", "txt", "docx"],
-                key="pnl_previous"
-            )
-
-        else:
-            monthly_current = st.file_uploader(
-                T("monthly_current_lbl"),
-                type=["xlsx", "xls", "xlsm", "pdf", "csv"],
-                accept_multiple_files=True,
-                key="monthly_current"
-            )
-            st.markdown('<div class="file-upload-note">Upload 4 files: Jan, Feb, Mar, Apr 2026</div>', unsafe_allow_html=True)
-
-            monthly_previous = st.file_uploader(
-                T("monthly_previous_lbl"),
-                type=["xlsx", "xls", "xlsm", "pdf", "csv"],
-                accept_multiple_files=True,
-                key="monthly_previous"
-            )
-            st.markdown('<div class="file-upload-note">Upload 8 files: May, Jun, Jul, Aug, Sep, Oct, Nov, Dec 2025</div>', unsafe_allow_html=True)
-
-        # ── PREVIOUS YEAR P&L for Budget Initial (ALWAYS VISIBLE) ──
-        st.markdown('<div class="hr"></div>', unsafe_allow_html=True)
-        pnl_previous_bi_file = st.file_uploader(
-            T("pnl_previous_bi_lbl"),
+        # 4. Budget Initial Source (Dec 2025 Page 3 or P&L)
+        budget_initial_file = st.file_uploader(
+            T("budget_initial_lbl"),
             type=["xlsx", "xls", "xlsm", "pdf", "csv", "tsv", "txt", "docx"],
-            key="pnl_previous_bi"
+            key="budget_initial"
         )
-        st.markdown(f'<div class="file-upload-note">{T("pnl_previous_bi_note")}</div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="file-upload-note">{T("file_note_page3")} {T("file_note_accept")}</div>', unsafe_allow_html=True)
 
-        # ── 2 YEARS AGO P&L (Always available) ──
-        st.markdown('<div class="hr"></div>', unsafe_allow_html=True)
-        pnl_two_ya_file = st.file_uploader(
-            T("pnl_two_ya_lbl"),
+        # 5. Fiche Stationnement Source (Dec 2024 Page 3 or P&L)
+        fiche_stationnement_file = st.file_uploader(
+            T("fiche_stationnement_lbl"),
             type=["xlsx", "xls", "xlsm", "pdf", "csv", "tsv", "txt", "docx"],
-            key="pnl_two_ya"
+            key="fiche_stationnement"
         )
-        st.markdown('<div class="file-upload-note">Required for Fiche Stationnement. Accepts any format.</div>', unsafe_allow_html=True)
-
-        # Word Data (OPTIONAL)
-        word_file = st.file_uploader(T("word_data_upload"), type=["xlsx", "csv", "docx", "txt"], key="wd")
+        st.markdown(f'<div class="file-upload-note">{T("file_note_page3")} {T("file_note_accept")}</div>', unsafe_allow_html=True)
 
         # Check if minimum required files are ready
         if excel_file:
             st.session_state.excel_bytes = excel_file
-            st.session_state.pnl_two_ya_bytes = pnl_two_ya_file if pnl_two_ya_file else None
-            st.session_state.pnl_previous_bi_bytes = pnl_previous_bi_file if pnl_previous_bi_file else None
-            st.session_state.word_bytes = word_file if word_file else None
+            st.session_state.budget_initial_file = budget_initial_file if budget_initial_file else None
+            st.session_state.fiche_stationnement_file = fiche_stationnement_file if fiche_stationnement_file else None
 
-            if upload_method == "yearly":
-                st.session_state.monthly_current_files = []
-                st.session_state.monthly_previous_files = []
+            if monthly_current:
+                st.session_state.monthly_current_files = list(monthly_current)
+                st.session_state.monthly_previous_files = list(monthly_previous) if monthly_previous else []
+                st.session_state.files_ready = True
 
-                if pnl_current_file:
-                    st.session_state.pnl_current_bytes = pnl_current_file
-                    st.session_state.pnl_previous_bytes = pnl_previous_file if pnl_previous_file else None
-                    st.session_state.files_ready = True
-
-                    try:
-                        pnl_current_file.seek(0)
-                        codes = get_parking_codes_from_pnl(pnl_current_file)
-                        pnl_current_file.seek(0)
+                # Try to get parking codes from first monthly file
+                try:
+                    if len(monthly_current) > 0:
+                        monthly_current[0].seek(0)
+                        codes = get_parking_codes_from_pnl(monthly_current[0])
+                        monthly_current[0].seek(0)
                         st.session_state.parking_codes = codes
-                    except Exception:
-                        st.session_state.parking_codes = []
+                except Exception:
+                    st.session_state.parking_codes = []
 
-                    if pnl_previous_bi_file and pnl_two_ya_file:
-                        st.success(T("files_ready"))
-                    else:
-                        st.info(T("files_ready_partial"))
+                if monthly_previous and budget_initial_file and fiche_stationnement_file:
+                    st.success(T("files_ready"))
                 else:
-                    st.warning("⚠️ Current Year P&L file is required.")
-                    st.session_state.files_ready = False
-
+                    st.info(T("files_ready_partial"))
             else:
-                st.session_state.pnl_current_bytes = None
-                st.session_state.pnl_previous_bytes = None
-
-                if monthly_current:
-                    st.session_state.monthly_current_files = list(monthly_current)
-                    st.session_state.monthly_previous_files = list(monthly_previous) if monthly_previous else []
-                    st.session_state.files_ready = True
-
-                    try:
-                        if len(monthly_current) > 0:
-                            monthly_current[0].seek(0)
-                            codes = get_parking_codes_from_pnl(monthly_current[0])
-                            monthly_current[0].seek(0)
-                            st.session_state.parking_codes = codes
-                    except Exception:
-                        st.session_state.parking_codes = []
-
-                    if monthly_previous and pnl_previous_bi_file and pnl_two_ya_file:
-                        st.success(T("files_ready"))
-                    else:
-                        st.info(T("files_ready_partial"))
-                else:
-                    st.warning("⚠️ Monthly Current Year files are required.")
-                    st.session_state.files_ready = False
+                st.warning("⚠️ Current Year monthly files are required.")
+                st.session_state.files_ready = False
 
         st.markdown('</div>', unsafe_allow_html=True)
 
@@ -1396,20 +1328,13 @@ def page_dashboard():
         else:
             template_name = st.session_state.excel_bytes.name if hasattr(st.session_state.excel_bytes, 'name') else "Template"
             st.markdown(f"**Template:** {template_name}")
+            st.markdown(f"**Current Year Files:** {len(st.session_state.monthly_current_files)} files")
+            st.markdown(f"**Previous Year Files:** {len(st.session_state.monthly_previous_files)} files")
 
-            if st.session_state.upload_method == "yearly":
-                pnl_current_name = st.session_state.pnl_current_bytes.name if st.session_state.pnl_current_bytes and hasattr(st.session_state.pnl_current_bytes, 'name') else "Current Year"
-                pnl_previous_name = st.session_state.pnl_previous_bytes.name if st.session_state.pnl_previous_bytes and hasattr(st.session_state.pnl_previous_bytes, 'name') else "Not provided"
-                st.markdown(f"**Current Year:** {pnl_current_name}")
-                st.markdown(f"**Previous Year:** {pnl_previous_name}")
-            else:
-                st.markdown(f"**Current Year Files:** {len(st.session_state.monthly_current_files)} files")
-                st.markdown(f"**Previous Year Files:** {len(st.session_state.monthly_previous_files)} files")
-
-            pnl_previous_bi_name = st.session_state.pnl_previous_bi_bytes.name if st.session_state.pnl_previous_bi_bytes and hasattr(st.session_state.pnl_previous_bi_bytes, 'name') else "Not provided"
-            pnl_two_ya_name = st.session_state.pnl_two_ya_bytes.name if st.session_state.pnl_two_ya_bytes and hasattr(st.session_state.pnl_two_ya_bytes, 'name') else "Not provided"
-            st.markdown(f"**Prev. Year P&L (Budget Initial):** {pnl_previous_bi_name}")
-            st.markdown(f"**2 Years Ago:** {pnl_two_ya_name}")
+            bi_name = st.session_state.budget_initial_file.name if st.session_state.budget_initial_file and hasattr(st.session_state.budget_initial_file, 'name') else "Not provided"
+            fs_name = st.session_state.fiche_stationnement_file.name if st.session_state.fiche_stationnement_file and hasattr(st.session_state.fiche_stationnement_file, 'name') else "Not provided"
+            st.markdown(f"**Budget Initial Source:** {bi_name}")
+            st.markdown(f"**Fiche Stationnement Source:** {fs_name}")
 
             st.markdown('<div class="hr"></div>', unsafe_allow_html=True)
 
@@ -1441,28 +1366,15 @@ def page_dashboard():
                     else:
                         with st.spinner(T("running")):
                             try:
-                                if st.session_state.upload_method == "yearly":
-                                    fixed_excel, updates = fix_excel(
-                                        excel_file=st.session_state.excel_bytes,
-                                        pnl_current_year=st.session_state.pnl_current_bytes,
-                                        pnl_previous_year=st.session_state.pnl_previous_bytes if st.session_state.pnl_previous_bytes else st.session_state.pnl_previous_bi_bytes,
-                                        pnl_two_years_ago=st.session_state.pnl_two_ya_bytes,
-                                        monthly_files_current=None,
-                                        monthly_files_previous=None,
-                                        parking_code=st.session_state.selected_parking_code,
-                                        word_data=None
-                                    )
-                                else:
-                                    fixed_excel, updates = fix_excel(
-                                        excel_file=st.session_state.excel_bytes,
-                                        pnl_current_year=None,
-                                        pnl_previous_year=st.session_state.pnl_previous_bi_bytes,
-                                        pnl_two_years_ago=st.session_state.pnl_two_ya_bytes,
-                                        monthly_files_current=st.session_state.monthly_current_files,
-                                        monthly_files_previous=st.session_state.monthly_previous_files,
-                                        parking_code=st.session_state.selected_parking_code,
-                                        word_data=None
-                                    )
+                                fixed_excel, updates = fix_excel(
+                                    excel_file=st.session_state.excel_bytes,
+                                    monthly_files_current=st.session_state.monthly_current_files,
+                                    monthly_files_previous=st.session_state.monthly_previous_files,
+                                    budget_initial_file=st.session_state.budget_initial_file,
+                                    fiche_stationnement_file=st.session_state.fiche_stationnement_file,
+                                    parking_code=st.session_state.selected_parking_code,
+                                    word_data=None
+                                )
 
                                 st.session_state.fixed_excel = fixed_excel
                                 st.session_state.workflow_log = updates
@@ -1486,13 +1398,10 @@ def page_dashboard():
             with col_clear_wf:
                 if st.button(T("clear_workflow"), use_container_width=True):
                     st.session_state.excel_bytes = None
-                    st.session_state.pnl_current_bytes = None
-                    st.session_state.pnl_previous_bytes = None
-                    st.session_state.pnl_previous_bi_bytes = None
-                    st.session_state.pnl_two_ya_bytes = None
                     st.session_state.monthly_current_files = []
                     st.session_state.monthly_previous_files = []
-                    st.session_state.word_bytes = None
+                    st.session_state.budget_initial_file = None
+                    st.session_state.fiche_stationnement_file = None
                     st.session_state.files_ready = False
                     st.session_state.fixed_excel = None
                     st.session_state.workflow_log = []
