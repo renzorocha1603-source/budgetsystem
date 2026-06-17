@@ -962,11 +962,11 @@ def extract_data_from_text_sheet(df, month_name, year):
 def extract_page10_from_fitz_text(df):
     """
     Extract data from Page 10 using the known spatial layout.
-
+    
     Fitz gives us clean text lines. Page 10 has a specific structure:
     - Account names appear in order
-    - Numbers follow the account names
-
+    - Numbers follow the account names (sometimes on same line, sometimes next line)
+    
     Returns dict with standard English labels mapped to their values.
     """
     result = {}
@@ -987,6 +987,9 @@ def extract_page10_from_fitz_text(df):
                 text_lines.append(line)
         except:
             continue
+
+    # DEBUG: Store all lines for troubleshooting
+    result['_DEBUG_ALL_LINES_'] = ' || '.join(text_lines[:40])[:500]
 
     # Page 10 exact account names in order (French with English mapping)
     page10_accounts = [
@@ -1019,12 +1022,25 @@ def extract_page10_from_fitz_text(df):
         ("NET INCOME", ["BÉNÉFICE NET", "BENEFICE NET"]),
     ]
 
-    account_index = 0
+    # NEW APPROACH: First, extract ALL dollar amounts from ALL lines
+    # Then try to associate them with the nearest account name
+    all_values = []
+    for i, line in enumerate(text_lines):
+        val = extract_dollar_amount_from_text(line)
+        if val is not None:
+            all_values.append((i, val, line))
+
+    # Store all values for debug
+    result['_DEBUG_ALL_VALUES_'] = '; '.join([f"Line{v[0]}:${v[1]:,.2f}" for v in all_values[:20]])
+
     found_accounts = []
+    accounts_not_found = []
 
-    for line in text_lines:
-        line_upper = line.upper().strip()
+    # Now try to match accounts to lines
+    account_index = 0
+    last_matched_line_idx = -1
 
+    for i, line in enumerate(text_lines):
         if account_index >= len(page10_accounts):
             break
 
@@ -1032,25 +1048,27 @@ def extract_page10_from_fitz_text(df):
 
         # Check if this line contains one of the French names
         matched = False
-        matched_french = None
         for french_name in french_names:
-            if clean_text_for_matching(french_name) in clean_text_for_matching(line_upper):
+            if clean_text_for_matching(french_name) in clean_text_for_matching(line):
                 matched = True
-                matched_french = french_name
                 break
 
         if not matched:
-            # Maybe the text is split across lines? Check next few lines
+            # Maybe the text is split across lines? Check if we skipped an account
             for offset in [1, 2]:
                 if account_index + offset < len(page10_accounts):
                     next_english, next_french_names = page10_accounts[account_index + offset]
                     for next_french in next_french_names:
-                        if clean_text_for_matching(next_french) in clean_text_for_matching(line_upper):
-                            # We found a later account, mark current as missing
+                        if clean_text_for_matching(next_french) in clean_text_for_matching(line):
+                            # We found a later account, the current one(s) were missing
+                            for skip_idx in range(offset):
+                                skip_eng = page10_accounts[account_index + skip_idx][0]
+                                if skip_eng is not None:
+                                    accounts_not_found.append(skip_eng)
                             account_index += offset
                             matched = True
-                            matched_french = next_french
                             english_name = next_english
+                            french_names = next_french_names
                             break
                     if matched:
                         break
@@ -1060,27 +1078,38 @@ def extract_page10_from_fitz_text(df):
         if english_name is None:
             # Section header - skip
             account_index += 1
+            last_matched_line_idx = i
             continue
 
-        # Extract the dollar amount from this line
+        # Extract the dollar amount from this line first
         val = extract_dollar_amount_from_text(line)
 
-        # If no amount on this line, check next line
+        # If no amount on this line, find the nearest dollar amount AFTER this line
         if val is None:
-            line_idx = text_lines.index(line)
-            if line_idx + 1 < len(text_lines):
-                val = extract_dollar_amount_from_text(text_lines[line_idx + 1])
-            if val is None and line_idx + 2 < len(text_lines):
-                val = extract_dollar_amount_from_text(text_lines[line_idx + 2])
+            for val_idx, val_amount, val_line in all_values:
+                if val_idx >= i:  # Value on this line or after
+                    val = val_amount
+                    break
+
+        # If still no amount, check previous lines (some PDFs put numbers before labels)
+        if val is None:
+            for val_idx, val_amount, val_line in all_values:
+                if val_idx == i - 1 or val_idx == i - 2:
+                    val = val_amount
+                    break
 
         if val is not None and val != 0:
             result[english_name] = val
             found_accounts.append(f"{english_name}: ${val:,.2f}")
+        else:
+            accounts_not_found.append(english_name)
 
         account_index += 1
+        last_matched_line_idx = i
 
     result['_DEBUG_MATCHES_'] = str(len(found_accounts))
-    result['_DEBUG_FOUND_'] = '; '.join(found_accounts[:10])  # First 10 for debug
+    result['_DEBUG_FOUND_'] = '; '.join(found_accounts[:15])
+    result['_DEBUG_NOT_FOUND_'] = '; '.join(accounts_not_found[:15])
 
     return result
 
@@ -1166,7 +1195,8 @@ def extract_monthly_data_from_file(uploaded_file):
             result['_EXPENSE_TOTAL_'] = data['Total Operation expenses']
 
         # Copy debug info
-        for key in ['_DEBUG_MATCHES_', '_DEBUG_FOUND_']:
+        for key in ['_DEBUG_MATCHES_', '_DEBUG_FOUND_', '_DEBUG_NOT_FOUND_', 
+                     '_DEBUG_ALL_LINES_', '_DEBUG_ALL_VALUES_']:
             if key in data:
                 result[key] = data[key]
 
@@ -1252,6 +1282,9 @@ def build_monthly_data_from_files(monthly_files):
             'method': file_data.pop('_DEBUG_METHOD_', '?'),
             'page10': file_data.pop('_DEBUG_PAGE10_', '?'),
             'found': file_data.pop('_DEBUG_FOUND_', '?'),
+            'not_found': file_data.pop('_DEBUG_NOT_FOUND_', '?'),
+            'all_values': file_data.pop('_DEBUG_ALL_VALUES_', '?'),
+            'all_lines': file_data.pop('_DEBUG_ALL_LINES_', '?'),
             'error': file_data.pop('_DEBUG_ERROR_', None),
         }
 
@@ -1758,7 +1791,13 @@ def fix_excel(
                     else:
                         updates.append(f"🔧 {d['file']}: type={d['type']}, target={d['target']}, rows={d['rows']}x{d['cols']}, method={d.get('method','?')}, page10={d.get('page10','?')}, matches={d['matches']}, month={d['month']}")
                         if d.get('found'):
-                            updates.append(f"   Found: {d['found']}")
+                            updates.append(f"   ✅ Found: {d['found']}")
+                        if d.get('not_found'):
+                            updates.append(f"   ❌ Not found: {d['not_found']}")
+                        if d.get('all_values'):
+                            updates.append(f"   💰 All values: {d['all_values']}")
+                        if d.get('all_lines'):
+                            updates.append(f"   📝 Text lines: {d['all_lines']}")
 
             num_labels = len(dh_current_year_data.get('yearly', {}))
             updates.append(f"📊 Current year: {num_labels} labels")
