@@ -111,7 +111,6 @@ FICHE_STATIONNEMENT_MAP = [
 # EXACT FRENCH LABELS FROM PAGE 10
 # ============================================================================
 PAGE10_FRENCH_LABELS = {
-    # REVENUS
     "Revenus mensuels": "Monthly Revenues",
     "Revenus Journaliers": "Transient Revenue",
     "Revenus Lave-Auto": "Car-Wash Revenue",
@@ -119,7 +118,6 @@ PAGE10_FRENCH_LABELS = {
     "Revenus de stationnement": "Parking Revenue",
     "(Gratuités - mensuels)": "Discount-Gratuities - Monthly",
     "TOTAL REVENUS": "TOTAL REVENUE",
-    # DÉPENSES
     "Salaires Stationnement": "Parking wages",
     "Uniformes": "Uniforms",
     "Fourn. de stationnement": "Parking supplies",
@@ -139,13 +137,9 @@ PAGE10_FRENCH_LABELS = {
     "BÉNÉFICE NET": "NET INCOME",
 }
 
-# ============================================================================
-# COMBINED ALL LABEL MAPPINGS
-# ============================================================================
 ALL_LABEL_MAPPINGS = {}
 ALL_LABEL_MAPPINGS.update(PAGE10_FRENCH_LABELS)
 ALL_LABEL_MAPPINGS.update({
-    # English versions
     "Monthly Revenues": "Monthly Revenues",
     "Monthly Revenue": "Monthly Revenues",
     "Daily Revenues": "Transient Revenue",
@@ -184,7 +178,6 @@ ALL_LABEL_MAPPINGS.update({
     "Incentives": "Incentives",
     "TOTAL OTHER EXPENSES": "Total other expenses",
     "NET INCOME": "NET INCOME",
-    # Other French
     "Revenus horaires": "Transient Revenue",
     "Revenus quotidiens": "Transient Revenue",
     "Total des revenus": "TOTAL REVENUE",
@@ -210,7 +203,6 @@ ALL_LABEL_MAPPINGS.update({
     "Serv. info. - Général": "Computer services",
     "Honoraires de gestion (base)": "Management Fees (Basic)",
     "Honoraire de gestion a %": "Percent Management fee",
-    # Excel monthly
     "Mensuels": "Monthly Revenues",
     "Gratuities - Monthlies": "Discount-Gratuities - Monthly",
     "Gratuites - Mensuels": "Discount-Gratuities - Monthly",
@@ -326,7 +318,8 @@ def read_pdf_with_ocr(uploaded_file):
         import pytesseract
         
         file_bytes = get_file_bytes(uploaded_file)
-        images = convert_from_bytes(file_bytes, dpi=250)
+        # Lower DPI for speed
+        images = convert_from_bytes(file_bytes, dpi=200)
         
         sheets = {}
         for page_num, image in enumerate(images):
@@ -570,10 +563,32 @@ def label_match_score(cell_text, label_text):
         return 0
     return 0
 
+def preprocess_ocr_line(line):
+    """Fix OCR issues: join split numbers like '43 880.03' into '43880.03'"""
+    if not line:
+        return line
+    
+    # Pattern: "digits space digits.decimals" -> joindigits.decimals
+    # e.g., "43 880.03" -> "43880.03"
+    line = re.sub(r'(\d+)\s+(\d{3}\.\d{2})', r'\1\2', line)
+    
+    # Pattern: "digits space digits space digits" -> joindigits.joindigits
+    # e.g., "43 880 03" -> "43880.03"
+    line = re.sub(r'(\d+)\s+(\d{3})\s+(\d{2})(?!\d)', r'\1\2.\3', line)
+    
+    # Pattern: "digits space digits" where digits is 3 digits (thousands)
+    # e.g., "12 049" -> "12049"
+    line = re.sub(r'(\d+)\s+(\d{3})(?!\d)', r'\1\2', line)
+    
+    return line
+
 def extract_dollar_amount_from_text(text):
-    """Extract a dollar amount from any text. Returns the value or None."""
+    """Extract a dollar amount from any text. Handles OCR split numbers."""
     if not text:
         return None
+    
+    # Preprocess: join split numbers
+    text = preprocess_ocr_line(text)
     
     # Try various patterns
     patterns = [
@@ -591,7 +606,7 @@ def extract_dollar_amount_from_text(text):
             except:
                 continue
     
-    # Try any number that looks like currency (with 2 decimal places)
+    # Try any number that looks like currency
     match = re.search(r'([\d,]+\.\d{2})', text)
     if match:
         try:
@@ -602,19 +617,19 @@ def extract_dollar_amount_from_text(text):
     return None
 
 def parse_text_line_for_data(line):
-    """
-    Parse a text line for label and dollar amount.
-    Uses EXACT French labels from Page 10 for better matching.
-    """
+    """Parse a text line for label and dollar amount."""
     if not line or len(line) < 5:
         return None, None
     
     line = line.strip()
     
-    # Extract dollar amount
-    val = extract_dollar_amount_from_text(line)
+    # Preprocess to fix OCR number splitting
+    processed_line = preprocess_ocr_line(line)
     
-    # Try to match EXACT French labels first (Page 10 format)
+    # Extract dollar amount
+    val = extract_dollar_amount_from_text(processed_line)
+    
+    # Try Page 10 French labels first
     for mapping_label, standard_label in PAGE10_FRENCH_LABELS.items():
         if label_match_score(line, mapping_label) >= 0.6:
             return standard_label, val
@@ -622,7 +637,7 @@ def parse_text_line_for_data(line):
     # Try all other labels
     for mapping_label, standard_label in ALL_LABEL_MAPPINGS.items():
         if mapping_label in PAGE10_FRENCH_LABELS:
-            continue  # Already checked
+            continue
         if label_match_score(line, mapping_label) >= 0.6:
             return standard_label, val
     
@@ -633,11 +648,9 @@ def parse_text_line_for_data(line):
         label_text = re.sub(r'\s+', ' ', label_text).strip()
         
         if len(label_text) > 2:
-            # Try Page 10 labels first
             for mapping_label, standard_label in PAGE10_FRENCH_LABELS.items():
                 if label_match_score(label_text, mapping_label) >= 0.6:
                     return standard_label, val
-            # Then all others
             for mapping_label, standard_label in ALL_LABEL_MAPPINGS.items():
                 if mapping_label in PAGE10_FRENCH_LABELS:
                     continue
@@ -690,7 +703,7 @@ def extract_month_year_from_text(text):
     return found_month, year
 
 def find_best_data_sheet(sheets_dict):
-    """Find the sheet with the most financial data (dollar amounts)."""
+    """Find the sheet with the most financial data."""
     if not sheets_dict:
         return None
     
@@ -710,8 +723,6 @@ def find_best_data_sheet(sheets_dict):
                     cell_text = str(df.iloc[row_idx, col_idx]).strip()
                     if cell_text and cell_text.lower() != 'nan' and cell_text.lower() != 'none' and len(cell_text) > 2:
                         text_cells += 1
-                        
-                        # Check for Page 10 French labels
                         cell_clean = clean_text_for_matching(cell_text)
                         for label in PAGE10_FRENCH_LABELS:
                             if clean_text_for_matching(label) in cell_clean:
@@ -781,14 +792,9 @@ def find_amount_column(df):
     return 2
 
 def extract_data_from_text_sheet(df, month_name, year):
-    """
-    Extract data from OCR/Text sheet.
-    Handles labels and values on separate lines.
-    Uses exact Page 10 French labels for better matching.
-    """
+    """Extract data from OCR/Text sheet."""
     result = {}
     
-    # Collect all non-empty lines
     all_lines = []
     for row_idx in range(len(df)):
         try:
@@ -803,47 +809,37 @@ def extract_data_from_text_sheet(df, month_name, year):
                 line = ' '.join(parts)
             
             if line and len(line) > 2:
-                all_lines.append(line)
+                all_lines.append(preprocess_ocr_line(line))
         except:
             continue
     
-    # Process each line
     for i, line in enumerate(all_lines):
         line_upper = line.upper()
         
-        # Check for TOTAL REVENUS
         if 'TOTAL REVENUS' in line_upper:
             val = extract_dollar_amount_from_text(line)
             if not val and i + 1 < len(all_lines):
                 val = extract_dollar_amount_from_text(all_lines[i+1])
-            if not val and i + 2 < len(all_lines):
-                val = extract_dollar_amount_from_text(all_lines[i+2])
             if val and val != 0:
                 result['_REVENUE_TOTAL_'] = val
             continue
         
-        # Check for TOTAL DES FRAIS / TOTAL OPERATING
-        if 'TOTAL DES FRAIS' in line_upper or 'TOTAL OPERATING' in line_upper or 'TOTAL OPERATION' in line_upper:
+        if 'TOTAL DES FRAIS' in line_upper or 'TOTAL OPERATING' in line_upper:
             val = extract_dollar_amount_from_text(line)
             if not val and i + 1 < len(all_lines):
                 val = extract_dollar_amount_from_text(all_lines[i+1])
-            if not val and i + 2 < len(all_lines):
-                val = extract_dollar_amount_from_text(all_lines[i+2])
             if val and val != 0:
                 result['_EXPENSE_TOTAL_'] = val
             continue
         
-        # Try to match label + value
         std_label, val = parse_text_line_for_data(line)
         
-        # If label found but no value, check next 2 lines
         if std_label and not val:
             if i + 1 < len(all_lines):
                 val = extract_dollar_amount_from_text(all_lines[i+1])
             if not val and i + 2 < len(all_lines):
                 val = extract_dollar_amount_from_text(all_lines[i+2])
         
-        # If value found but no label, check previous 2 lines
         if not std_label and val:
             if i > 0:
                 std_label, _ = parse_text_line_for_data(all_lines[i-1])
@@ -873,9 +869,6 @@ def extract_monthly_data_from_file(uploaded_file):
         result['_DEBUG_ERROR_'] = "No sheets found"
         return result, (None, None)
     
-    available_sheets = list(sheets_dict.keys())
-    result['_DEBUG_SHEETS_'] = str(available_sheets)[:200]
-    
     target_sheet = find_best_data_sheet(sheets_dict)
     result['_DEBUG_TARGET_'] = str(target_sheet) if target_sheet else "None"
     
@@ -890,20 +883,6 @@ def extract_monthly_data_from_file(uploaded_file):
     
     result['_DEBUG_ROWS_'] = str(len(df))
     result['_DEBUG_COLS_'] = str(len(df.columns))
-    
-    sample_rows = []
-    for row_idx in range(min(5, len(df))):
-        row_data = []
-        for col_idx in range(min(8, len(df.columns))):
-            try:
-                cell = str(df.iloc[row_idx, col_idx])
-                if len(cell) > 50:
-                    cell = cell[:50] + "..."
-                row_data.append(cell)
-            except:
-                row_data.append("?")
-        sample_rows.append(" | ".join(row_data))
-    result['_DEBUG_SAMPLE_'] = " || ".join(sample_rows)[:300]
     
     if hasattr(uploaded_file, 'name'):
         month_name, year = extract_month_year_from_text(uploaded_file.name)
@@ -929,8 +908,6 @@ def extract_monthly_data_from_file(uploaded_file):
             result[key] = value
     else:
         amount_col = find_amount_column(df)
-        result['_DEBUG_AMOUNT_COL_'] = str(amount_col) if amount_col is not None else "None"
-        
         if amount_col is None:
             amount_col = 2
         
@@ -1001,13 +978,10 @@ def build_monthly_data_from_files(monthly_files):
             'month': month_name,
             'year': year,
             'type': file_data.pop('_DEBUG_TYPE_', '?'),
-            'sheets': file_data.pop('_DEBUG_SHEETS_', '?'),
             'target': file_data.pop('_DEBUG_TARGET_', '?'),
             'rows': file_data.pop('_DEBUG_ROWS_', '?'),
             'cols': file_data.pop('_DEBUG_COLS_', '?'),
-            'sample': file_data.pop('_DEBUG_SAMPLE_', '?'),
             'matches': file_data.pop('_DEBUG_MATCHES_', '?'),
-            'amount_col': file_data.pop('_DEBUG_AMOUNT_COL_', '?'),
             'error': file_data.pop('_DEBUG_ERROR_', None),
         }
         
@@ -1062,10 +1036,8 @@ def build_monthly_data_from_files(monthly_files):
 # ============================================================================
 
 def find_ytd_column(df):
-    """Find the YTD Actual column."""
     if df is None or len(df) == 0:
         return None
-    
     if 'Text' in df.columns:
         return None
     
@@ -1091,7 +1063,6 @@ def find_ytd_column(df):
     return None
 
 def extract_page3_data(uploaded_file):
-    """Extract YTD Actual data from Page 3/10 Financial Summary."""
     result = {'monthly': {}, 'yearly': {}}
     
     sheets_dict, file_type = read_any_file_to_dataframes(uploaded_file)
@@ -1512,7 +1483,7 @@ def fix_excel(
                     if d.get('error'):
                         updates.append(f"🔧 {d['file']}: ERROR - {d['error']}")
                     else:
-                        updates.append(f"🔧 {d['file']}: type={d['type']}, target={d['target']}, rows={d['rows']}x{d['cols']}, matches={d['matches']}, month={d['month']}")
+                        updates.append(f"🔧 {d['file']}: type={d['type']}, target={d['target']}, matches={d['matches']}, month={d['month']}")
             
             num_labels = len(dh_current_year_data.get('yearly', {}))
             updates.append(f"📊 Current year: {num_labels} labels")
