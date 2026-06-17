@@ -107,6 +107,58 @@ FICHE_STATIONNEMENT_MAP = [
     ("K26", ["TOTAL REVENUE", "Total Revenue", "total revenus", "TOTAL DES REVENUS"]),
 ]
 
+# ============================================================================
+# PAGE 3 FINANCIAL SUMMARY MAPPING
+# ============================================================================
+# Maps labels from the Page 3 Financial Summary to standard P&L labels
+PAGE3_LABEL_MAPPING = {
+    # REVENUES
+    "Monthly Revenue": "Monthly Revenues",
+    "Transient Revenue": "Transient Revenue",
+    "Violation": "Violation",
+    "Total Parking Revenue": "Parking Revenue",
+    "Discounts - Gratuities (Monthly)": "Discount-Gratuities - Monthly",
+    "TOTAL REVENUE": "TOTAL REVENUE",
+    # EXPENSES
+    "Parking Wages": "Parking wages",
+    "Uniforms": "Uniforms",
+    "Parking Supplies": "Parking supplies",
+    "Repair & Maintenance": "R&M - General",
+    "Insurance & Guarantee": "Insurance & Guarantee",
+    "Telecommunication": "Telecommunication",
+    "Ad. & Promotion": "Ad. & Promotion",
+    "Bank Fees": "Credit Card fees",
+    "Miscellaneous": "Miscellaneous",
+    "TOTAL OPERATION EXPENSES": "Total Operation expenses",
+    "OPERATION SURPLUS": "OPERATION SURPLUS",
+    "Percent Management Fee": "Percent Management fee",
+    "Incentives": "Incentives",
+    "TOTAL OTHER EXPENSES": "Total other expenses",
+    "NET INCOME": "NET INCOME",
+}
+
+# French versions
+PAGE3_LABEL_MAPPING_FR = {
+    "Revenus mensuels": "Monthly Revenues",
+    "Revenus horaires": "Transient Revenue",
+    "Revenus de stationnement": "Parking Revenue",
+    "Total des revenus": "TOTAL REVENUE",
+    "Salaires": "Parking wages",
+    "Uniformes": "Uniforms",
+    "Fournitures": "Parking supplies",
+    "Réparations": "R&M - General",
+    "Assurances": "Insurance & Guarantee",
+    "Télécommunications": "Telecommunication",
+    "Publicité": "Ad. & Promotion",
+    "Frais bancaires": "Credit Card fees",
+    "Divers": "Miscellaneous",
+    "Total des dépenses": "Total Operation expenses",
+    "Surplus": "OPERATION SURPLUS",
+    "Frais de gestion": "Percent Management fee",
+    "Incitatifs": "Incentives",
+    "Revenu net": "NET INCOME",
+}
+
 MONTHLY_REPORT_MAPPING = {
     "Mensuels": "Monthly Revenues",
     "Monthly Revenues": "Monthly Revenues",
@@ -638,7 +690,101 @@ def build_monthly_data_from_files(monthly_files):
     return result
 
 # ============================================================================
-# P&L DATA EXTRACTION
+# PAGE 3 FINANCIAL SUMMARY EXTRACTION
+# ============================================================================
+
+def find_ytd_column(df):
+    """
+    Find the column index that contains YTD Actual / Cumulatif courant data.
+    Looks for headers like 'YTD Actual', 'Cumulatif courant', 'YTD', 'Cumulatif'.
+    """
+    if df is None or len(df) == 0:
+        return None
+    
+    # Search first 5 rows for YTD indicators
+    for row_idx in range(min(5, len(df))):
+        for col_idx in range(min(15, len(df.columns))):
+            try:
+                cell_text = str(df.iloc[row_idx, col_idx]).lower().strip()
+                if any(term in cell_text for term in ['ytd actual', 'cumulatif courant', 'ytd', 'cumulatif']):
+                    return col_idx
+            except Exception:
+                continue
+    
+    return None
+
+def extract_page3_data(uploaded_file):
+    """
+    Extract YTD Actual data from Page 3 Financial Summary.
+    Finds the YTD column and maps labels to standard P&L labels.
+    Returns dict with 'yearly' data (YTD values).
+    """
+    result = {'monthly': {}, 'yearly': {}}
+    
+    sheets_dict, file_type = read_any_file_to_dataframes(uploaded_file)
+    if sheets_dict is None:
+        return None
+    
+    # Try each sheet
+    for sheet_name, df in sheets_dict.items():
+        if df is None or len(df) == 0:
+            continue
+        
+        # Find the YTD column
+        ytd_col = find_ytd_column(df)
+        if ytd_col is None:
+            # Fallback: look for any column with numeric values that could be YTD
+            # Usually the 6th or 7th column in the Page 3 format
+            for col_idx in [5, 6, 7]:
+                if col_idx < len(df.columns):
+                    # Check if this column has numeric values
+                    has_numbers = False
+                    for row_idx in range(min(20, len(df))):
+                        if safe_float(df.iloc[row_idx, col_idx]) != 0:
+                            has_numbers = True
+                            break
+                    if has_numbers:
+                        ytd_col = col_idx
+                        break
+        
+        if ytd_col is None:
+            continue
+        
+        # Extract data using label matching
+        for row_idx in range(len(df)):
+            try:
+                # Search all columns for a matching label
+                for col_idx in range(min(10, len(df.columns))):
+                    cell_text = str(df.iloc[row_idx, col_idx]).strip()
+                    if not cell_text or len(cell_text) < 3:
+                        continue
+                    
+                    # Try English mapping
+                    for page3_label, standard_label in PAGE3_LABEL_MAPPING.items():
+                        if label_match_score(cell_text, page3_label) >= 0.6:
+                            val = safe_float(df.iloc[row_idx, ytd_col])
+                            if val != 0:
+                                result['yearly'][standard_label] = val
+                            break
+                    
+                    # Try French mapping
+                    for page3_label, standard_label in PAGE3_LABEL_MAPPING_FR.items():
+                        if label_match_score(cell_text, page3_label) >= 0.6:
+                            val = safe_float(df.iloc[row_idx, ytd_col])
+                            if val != 0:
+                                result['yearly'][standard_label] = val
+                            break
+            
+            except Exception:
+                continue
+    
+    if not result['yearly']:
+        return None
+    
+    return result
+
+# ============================================================================
+# P&L DATA EXTRACTION (fallback)
 # ============================================================================
 
 def extract_pnl_data_from_dataframe(df, sheet_name_hint=None):
@@ -792,10 +938,9 @@ def merge_monthly_data(current_year_data, previous_year_data, year_map):
 # SHEET UPDATE FUNCTIONS
 # ============================================================================
 
-def update_budget_initial(wb, previous_year_data, parking_code):
+def update_budget_initial(wb, bi_data, parking_code):
     """
-    Fill Budget Initial Column S with Year Totals from previous year P&L.
-    Uses DH_ROW_MAPPING row numbers. Validates against NET INCOME.
+    Fill Budget Initial Column S with Year Totals from Page 3 or P&L data.
     """
     updates = []
     try:
@@ -804,8 +949,8 @@ def update_budget_initial(wb, previous_year_data, parking_code):
             return ["❌ Budget Initial: Sheet not found"]
         ws = wb[sheet_name]
         
-        if previous_year_data is None:
-            updates.append("⚠️ Budget Initial: No previous year P&L data available")
+        if bi_data is None:
+            updates.append("⚠️ Budget Initial: No data available")
             return updates
         
         cells_updated = 0
@@ -813,7 +958,7 @@ def update_budget_initial(wb, previous_year_data, parking_code):
         filled_expense = 0
         
         for dh_row, pnl_labels in DH_ROW_MAPPING.items():
-            yearly_value = find_pnl_value(previous_year_data, pnl_labels)
+            yearly_value = find_pnl_value(bi_data, pnl_labels)
             
             if yearly_value != 0:
                 ws[f"S{dh_row}"] = yearly_value
@@ -826,8 +971,8 @@ def update_budget_initial(wb, previous_year_data, parking_code):
                 elif dh_row in EXPENSE_ROWS:
                     filled_expense += yearly_value
         
-        # ── VALIDATE AGAINST NET INCOME ───────────────────────────
-        expected_net = find_pnl_value(previous_year_data, [
+        # Validate against NET INCOME
+        expected_net = find_pnl_value(bi_data, [
             "NET INCOME", "net income", "revenus nets", "REVENUS NETS"
         ])
         
@@ -836,18 +981,16 @@ def update_budget_initial(wb, previous_year_data, parking_code):
             gap = expected_net - calculated_net
             
             updates.append(f"🔍 BI Validation: Expected NET INCOME = ${expected_net:,.2f}")
-            updates.append(f"🔍 BI Validation: Filled Revenue = ${filled_revenue:,.2f}, Filled Expense = ${filled_expense:,.2f}")
-            updates.append(f"🔍 BI Validation: Calculated Net = ${calculated_net:,.2f}, Gap = ${gap:,.2f}")
+            updates.append(f"🔍 BI: Filled Revenue = ${filled_revenue:,.2f}, Filled Expense = ${filled_expense:,.2f}")
+            updates.append(f"🔍 BI: Calculated Net = ${calculated_net:,.2f}, Gap = ${gap:,.2f}")
             
             if abs(gap) > 0.99:
-                updates.append(f"⚠️ BI Gap detected: ${gap:,.2f} - some items may not be mapped correctly")
+                updates.append(f"⚠️ BI Gap: ${gap:,.2f} - some items may not be mapped")
             else:
-                updates.append(f"✅ BI Balanced: Gap is only ${gap:,.2f} (within tolerance)")
-        else:
-            updates.append("⚠️ BI: Could not find NET INCOME in P&L for validation")
+                updates.append(f"✅ BI Balanced within tolerance")
         
         if cells_updated > 0:
-            updates.append(f"✅ Budget Initial: {cells_updated} cells updated in Column S")
+            updates.append(f"✅ Budget Initial: {cells_updated} cells updated")
         else:
             updates.append("⚠️ Budget Initial: No cells updated")
     
@@ -855,24 +998,24 @@ def update_budget_initial(wb, previous_year_data, parking_code):
         updates.append(f"❌ Budget Initial: {str(e)}")
     return updates
 
-def update_fiche_stationnement(wb, year_minus_2_data, parking_code, word_data=None):
+def update_fiche_stationnement(wb, fs_data, parking_code, word_data=None):
     updates = []
     try:
         sheet_name = find_sheet_by_pattern(wb, SHEET_PATTERNS["Fiche Stationnement"])
         if not sheet_name:
             return ["❌ Fiche Stationnement: Sheet not found"]
         ws = wb[sheet_name]
-        if year_minus_2_data is None:
-            updates.append("⚠️ Fiche Stationnement: Skipped - P&L from 2 years ago not uploaded")
+        if fs_data is None:
+            updates.append("⚠️ Fiche Stationnement: No data available")
             return updates
         for cell, pnl_labels in FICHE_STATIONNEMENT_MAP:
-            yearly_value = find_pnl_value(year_minus_2_data, pnl_labels)
+            yearly_value = find_pnl_value(fs_data, pnl_labels)
             if yearly_value != 0:
                 ws[cell] = yearly_value
                 ws[cell].number_format = '#,##0.00 $'
                 updates.append(f"✅ {cell} = ${yearly_value:,.2f}")
             else:
-                updates.append(f"⚠️ {cell} = Not found in P&L (tried: {pnl_labels[0]})")
+                updates.append(f"⚠️ {cell} = Not found (tried: {pnl_labels[0]})")
     except Exception as e:
         updates.append(f"❌ Fiche Stationnement: {str(e)}")
     return updates
@@ -890,7 +1033,7 @@ def update_donnees_historiques(wb, merged_monthly_data, parking_code, monthly_to
             f"May={year_map.get(4)}, Dec={year_map.get(11)}"
         )
         if not merged_monthly_data:
-            updates.append("⚠️ Donnees Historiques: No merged monthly data available")
+            updates.append("⚠️ Donnees Historiques: No data available")
             return updates
         
         monthly_filled_revenue = {}
@@ -952,8 +1095,7 @@ def update_donnees_historiques(wb, merged_monthly_data, parking_code, monthly_to
                         ws_dh[cell_ref] = current_val + revenue_gap
                         ws_dh[cell_ref].number_format = '#,##0.00 $'
                         balancing_updates.append(
-                            f"  ⚖️ {month_name}: Added ${revenue_gap:,.2f} to Row {catch_row} "
-                            f"(expected ${expected_revenue:,.2f}, actual ${actual_revenue:,.2f})"
+                            f"  ⚖️ {month_name}: Added ${revenue_gap:,.2f} to Row {catch_row}"
                         )
                         cells_updated += 1
                 
@@ -968,13 +1110,12 @@ def update_donnees_historiques(wb, merged_monthly_data, parking_code, monthly_to
                         ws_dh[cell_ref] = current_val + expense_gap
                         ws_dh[cell_ref].number_format = '#,##0.00 $'
                         balancing_updates.append(
-                            f"  ⚖️ {month_name}: Added ${expense_gap:,.2f} to Row {catch_row} "
-                            f"(expected ${expected_expense:,.2f}, actual ${actual_expense:,.2f})"
+                            f"  ⚖️ {month_name}: Added ${expense_gap:,.2f} to Row {catch_row}"
                         )
                         cells_updated += 1
             
             if balancing_updates:
-                updates.append(f"⚖️ Balancing applied ({len(balancing_updates)} adjustments):")
+                updates.append(f"⚖️ Balancing ({len(balancing_updates)} adjustments):")
                 for bu in balancing_updates:
                     updates.append(bu)
         
@@ -984,9 +1125,6 @@ def update_donnees_historiques(wb, merged_monthly_data, parking_code, monthly_to
                 updates.append(row_info)
         else:
             updates.append("⚠️ Donnees Historiques: No cells updated")
-            updates.append(f"   P&L data has {len(merged_monthly_data)} labels available")
-            pnl_sample = list(merged_monthly_data.keys())[:20]
-            updates.append(f"   Available P&L labels: {pnl_sample}")
     except Exception as e:
         updates.append(f"❌ Donnees Historiques: {str(e)}")
     return updates
@@ -998,11 +1136,10 @@ def update_donnees_historiques(wb, merged_monthly_data, parking_code, monthly_to
 
 def fix_excel(
     excel_file,
-    pnl_current_year=None,
-    pnl_previous_year=None,
-    pnl_two_years_ago=None,
     monthly_files_current=None,
     monthly_files_previous=None,
+    budget_initial_file=None,
+    fiche_stationnement_file=None,
     parking_code=None,
     word_data=None
 ):
@@ -1016,72 +1153,63 @@ def fix_excel(
     
     updates.append(f"🔍 Processing: {parking_code}")
     
-    # ── DATA SOURCES ──────────────────────────────────────────────
-    # Monthly data for Donnees Historiques
+    # ── Donnees Historiques data from monthly files ───────────────
     dh_current_year_data = None
     dh_previous_year_data = None
-    
-    # P&L data for Budget Initial (yearly totals only)
-    bi_previous_year_data = None
-    
-    # P&L data for Fiche Stationnement (2 years ago)
-    two_years_ago_data = None
-    
     monthly_totals = None
     
-    # ── Process monthly files for Donnees Historiques ─────────────
     if monthly_files_current and len(monthly_files_current) > 0:
-        updates.append("📋 Using monthly report files (Current Year)")
+        updates.append("📋 Processing Current Year monthly files")
         dh_current_year_data = build_monthly_data_from_files(monthly_files_current)
         if dh_current_year_data:
             num_labels = len(dh_current_year_data.get('yearly', {}))
-            updates.append(f"📊 Current year from monthlies: {num_labels} labels")
+            updates.append(f"📊 Current year: {num_labels} labels")
             if '_monthly_totals' in dh_current_year_data:
                 monthly_totals = dh_current_year_data.pop('_monthly_totals')
-                updates.append(f"📊 Monthly totals for DH balancing: {len(monthly_totals)} months")
+                updates.append(f"📊 Monthly totals for DH: {len(monthly_totals)} months")
     
     if monthly_files_previous and len(monthly_files_previous) > 0:
-        updates.append("📋 Using monthly report files (Previous Year)")
+        updates.append("📋 Processing Previous Year monthly files")
         dh_previous_year_data = build_monthly_data_from_files(monthly_files_previous)
         if dh_previous_year_data:
             num_labels = len(dh_previous_year_data.get('yearly', {}))
-            updates.append(f"📊 Previous year from monthlies: {num_labels} labels")
+            updates.append(f"📊 Previous year: {num_labels} labels")
             if '_monthly_totals' in dh_previous_year_data:
                 prev_totals = dh_previous_year_data.pop('_monthly_totals')
                 if monthly_totals is None:
                     monthly_totals = {}
                 monthly_totals.update(prev_totals)
-                updates.append(f"📊 Monthly totals for DH balancing: {len(monthly_totals)} months")
     
-    # ── Process P&L files ─────────────────────────────────────────
-    # Current Year P&L - only used if no monthly files
-    if pnl_current_year and dh_current_year_data is None:
-        dh_current_year_data, current_file_type = extract_pnl_data(pnl_current_year, parking_code)
-        if dh_current_year_data:
-            keys = list(dh_current_year_data['yearly'].keys())[:10]
-            updates.append(f"📊 Current year from P&L ({current_file_type}): {keys}")
+    # ── Budget Initial data from Page 3 ───────────────────────────
+    bi_data = None
+    if budget_initial_file:
+        updates.append("📋 Processing Budget Initial source (Page 3)")
+        bi_data = extract_page3_data(budget_initial_file)
+        if bi_data:
+            num_labels = len(bi_data.get('yearly', {}))
+            updates.append(f"📊 Budget Initial: {num_labels} labels extracted")
+            # Also try as regular P&L if Page 3 extraction fails
+            if num_labels == 0:
+                bi_data, _ = extract_pnl_data(budget_initial_file, parking_code)
+                if bi_data:
+                    updates.append(f"📊 Budget Initial (P&L fallback): {len(bi_data.get('yearly', {}))} labels")
     
-    # Previous Year P&L - used ONLY for Budget Initial, NOT for DH
-    if pnl_previous_year:
-        bi_previous_year_data, prev_file_type = extract_pnl_data(pnl_previous_year, parking_code)
-        if bi_previous_year_data:
-            keys = list(bi_previous_year_data['yearly'].keys())[:10]
-            updates.append(f"📊 Previous year from P&L for Budget Initial ({prev_file_type}): {keys}")
-        
-        # If no monthly previous year files, also use P&L for DH
-        if dh_previous_year_data is None:
-            dh_previous_year_data = bi_previous_year_data
-    
-    # 2 Years Ago P&L
-    if pnl_two_years_ago:
-        two_years_ago_data, two_ya_file_type = extract_pnl_data(pnl_two_years_ago, parking_code)
-        if two_years_ago_data:
-            keys = list(two_years_ago_data['yearly'].keys())[:10]
-            updates.append(f"📊 2YA keys ({two_ya_file_type}): {keys}")
+    # ── Fiche Stationnement data from Page 3 ──────────────────────
+    fs_data = None
+    if fiche_stationnement_file:
+        updates.append("📋 Processing Fiche Stationnement source (Page 3)")
+        fs_data = extract_page3_data(fiche_stationnement_file)
+        if fs_data:
+            num_labels = len(fs_data.get('yearly', {}))
+            updates.append(f"📊 Fiche Stationnement: {num_labels} labels extracted")
+            if num_labels == 0:
+                fs_data, _ = extract_pnl_data(fiche_stationnement_file, parking_code)
+                if fs_data:
+                    updates.append(f"📊 Fiche Stationnement (P&L fallback): {len(fs_data.get('yearly', {}))} labels")
     
     # ── Check if we have any data ─────────────────────────────────
-    if dh_current_year_data is None and dh_previous_year_data is None and two_years_ago_data is None and bi_previous_year_data is None:
-        return None, [f"❌ Could not find P&L data for {parking_code} in any uploaded file."]
+    if dh_current_year_data is None and dh_previous_year_data is None:
+        updates.append("⚠️ No monthly data available for Donnees Historiques")
     
     # ── Read template ─────────────────────────────────────────────
     try:
@@ -1104,39 +1232,19 @@ def fix_excel(
     if not merged_monthly and dh_current_year_data:
         merged_monthly = dh_current_year_data['monthly']
     
-    # ── Budget Initial data ───────────────────────────────────────
-    # Use P&L previous year if available, otherwise fall back to monthly
-    budget_initial_data = bi_previous_year_data if bi_previous_year_data else dh_previous_year_data
-    if budget_initial_data is None:
-        budget_initial_data = dh_current_year_data
-    
-    # ── Fiche Stationnement data ──────────────────────────────────
-    fiche_data = None
-    if pnl_two_years_ago and two_years_ago_data:
-        fiche_data = two_years_ago_data
-    
-    # ── Donnees Historiques data ──────────────────────────────────
     dh_data = merged_monthly if merged_monthly else {}
     if not dh_data and dh_current_year_data:
         dh_data = dh_current_year_data['monthly']
     
     # ── Update all sheets ─────────────────────────────────────────
-    updates.extend(update_budget_initial(wb_write, budget_initial_data, parking_code))
-    updates.extend(update_fiche_stationnement(wb_write, fiche_data, parking_code, word_data))
+    updates.extend(update_budget_initial(wb_write, bi_data, parking_code))
+    updates.extend(update_fiche_stationnement(wb_write, fs_data, parking_code, word_data))
     updates.extend(update_donnees_historiques(wb_write, dh_data, parking_code, monthly_totals))
     
     # ── Summary ───────────────────────────────────────────────────
     success_count = sum(1 for u in updates if u.startswith("✅"))
     if success_count == 0:
         updates.append("💡 No updates were made.")
-    
-    # ── Reset file pointers ───────────────────────────────────────
-    if pnl_current_year and hasattr(pnl_current_year, 'seek'):
-        pnl_current_year.seek(0)
-    if pnl_previous_year and hasattr(pnl_previous_year, 'seek'):
-        pnl_previous_year.seek(0)
-    if pnl_two_years_ago and hasattr(pnl_two_years_ago, 'seek'):
-        pnl_two_years_ago.seek(0)
     
     output = io.BytesIO()
     wb_write.save(output)
