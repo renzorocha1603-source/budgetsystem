@@ -379,7 +379,7 @@ def read_pdf_with_ocr(uploaded_file):
 
             if text and len(text.strip()) > 30:
                 lines = text.strip().split('\n')
-                lines = [l.strip() for l in lines if l.strip()]
+                lines = [l for l in lines if l.strip()]
                 if lines:
                     df = pd.DataFrame(lines, columns=['Text'])
                     sheet_key = f"Page{page_num+1}_OCR"
@@ -390,7 +390,7 @@ def read_pdf_with_ocr(uploaded_file):
         return None
 
 def read_pdf_with_fitz(uploaded_file):
-    """Extract text from PDF using PyMuPDF (fitz) as fallback."""
+    """Extract text from PDF using PyMuPDF (fitz)."""
     try:
         import fitz
 
@@ -618,13 +618,13 @@ def convert_page10_to_excel(uploaded_file):
 def read_pdf_to_dataframe(uploaded_file):
     """
     MAIN PDF READER:
-    1. Try Page 10 → Excel converter (coordinate-based, for digital PDFs)
+    1. Try Page 10 to Excel converter (coordinate-based, for digital PDFs)
     2. Try OCR (for scanned/image-based PDFs like January)
     3. Fall back to Fitz text
     4. Fall back to pdfplumber
     """
 
-    # STEP 1: Try Page 10 → Excel converter
+    # STEP 1: Try Page 10 to Excel converter
     excel_output = convert_page10_to_excel(uploaded_file)
     if excel_output:
         try:
@@ -856,41 +856,36 @@ def label_match_score(cell_text, label_text):
     return 0
 
 def extract_dollar_amount_from_text(text):
-    """Extract a dollar amount from any text. Handles space-separated numbers like '7 106 417,00'."""
     if not text:
         return None
 
-    # Pattern 1: Standard dollar amounts with possible spaces
     patterns = [
-        r'\$\s*([\d,\s]+\.?\d*)',
-        r'([\d,\s]+\.?\d*)\s*\$',
-        r'\$?\s*([\d,\s]+\.\d{2})\s*\$?',
-        r'\(?\$?\s*([\d,\s]+\.?\d*)\s*\)?',
+        r'\$([\d,]+\.?\d*)',
+        r'([\d,]+\.?\d*)\s*\$',
+        r'\$?\s*([\d,]+\.\d{2})\s*\$?',
+        r'\(?\$?([\d,]+\.?\d*)\)?',
     ]
 
     for pattern in patterns:
         match = re.search(pattern, text)
         if match:
             try:
-                num_str = match.group(1).replace(' ', '').replace(',', '')
-                return float(num_str)
+                return float(match.group(1).replace(',', ''))
             except:
                 continue
 
-    # Pattern 2: European format with spaces as thousand separators
-    match = re.search(r'(\d{1,3}(?:\s+\d{3})*[.,]\d{2})', text)
+    match = re.search(r'([\d,]+\.\d{2})', text)
     if match:
         try:
-            num_str = match.group(1).replace(' ', '').replace(',', '.')
-            return float(num_str)
+            return float(match.group(1).replace(',', ''))
         except:
             pass
 
-    # Pattern 3: Any number with 2 decimal places
-    match = re.search(r'([\d,\s]+\.\d{2})', text)
+    text_normalized = text.replace(',', '.')
+    match = re.search(r'(\d{1,3}(?:\s+\d{3})*\.?\d*)', text_normalized)
     if match:
         try:
-            num_str = match.group(1).replace(' ', '').replace(',', '')
+            num_str = match.group(1).replace(' ', '')
             return float(num_str)
         except:
             pass
@@ -915,8 +910,8 @@ def parse_text_line_for_data(line):
             return standard_label, val
 
     if val is not None:
-        label_text = re.sub(r'\$?[\d,\s]+\.?\d*\s*\$?', '', line).strip()
-        label_text = re.sub(r'\(?[\d,\s]+\.?\d*\)?', '', label_text).strip()
+        label_text = re.sub(r'\$?[\d,]+\.?\d*\s*\$?', '', line).strip()
+        label_text = re.sub(r'\(?[\d,]+\.?\d*\)?', '', label_text).strip()
         label_text = re.sub(r'\s+', ' ', label_text).strip()
 
         if len(label_text) > 2:
@@ -1132,77 +1127,50 @@ def extract_monthly_data_from_file(uploaded_file):
     is_page10_excel = False
     if 'Page10' in target_sheet and len(df.columns) >= 2 and len(df) > 25:
         is_page10_excel = True
-    elif len(df.columns) >= 2:
-        # Check headers
-        try:
-            first_cell = str(df.iloc[0, 0]).lower().strip()
-            second_cell = str(df.iloc[0, 1]).lower().strip()
-            if 'account' in first_cell or 'mois courant' in second_cell:
-                is_page10_excel = True
-        except:
-            pass
 
     if is_page10_excel:
-        result['_DEBUG_METHOD_'] = "Page10_converted_excel"
-        
-        amount_col = 1  # Mois Courant
+        # Use the SAME table_based logic that worked before with 15 matches
+        result['_DEBUG_METHOD_'] = "Page10_table_based"
+        amount_col = 1  # Mois Courant column
         matches_found = 0
-        
+
         for row_idx in range(len(df)):
             try:
-                account_name = str(df.iloc[row_idx, 0]).strip()
-                if not account_name or account_name.lower() in ['nan', 'account', '']:
-                    continue
-                
-                # Try exact French names from PAGE10_FRENCH_LABELS first
-                matched = False
-                for french_label, english_label in PAGE10_FRENCH_LABELS.items():
-                    if clean_text_for_matching(french_label) in clean_text_for_matching(account_name):
+                # Check ALL columns for totals (like table_based does)
+                for col_idx in range(min(10, len(df.columns))):
+                    cell_text = str(df.iloc[row_idx, col_idx]).strip().upper()
+
+                    if 'TOTAL REVENUS' in cell_text or 'TOTAL REVENUE' in cell_text or 'TOTAL DES REVENUS' in cell_text:
                         val = safe_float(df.iloc[row_idx, amount_col])
                         if val != 0:
-                            matches_found += 1
-                            if english_label in result:
-                                result[english_label] += val
-                            else:
-                                result[english_label] = val
-                        matched = True
+                            result['_REVENUE_TOTAL_'] = val
                         break
-                
-                if not matched:
-                    # Try ALL_LABEL_MAPPINGS
-                    best_match = None
-                    best_score = 0
-                    
-                    for label, standard in ALL_LABEL_MAPPINGS.items():
-                        score = label_match_score(account_name, label)
-                        if score > best_score and score >= 0.6:
-                            best_score = score
-                            best_match = standard
-                    
-                    if best_match:
+
+                    if 'TOTAL DES FRAIS' in cell_text or 'TOTAL OPERATING' in cell_text or 'TOTAL DEPENSES' in cell_text:
                         val = safe_float(df.iloc[row_idx, amount_col])
                         if val != 0:
-                            matches_found += 1
-                            if best_match in result:
-                                result[best_match] += val
-                            else:
-                                result[best_match] = val
-                
-                # Check for totals
-                account_upper = account_name.upper()
-                if any(term in account_upper for term in ['TOTAL REVENUS', 'TOTAL REVENUE', 'TOTAL DES REVENUS']):
-                    val = safe_float(df.iloc[row_idx, amount_col])
-                    if val != 0:
-                        result['_REVENUE_TOTAL_'] = val
-                
-                if any(term in account_upper for term in ['TOTAL DES FRAIS', 'TOTAL OPERATING', "TOTAL DES FRAIS D'EXPLOITATION"]):
-                    val = safe_float(df.iloc[row_idx, amount_col])
-                    if val != 0:
-                        result['_EXPENSE_TOTAL_'] = val
-                        
+                            result['_EXPENSE_TOTAL_'] = val
+                        break
+
+                # Match labels across ALL columns (same as table_based)
+                for col_idx in range(min(10, len(df.columns))):
+                    cell_text = str(df.iloc[row_idx, col_idx]).strip()
+                    if not cell_text or len(cell_text) < 3:
+                        continue
+
+                    for label, standard in ALL_LABEL_MAPPINGS.items():
+                        if label_match_score(cell_text, label) >= 0.6:
+                            val = safe_float(df.iloc[row_idx, amount_col])
+                            if val != 0:
+                                matches_found += 1
+                                if standard in result:
+                                    result[standard] += val
+                                else:
+                                    result[standard] = val
+                            break
             except Exception:
                 continue
-        
+
         result['_DEBUG_MATCHES_'] = str(matches_found)
 
     elif 'Text' in df.columns:
@@ -1266,6 +1234,7 @@ def find_best_data_sheet(sheets_dict):
     if not sheets_dict:
         return None
 
+    # Prefer Page10 sheets
     for name in sheets_dict:
         if 'Page10' in name:
             return name
@@ -1644,7 +1613,7 @@ def update_budget_initial(wb, bi_data, parking_code):
 
             if yearly_value != 0:
                 ws[f"S{dh_row}"] = yearly_value
-                ws[f"S{dh_row}"].number_format = '#,##0.00 $'
+                ws[f"S{dh_row}"].number_format = '#,##0.00'
                 cells_updated += 1
                 updates.append(f"✅ BI Row {dh_row}: ${yearly_value:,.2f} ({pnl_labels[0]})")
 
@@ -1688,7 +1657,7 @@ def update_fiche_stationnement(wb, fs_data, parking_code, word_data=None):
             yearly_value = find_pnl_value(fs_data, pnl_labels)
             if yearly_value != 0:
                 ws[cell] = yearly_value
-                ws[cell].number_format = '#,##0.00 $'
+                ws[cell].number_format = '#,##0.00'
                 updates.append(f"✅ {cell} = ${yearly_value:,.2f}")
             else:
                 updates.append(f"⚠️ {cell} = Not found (tried: {pnl_labels[0]})")
@@ -1732,7 +1701,7 @@ def update_donnees_historiques(wb, merged_monthly_data, parking_code, monthly_to
                         col_letter = get_column_letter(month_idx + 2)
                         cell_ref = f"{col_letter}{dh_row}"
                         ws_dh[cell_ref] = val
-                        ws_dh[cell_ref].number_format = '#,##0.00 $'
+                        ws_dh[cell_ref].number_format = '#,##0.00'
                         cells_updated += 1
                         row_cells += 1
 
@@ -1769,7 +1738,7 @@ def update_donnees_historiques(wb, merged_monthly_data, parking_code, monthly_to
                         cell_ref = f"{col_letter}{catch_row}"
                         current_val = safe_float(ws_dh[cell_ref].value)
                         ws_dh[cell_ref] = current_val + revenue_gap
-                        ws_dh[cell_ref].number_format = '#,##0.00 $'
+                        ws_dh[cell_ref].number_format = '#,##0.00'
                         balancing_updates.append(
                             f"  ⚖️ {month_name}: Added ${revenue_gap:,.2f} to Row {catch_row}"
                         )
@@ -1784,7 +1753,7 @@ def update_donnees_historiques(wb, merged_monthly_data, parking_code, monthly_to
                         cell_ref = f"{col_letter}{catch_row}"
                         current_val = safe_float(ws_dh[cell_ref].value)
                         ws_dh[cell_ref] = current_val + expense_gap
-                        ws_dh[cell_ref].number_format = '#,##0.00 $'
+                        ws_dh[cell_ref].number_format = '#,##0.00'
                         balancing_updates.append(
                             f"  ⚖️ {month_name}: Added ${expense_gap:,.2f} to Row {catch_row}"
                         )
@@ -1933,4 +1902,3 @@ def fix_excel(
     output.seek(0)
 
     return output, updates
-  
