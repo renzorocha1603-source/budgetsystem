@@ -2,3 +2,6 @@ zlib1g-dev
 libjpeg-dev
 python3-dev
 build-essential
+tesseract-ocr
+tesseract-ocr-fra
+poppler-utils
