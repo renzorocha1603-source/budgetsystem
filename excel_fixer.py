@@ -365,21 +365,21 @@ def read_pdf_with_ocr(uploaded_file):
         import pytesseract
 
         file_bytes = get_file_bytes(uploaded_file)
-        images = convert_from_bytes(file_bytes, dpi=250)
+        images = convert_from_bytes(file_bytes, dpi=300)
 
         sheets = {}
         for page_num, image in enumerate(images):
             try:
-                text = pytesseract.image_to_string(image, lang='fra+eng')
+                text = pytesseract.image_to_string(image, lang='fra+eng', config='--psm 6')
             except:
                 try:
-                    text = pytesseract.image_to_string(image, lang='eng')
+                    text = pytesseract.image_to_string(image, lang='eng', config='--psm 6')
                 except:
                     continue
 
-            if text and len(text.strip()) > 50:
+            if text and len(text.strip()) > 30:
                 lines = text.strip().split('\n')
-                lines = [l for l in lines if l.strip()]
+                lines = [l.strip() for l in lines if l.strip()]
                 if lines:
                     df = pd.DataFrame(lines, columns=['Text'])
                     sheet_key = f"Page{page_num+1}_OCR"
@@ -426,7 +426,7 @@ def read_pdf_with_fitz(uploaded_file):
         return None
 
 # ============================================================================
-# PDF TO EXCEL CONVERTER - FINDS PAGE 10 BY CONTENT, NOT PAGE NUMBER
+# PDF TO EXCEL CONVERTER
 # ============================================================================
 
 def find_page10_in_pdf(doc):
@@ -442,10 +442,8 @@ def find_page10_in_pdf(doc):
         if not words or len(words) < 20:
             continue
 
-        # Build full text
         full_text = ' '.join([w[4] for w in words]).upper()
 
-        # Group words into lines by y-position for paired text
         rows = {}
         for w in words:
             y_key = round(w[1] / 15) * 15
@@ -456,14 +454,12 @@ def find_page10_in_pdf(doc):
         sorted_rows = sorted(rows.items())
         line_texts = [' '.join(row_words).upper() for _, row_words in sorted_rows]
 
-        # Create paired lines for split keywords
         paired_lines = []
         for i in range(len(line_texts) - 1):
             paired_lines.append(line_texts[i] + ' ' + line_texts[i+1])
 
         combined_text = ' '.join(line_texts) + ' ' + ' '.join(paired_lines)
 
-        # Check exclude keywords
         excluded = False
         for kw in PAGE10_EXCLUDE_KEYWORDS:
             if kw in combined_text:
@@ -473,7 +469,6 @@ def find_page10_in_pdf(doc):
         if excluded:
             continue
 
-        # Check for required sequence
         seq = ['REVENUS MENSUELS', 'REVENUS JOURNALIERS', 'REVENUS LAVE-AUTO']
         last_pos = -1
         seq_ok = True
@@ -490,7 +485,6 @@ def find_page10_in_pdf(doc):
         if not seq_ok:
             continue
 
-        # Check for at least one expense
         expense_found = False
         for term in ['SALAIRES STATIONNEMENT', 'UNIFORMES', 'ENTRETIEN',
                      'TAXES ET PERMIS', 'ASSURANCES', 'TÉLÉCOMMUNICATION']:
@@ -501,15 +495,12 @@ def find_page10_in_pdf(doc):
         if not expense_found:
             continue
 
-        # Check for TOTAL REVENUS
         if 'TOTAL REVENUS' not in combined_text and 'TOTAL DES REVENUS' not in combined_text:
             continue
 
-        # Check for BÉNÉFICE NET
         if 'BÉNÉFICE NET' not in combined_text and 'BENEFICE NET' not in combined_text:
             continue
 
-        # ALL checks passed!
         return page_num
 
     return None
@@ -518,20 +509,17 @@ def find_page10_in_pdf(doc):
 def convert_page10_to_excel(uploaded_file):
     """
     Find Page 10 in the PDF and convert it to an Excel file.
-    
-    Uses PyMuPDF to extract text with coordinates, then reconstructs
-    the table using the known 9-column layout.
-    
+    Uses PyMuPDF to extract text with coordinates.
     Returns: BytesIO containing Excel file, or None if Page 10 not found.
     """
     try:
         import fitz
         from openpyxl import Workbook
+        from openpyxl.styles import Font
 
         file_bytes = get_file_bytes(uploaded_file)
         doc = fitz.open(stream=file_bytes, filetype="pdf")
 
-        # Find which page is Page 10
         page10_num = find_page10_in_pdf(doc)
 
         if page10_num is None:
@@ -545,7 +533,6 @@ def convert_page10_to_excel(uploaded_file):
             doc.close()
             return None
 
-        # Group words into rows by y-position
         rows_dict = {}
         for word in words:
             x0, y0, x1, y1, text, block, line, word_no = word
@@ -555,10 +542,8 @@ def convert_page10_to_excel(uploaded_file):
                 rows_dict[y_key] = []
             rows_dict[y_key].append((x0, text))
 
-        # Sort rows
         sorted_y = sorted(rows_dict.keys())
 
-        # Find column boundaries
         all_x = []
         for y_key in sorted_y:
             for x, text in rows_dict[y_key]:
@@ -572,26 +557,22 @@ def convert_page10_to_excel(uploaded_file):
         max_x = max(all_x)
         col_width = (max_x - min_x) / 9
 
-        # Create Excel workbook
         wb = Workbook()
         ws = wb.active
         ws.title = "Page10"
 
-        # Headers
         headers = ["Account", "Mois Courant", "Budget période", "Écart Budget",
                    "An. Préc.", "Cumulatif courant", "Cumulatif budget",
                    "Écart Budget Cumul.", "An. Préc. Cumul."]
         for col, header in enumerate(headers, 1):
-            ws.cell(row=1, column=col, value=header)
-            ws.cell(row=1, column=col).font = openpyxl.styles.Font(bold=True) if 'openpyxl' in dir() else None
+            cell = ws.cell(row=1, column=col, value=header)
+            cell.font = Font(bold=True)
 
-        # Extract each row
         excel_row = 2
         for y_key in sorted_y:
             row_items = rows_dict[y_key]
             row_items.sort(key=lambda item: item[0])
 
-            # Assign to columns
             cols = [''] * 9
             for x, text in row_items:
                 col_idx = min(8, max(0, int((x - min_x) / col_width)))
@@ -601,13 +582,11 @@ def convert_page10_to_excel(uploaded_file):
                 else:
                     cols[col_idx] = text
 
-            # Write to Excel
             has_content = False
             for col in range(9):
                 val = cols[col].strip()
                 if val:
                     has_content = True
-                    # Try to convert to number
                     try:
                         clean = val.replace('$', '').replace(',', '').replace(' ', '')
                         if clean.startswith('(') and clean.endswith(')'):
@@ -626,7 +605,6 @@ def convert_page10_to_excel(uploaded_file):
 
         doc.close()
 
-        # Save to BytesIO
         output = io.BytesIO()
         wb.save(output)
         output.seek(0)
@@ -640,10 +618,10 @@ def convert_page10_to_excel(uploaded_file):
 def read_pdf_to_dataframe(uploaded_file):
     """
     MAIN PDF READER:
-    1. Try to convert Page 10 to Excel (coordinate-based, most reliable)
-    2. Fall back to Fitz text extraction
-    3. Fall back to pdfplumber
-    4. Last resort: OCR
+    1. Try Page 10 → Excel converter (coordinate-based, for digital PDFs)
+    2. Try OCR (for scanned/image-based PDFs like January)
+    3. Fall back to Fitz text
+    4. Fall back to pdfplumber
     """
 
     # STEP 1: Try Page 10 → Excel converter
@@ -660,12 +638,17 @@ def read_pdf_to_dataframe(uploaded_file):
         except:
             pass
 
-    # STEP 2: Try Fitz text extraction
+    # STEP 2: Try OCR for scanned/image-based PDFs
+    ocr_sheets = read_pdf_with_ocr(uploaded_file)
+    if ocr_sheets:
+        return ocr_sheets
+
+    # STEP 3: Try Fitz text extraction
     fitz_sheets = read_pdf_with_fitz(uploaded_file)
     if fitz_sheets:
         return fitz_sheets
 
-    # STEP 3: Fall back to pdfplumber
+    # STEP 4: Fall back to pdfplumber
     try:
         file_bytes = get_file_bytes(uploaded_file)
         sheets = {}
@@ -702,8 +685,7 @@ def read_pdf_to_dataframe(uploaded_file):
     except Exception:
         pass
 
-    # STEP 4: Last resort - OCR
-    return read_pdf_with_ocr(uploaded_file)
+    return None
 
 
 def read_any_file_to_dataframes(uploaded_file):
@@ -874,36 +856,41 @@ def label_match_score(cell_text, label_text):
     return 0
 
 def extract_dollar_amount_from_text(text):
+    """Extract a dollar amount from any text. Handles space-separated numbers like '7 106 417,00'."""
     if not text:
         return None
 
+    # Pattern 1: Standard dollar amounts with possible spaces
     patterns = [
-        r'\$([\d,]+\.?\d*)',
-        r'([\d,]+\.?\d*)\s*\$',
-        r'\$?\s*([\d,]+\.\d{2})\s*\$?',
-        r'\(?\$?([\d,]+\.?\d*)\)?',
+        r'\$\s*([\d,\s]+\.?\d*)',
+        r'([\d,\s]+\.?\d*)\s*\$',
+        r'\$?\s*([\d,\s]+\.\d{2})\s*\$?',
+        r'\(?\$?\s*([\d,\s]+\.?\d*)\s*\)?',
     ]
 
     for pattern in patterns:
         match = re.search(pattern, text)
         if match:
             try:
-                return float(match.group(1).replace(',', ''))
+                num_str = match.group(1).replace(' ', '').replace(',', '')
+                return float(num_str)
             except:
                 continue
 
-    match = re.search(r'([\d,]+\.\d{2})', text)
+    # Pattern 2: European format with spaces as thousand separators
+    match = re.search(r'(\d{1,3}(?:\s+\d{3})*[.,]\d{2})', text)
     if match:
         try:
-            return float(match.group(1).replace(',', ''))
+            num_str = match.group(1).replace(' ', '').replace(',', '.')
+            return float(num_str)
         except:
             pass
 
-    text_normalized = text.replace(',', '.')
-    match = re.search(r'(\d{1,3}(?:\s+\d{3})*\.?\d*)', text_normalized)
+    # Pattern 3: Any number with 2 decimal places
+    match = re.search(r'([\d,\s]+\.\d{2})', text)
     if match:
         try:
-            num_str = match.group(1).replace(' ', '')
+            num_str = match.group(1).replace(' ', '').replace(',', '')
             return float(num_str)
         except:
             pass
@@ -928,8 +915,8 @@ def parse_text_line_for_data(line):
             return standard_label, val
 
     if val is not None:
-        label_text = re.sub(r'\$?[\d,]+\.?\d*\s*\$?', '', line).strip()
-        label_text = re.sub(r'\(?[\d,]+\.?\d*\)?', '', label_text).strip()
+        label_text = re.sub(r'\$?[\d,\s]+\.?\d*\s*\$?', '', line).strip()
+        label_text = re.sub(r'\(?[\d,\s]+\.?\d*\)?', '', label_text).strip()
         label_text = re.sub(r'\s+', ' ', label_text).strip()
 
         if len(label_text) > 2:
@@ -992,7 +979,7 @@ def extract_month_year_from_text(text):
 # ============================================================================
 
 def extract_data_from_text_sheet(df, month_name, year):
-    """Extract data from OCR/Text sheet (fallback)."""
+    """Extract data from OCR/Text sheet."""
     result = {}
 
     all_lines = []
@@ -1016,7 +1003,7 @@ def extract_data_from_text_sheet(df, month_name, year):
     for i, line in enumerate(all_lines):
         line_upper = line.upper()
 
-        if 'TOTAL REVENUS' in line_upper:
+        if 'TOTAL REVENUS' in line_upper or 'TOTAL DES REVENUS' in line_upper:
             val = extract_dollar_amount_from_text(line)
             if not val and i + 1 < len(all_lines):
                 val = extract_dollar_amount_from_text(all_lines[i+1])
@@ -1026,7 +1013,7 @@ def extract_data_from_text_sheet(df, month_name, year):
                 result['_REVENUE_TOTAL_'] = val
             continue
 
-        if 'TOTAL DES FRAIS' in line_upper or 'TOTAL OPERATING' in line_upper or 'TOTAL OPERATION' in line_upper:
+        if any(term in line_upper for term in ['TOTAL DES FRAIS', 'TOTAL OPERATING', 'TOTAL DEPENSES', 'TOTAL DÉPENSES']):
             val = extract_dollar_amount_from_text(line)
             if not val and i + 1 < len(all_lines):
                 val = extract_dollar_amount_from_text(all_lines[i+1])
@@ -1098,11 +1085,7 @@ def find_amount_column(df):
     return 2
 
 def extract_monthly_data_from_file(uploaded_file):
-    """
-    Main extraction function.
-    For PDFs: Page 10 is converted to Excel by the converter,
-    so this function now receives clean Excel data.
-    """
+    """Main extraction function."""
     result = {}
     month_name = None
     year = None
@@ -1118,7 +1101,7 @@ def extract_monthly_data_from_file(uploaded_file):
     available_sheets = list(sheets_dict.keys())
     result['_DEBUG_SHEETS_'] = str(available_sheets)[:200]
 
-    # Find best sheet
+    # Find the Page10 sheet or fall back
     target_sheet = None
     for name in sheets_dict:
         if 'Page10' in name:
@@ -1145,55 +1128,74 @@ def extract_monthly_data_from_file(uploaded_file):
     if hasattr(uploaded_file, 'name'):
         month_name, year = extract_month_year_from_text(uploaded_file.name)
 
-    # Check if this is the converted Page 10 Excel (has headers like "Mois Courant")
+    # Check if this is the converted Page 10 Excel
     is_page10_excel = False
-    if len(df.columns) >= 2:
-        first_row = str(df.iloc[0, 1]).lower() if len(df) > 0 else ""
-        if 'mois courant' in first_row or 'account' in str(df.iloc[0, 0]).lower():
-            is_page10_excel = True
+    if 'Page10' in target_sheet and len(df.columns) >= 2 and len(df) > 25:
+        is_page10_excel = True
+    elif len(df.columns) >= 2:
+        # Check headers
+        try:
+            first_cell = str(df.iloc[0, 0]).lower().strip()
+            second_cell = str(df.iloc[0, 1]).lower().strip()
+            if 'account' in first_cell or 'mois courant' in second_cell:
+                is_page10_excel = True
+        except:
+            pass
 
     if is_page10_excel:
         result['_DEBUG_METHOD_'] = "Page10_converted_excel"
         
-        # The converter creates: Col0=Account, Col1=Mois Courant, Col2=Budget, etc.
-        # We want Col1 (Mois Courant / Current Month Actual)
-        amount_col = 1
-        
+        amount_col = 1  # Mois Courant
         matches_found = 0
         
-        for row_idx in range(1, len(df)):  # Skip header row
+        for row_idx in range(len(df)):
             try:
                 account_name = str(df.iloc[row_idx, 0]).strip()
-                if not account_name or account_name.lower() == 'nan':
+                if not account_name or account_name.lower() in ['nan', 'account', '']:
                     continue
                 
-                # Match account name to standard labels
-                best_match = None
-                best_score = 0
+                # Try exact French names from PAGE10_FRENCH_LABELS first
+                matched = False
+                for french_label, english_label in PAGE10_FRENCH_LABELS.items():
+                    if clean_text_for_matching(french_label) in clean_text_for_matching(account_name):
+                        val = safe_float(df.iloc[row_idx, amount_col])
+                        if val != 0:
+                            matches_found += 1
+                            if english_label in result:
+                                result[english_label] += val
+                            else:
+                                result[english_label] = val
+                        matched = True
+                        break
                 
-                for label, standard in ALL_LABEL_MAPPINGS.items():
-                    score = label_match_score(account_name, label)
-                    if score > best_score and score >= 0.6:
-                        best_score = score
-                        best_match = standard
+                if not matched:
+                    # Try ALL_LABEL_MAPPINGS
+                    best_match = None
+                    best_score = 0
+                    
+                    for label, standard in ALL_LABEL_MAPPINGS.items():
+                        score = label_match_score(account_name, label)
+                        if score > best_score and score >= 0.6:
+                            best_score = score
+                            best_match = standard
+                    
+                    if best_match:
+                        val = safe_float(df.iloc[row_idx, amount_col])
+                        if val != 0:
+                            matches_found += 1
+                            if best_match in result:
+                                result[best_match] += val
+                            else:
+                                result[best_match] = val
                 
-                if best_match:
-                    val = safe_float(df.iloc[row_idx, amount_col])
-                    if val != 0:
-                        matches_found += 1
-                        if best_match in result:
-                            result[best_match] += val
-                        else:
-                            result[best_match] = val
-                
-                # Also check for totals
+                # Check for totals
                 account_upper = account_name.upper()
-                if 'TOTAL REVENUS' in account_upper or 'TOTAL REVENUE' in account_upper:
+                if any(term in account_upper for term in ['TOTAL REVENUS', 'TOTAL REVENUE', 'TOTAL DES REVENUS']):
                     val = safe_float(df.iloc[row_idx, amount_col])
                     if val != 0:
                         result['_REVENUE_TOTAL_'] = val
                 
-                if 'TOTAL DES FRAIS' in account_upper or 'TOTAL OPERATING' in account_upper:
+                if any(term in account_upper for term in ['TOTAL DES FRAIS', 'TOTAL OPERATING', "TOTAL DES FRAIS D'EXPLOITATION"]):
                     val = safe_float(df.iloc[row_idx, amount_col])
                     if val != 0:
                         result['_EXPENSE_TOTAL_'] = val
@@ -1264,7 +1266,6 @@ def find_best_data_sheet(sheets_dict):
     if not sheets_dict:
         return None
 
-    # Prefer Page10 sheets
     for name in sheets_dict:
         if 'Page10' in name:
             return name
@@ -1932,3 +1933,4 @@ def fix_excel(
     output.seek(0)
 
     return output, updates
+  
