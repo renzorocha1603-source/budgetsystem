@@ -530,6 +530,7 @@ _D = dict(
     last_processed_text="",
     parking_codes=[],
     selected_parking_code=None,
+    extracted_rev={},
 )
 
 for k, v in _D.items():
@@ -1445,9 +1446,12 @@ if st.session_state.thinking:
             else:
                 ctx_suffix += f"Content:\n{str(file_data)[:3000]}\n"
             ctx_suffix += f"\n[End of {file_name}]\n"
-        if st.session_state.extracted_rev:
+        if st.session_state.get("extracted_rev"):
             rev = st.session_state.extracted_rev
-            ctx_suffix += f" [Budget: Transient ${rev['transient']:,.0f}, Monthly ${rev['monthly']:,.0f}, Total ${rev['total']:,.0f}]"
+            ctx_suffix += (
+                f" [Budget: Transient ${rev['transient']:,.0f}, "
+                f"Monthly ${rev['monthly']:,.0f}, Total ${rev['total']:,.0f}]"
+            )
         recent_history = st.session_state.messages[-12:] if len(st.session_state.messages) > 12 else st.session_state.messages
         history_for_mistral = []
         for msg in recent_history[:-1]:
