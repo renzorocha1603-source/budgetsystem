@@ -318,7 +318,6 @@ def read_pdf_with_ocr(uploaded_file):
         import pytesseract
         
         file_bytes = get_file_bytes(uploaded_file)
-        # Lower DPI for speed
         images = convert_from_bytes(file_bytes, dpi=200)
         
         sheets = {}
@@ -563,51 +562,46 @@ def label_match_score(cell_text, label_text):
         return 0
     return 0
 
-def preprocess_ocr_line(line):
+def preprocess_number_text(text):
     """Fix OCR issues: join split numbers like '43 880.03' into '43880.03'"""
-    if not line:
-        return line
+    if not text:
+        return text
     
     # Pattern: "digits space digits.decimals" -> joindigits.decimals
-    # e.g., "43 880.03" -> "43880.03"
-    line = re.sub(r'(\d+)\s+(\d{3}\.\d{2})', r'\1\2', line)
+    text = re.sub(r'(\d+)\s+(\d{3}\.\d{2})', r'\1\2', text)
     
     # Pattern: "digits space digits space digits" -> joindigits.joindigits
-    # e.g., "43 880 03" -> "43880.03"
-    line = re.sub(r'(\d+)\s+(\d{3})\s+(\d{2})(?!\d)', r'\1\2.\3', line)
+    text = re.sub(r'(\d+)\s+(\d{3})\s+(\d{2})(?!\d)', r'\1\2.\3', text)
     
     # Pattern: "digits space digits" where digits is 3 digits (thousands)
-    # e.g., "12 049" -> "12049"
-    line = re.sub(r'(\d+)\s+(\d{3})(?!\d)', r'\1\2', line)
+    text = re.sub(r'(\d+)\s+(\d{3})(?!\d)', r'\1\2', text)
     
-    return line
+    return text
 
 def extract_dollar_amount_from_text(text):
     """Extract a dollar amount from any text. Handles OCR split numbers."""
     if not text:
         return None
     
-    # Preprocess: join split numbers
-    text = preprocess_ocr_line(text)
+    # Preprocess to fix OCR number splitting
+    processed = preprocess_number_text(text)
     
-    # Try various patterns
     patterns = [
-        r'\$([\d,]+\.?\d*)',            # $1,234.56
-        r'([\d,]+\.?\d*)\s*\$',         # 1,234.56 $
-        r'\$?\s*([\d,]+\.\d{2})\s*\$?', # 1234.56 with 2 decimal places
-        r'\(?\$?([\d,]+\.?\d*)\)?',     # (1,234.56)
+        r'\$([\d,]+\.?\d*)',
+        r'([\d,]+\.?\d*)\s*\$',
+        r'\$?\s*([\d,]+\.\d{2})\s*\$?',
+        r'\(?\$?([\d,]+\.?\d*)\)?',
     ]
     
     for pattern in patterns:
-        match = re.search(pattern, text)
+        match = re.search(pattern, processed)
         if match:
             try:
                 return float(match.group(1).replace(',', ''))
             except:
                 continue
     
-    # Try any number that looks like currency
-    match = re.search(r'([\d,]+\.\d{2})', text)
+    match = re.search(r'([\d,]+\.\d{2})', processed)
     if match:
         try:
             return float(match.group(1).replace(',', ''))
@@ -617,31 +611,36 @@ def extract_dollar_amount_from_text(text):
     return None
 
 def parse_text_line_for_data(line):
-    """Parse a text line for label and dollar amount."""
+    """
+    Parse a text line for label and dollar amount.
+    Label matching on ORIGINAL text, value extraction on preprocessed text.
+    """
     if not line or len(line) < 5:
         return None, None
     
     line = line.strip()
     
-    # Preprocess to fix OCR number splitting
-    processed_line = preprocess_ocr_line(line)
-    
-    # Extract dollar amount
-    val = extract_dollar_amount_from_text(processed_line)
-    
-    # Try Page 10 French labels first
+    # Try to match label on ORIGINAL line
     for mapping_label, standard_label in PAGE10_FRENCH_LABELS.items():
         if label_match_score(line, mapping_label) >= 0.6:
-            return standard_label, val
+            val = extract_dollar_amount_from_text(line)
+            if val and val != 0:
+                return standard_label, val
+            return standard_label, None
     
-    # Try all other labels
     for mapping_label, standard_label in ALL_LABEL_MAPPINGS.items():
         if mapping_label in PAGE10_FRENCH_LABELS:
             continue
         if label_match_score(line, mapping_label) >= 0.6:
-            return standard_label, val
+            val = extract_dollar_amount_from_text(line)
+            if val and val != 0:
+                return standard_label, val
+            return standard_label, None
     
-    # If value found but no label, try to find label by removing the amount
+    # No label found, just try to extract value
+    val = extract_dollar_amount_from_text(line)
+    
+    # If value found, try to find label by removing the amount
     if val is not None:
         label_text = re.sub(r'\$?[\d,]+\.?\d*\s*\$?', '', line).strip()
         label_text = re.sub(r'\(?[\d,]+\.?\d*\)?', '', label_text).strip()
@@ -754,10 +753,8 @@ def find_best_data_sheet(sheets_dict):
     return candidates[0][0]
 
 def find_amount_column(df):
-    """Find the column with monthly actual values."""
     if df is None or len(df) == 0:
         return None
-    
     if 'Text' in df.columns:
         return None
     
@@ -809,7 +806,7 @@ def extract_data_from_text_sheet(df, month_name, year):
                 line = ' '.join(parts)
             
             if line and len(line) > 2:
-                all_lines.append(preprocess_ocr_line(line))
+                all_lines.append(line)  # Keep original line for label matching
         except:
             continue
     
