@@ -108,12 +108,46 @@ FICHE_STATIONNEMENT_MAP = [
 ]
 
 # ============================================================================
-# COMBINED LABEL MAPPINGS
+# EXACT FRENCH LABELS FROM PAGE 10
 # ============================================================================
-ALL_LABEL_MAPPINGS = {
-    # REVENUES - English
-    "Monthly Revenue": "Monthly Revenues",
+PAGE10_FRENCH_LABELS = {
+    # REVENUS
+    "Revenus mensuels": "Monthly Revenues",
+    "Revenus Journaliers": "Transient Revenue",
+    "Revenus Lave-Auto": "Car-Wash Revenue",
+    "Divers": "Miscellaneous",
+    "Revenus de stationnement": "Parking Revenue",
+    "(Gratuités - mensuels)": "Discount-Gratuities - Monthly",
+    "TOTAL REVENUS": "TOTAL REVENUE",
+    # DÉPENSES
+    "Salaires Stationnement": "Parking wages",
+    "Uniformes": "Uniforms",
+    "Fourn. de stationnement": "Parking supplies",
+    "Entretien réparation - Nettoyage": "R&M - Cleaning",
+    "Entretien réparation - Equipement": "R&M - Equipement",
+    "Entretien réparation - Général": "R&M - General",
+    "Taxes et permis": "Tax & license",
+    "Assurances Cautionnement": "Insurance & Guarantee",
+    "Réclamations": "Claims",
+    "Télécommunication": "Telecommunication",
+    "Frais de cartes de crédit": "Credit Card fees",
+    "Frais de bureau": "Office expenses",
+    "Total des frais d'exploitation": "Total Operation expenses",
+    "RÉSULTAT D'EXPLOITATION": "OPERATION SURPLUS",
+    "Honoraires de gestion": "Percent Management fee",
+    "Total des autres frais": "Total other expenses",
+    "BÉNÉFICE NET": "NET INCOME",
+}
+
+# ============================================================================
+# COMBINED ALL LABEL MAPPINGS
+# ============================================================================
+ALL_LABEL_MAPPINGS = {}
+ALL_LABEL_MAPPINGS.update(PAGE10_FRENCH_LABELS)
+ALL_LABEL_MAPPINGS.update({
+    # English versions
     "Monthly Revenues": "Monthly Revenues",
+    "Monthly Revenue": "Monthly Revenues",
     "Daily Revenues": "Transient Revenue",
     "Daily Revenue": "Transient Revenue",
     "Transient Revenue": "Transient Revenue",
@@ -125,10 +159,8 @@ ALL_LABEL_MAPPINGS = {
     "Discounts - Gratuities (Monthly)": "Discount-Gratuities - Monthly",
     "TOTAL REVENUE": "TOTAL REVENUE",
     "Miscellaneous": "Miscellaneous",
-    # EXPENSES - English
     "Parking Salaries": "Parking wages",
     "Parking Wages": "Parking wages",
-    "Uniforms": "Uniforms",
     "Parking Supplies": "Parking supplies",
     "Maintenance - Cleaning": "R&M - Cleaning",
     "Maintenance - Equipment": "R&M - Equipement",
@@ -152,16 +184,12 @@ ALL_LABEL_MAPPINGS = {
     "Incentives": "Incentives",
     "TOTAL OTHER EXPENSES": "Total other expenses",
     "NET INCOME": "NET INCOME",
-    # REVENUES - French
-    "Revenus mensuels": "Monthly Revenues",
+    # Other French
     "Revenus horaires": "Transient Revenue",
     "Revenus quotidiens": "Transient Revenue",
-    "Revenus de stationnement": "Parking Revenue",
     "Total des revenus": "TOTAL REVENUE",
-    # EXPENSES - French
     "Salaires": "Parking wages",
     "Salaires stationnement": "Parking wages",
-    "Uniformes": "Uniforms",
     "Fournitures": "Parking supplies",
     "Fournitures stationnements": "Parking supplies",
     "Entretien": "R&M - General",
@@ -171,22 +199,18 @@ ALL_LABEL_MAPPINGS = {
     "Télécommunications": "Telecommunication",
     "Publicité": "Ad. & Promotion",
     "Frais bancaires": "Credit Card fees",
-    "Frais de cartes de crédit": "Credit Card fees",
-    "Divers": "Miscellaneous",
+    "Frais de banque & C.C.": "Credit Card fees",
     "Total des dépenses": "Total Operation expenses",
     "Surplus": "OPERATION SURPLUS",
     "Frais de gestion": "Percent Management fee",
     "Incitatifs": "Incentives",
     "Revenu net": "NET INCOME",
-    "Réclamations": "Claims",
-    "Taxes": "Tax & license",
     "Location d'équipement": "Equipment rent",
     "Sécurité": "Security",
     "Serv. info. - Général": "Computer services",
-    "Frais de banque & C.C.": "Credit Card fees",
     "Honoraires de gestion (base)": "Management Fees (Basic)",
     "Honoraire de gestion a %": "Percent Management fee",
-    # Excel monthly report mappings
+    # Excel monthly
     "Mensuels": "Monthly Revenues",
     "Gratuities - Monthlies": "Discount-Gratuities - Monthly",
     "Gratuites - Mensuels": "Discount-Gratuities - Monthly",
@@ -230,7 +254,7 @@ ALL_LABEL_MAPPINGS = {
     "Vehicle Expenses": "Vehicle expenses",
     "Serv,info-Intrnet": "Computer services",
     "Publicité et promotion": "Ad. & Promotion",
-}
+})
 
 # ============================================================================
 # FILE TYPE HANDLERS
@@ -546,43 +570,81 @@ def label_match_score(cell_text, label_text):
         return 0
     return 0
 
+def extract_dollar_amount_from_text(text):
+    """Extract a dollar amount from any text. Returns the value or None."""
+    if not text:
+        return None
+    
+    # Try various patterns
+    patterns = [
+        r'\$([\d,]+\.?\d*)',            # $1,234.56
+        r'([\d,]+\.?\d*)\s*\$',         # 1,234.56 $
+        r'\$?\s*([\d,]+\.\d{2})\s*\$?', # 1234.56 with 2 decimal places
+        r'\(?\$?([\d,]+\.?\d*)\)?',     # (1,234.56)
+    ]
+    
+    for pattern in patterns:
+        match = re.search(pattern, text)
+        if match:
+            try:
+                return float(match.group(1).replace(',', ''))
+            except:
+                continue
+    
+    # Try any number that looks like currency (with 2 decimal places)
+    match = re.search(r'([\d,]+\.\d{2})', text)
+    if match:
+        try:
+            return float(match.group(1).replace(',', ''))
+        except:
+            pass
+    
+    return None
+
 def parse_text_line_for_data(line):
-    """Parse a text line for label and dollar amount."""
+    """
+    Parse a text line for label and dollar amount.
+    Uses EXACT French labels from Page 10 for better matching.
+    """
     if not line or len(line) < 5:
         return None, None
     
     line = line.strip()
     
-    # Try various patterns for "Label $1,234.56" or "Label 1,234.56 $"
-    match = re.search(r'^(.+?)\s+\$?([\d,]+\.?\d*)\s*\$?\s*$', line)
-    if not match:
-        match = re.search(r'^(.+?)\s+\(?\$?([\d,]+\.?\d*)\)?\s*$', line)
-    if not match:
-        # Try to find any dollar amount in the line
-        match = re.search(r'(.+?)\s+\$([\d,]+\.?\d*)', line)
-    if not match:
-        match = re.search(r'(.+?)\s+([\d,]+\.?\d*)\s*\$', line)
+    # Extract dollar amount
+    val = extract_dollar_amount_from_text(line)
     
-    if match:
-        label_text = match.group(1).strip()
-        value_text = match.group(2).strip()
-        
-        # Clean up label - remove leading numbers/symbols
-        label_text = re.sub(r'^[\d\s\.\-\–\_]+', '', label_text).strip()
-        
-        if len(label_text) < 3:
-            return None, None
-        
-        try:
-            value = float(value_text.replace(',', ''))
-        except:
-            return None, None
-        
-        for mapping_label, standard_label in ALL_LABEL_MAPPINGS.items():
-            if label_match_score(label_text, mapping_label) >= 0.6:
-                return standard_label, value
+    # Try to match EXACT French labels first (Page 10 format)
+    for mapping_label, standard_label in PAGE10_FRENCH_LABELS.items():
+        if label_match_score(line, mapping_label) >= 0.6:
+            return standard_label, val
     
-    return None, None
+    # Try all other labels
+    for mapping_label, standard_label in ALL_LABEL_MAPPINGS.items():
+        if mapping_label in PAGE10_FRENCH_LABELS:
+            continue  # Already checked
+        if label_match_score(line, mapping_label) >= 0.6:
+            return standard_label, val
+    
+    # If value found but no label, try to find label by removing the amount
+    if val is not None:
+        label_text = re.sub(r'\$?[\d,]+\.?\d*\s*\$?', '', line).strip()
+        label_text = re.sub(r'\(?[\d,]+\.?\d*\)?', '', label_text).strip()
+        label_text = re.sub(r'\s+', ' ', label_text).strip()
+        
+        if len(label_text) > 2:
+            # Try Page 10 labels first
+            for mapping_label, standard_label in PAGE10_FRENCH_LABELS.items():
+                if label_match_score(label_text, mapping_label) >= 0.6:
+                    return standard_label, val
+            # Then all others
+            for mapping_label, standard_label in ALL_LABEL_MAPPINGS.items():
+                if mapping_label in PAGE10_FRENCH_LABELS:
+                    continue
+                if label_match_score(label_text, mapping_label) >= 0.6:
+                    return standard_label, val
+    
+    return None, val
 
 def read_year_mapping_from_template(wb):
     dh_sheet_name = find_sheet_by_pattern(wb, SHEET_PATTERNS["Donnees Historiques"])
@@ -640,6 +702,7 @@ def find_best_data_sheet(sheets_dict):
         text_cells = 0
         numeric_cells = 0
         dollar_cells = 0
+        revenue_keywords = 0
         
         for row_idx in range(min(40, len(df))):
             for col_idx in range(min(10, len(df.columns))):
@@ -647,6 +710,13 @@ def find_best_data_sheet(sheets_dict):
                     cell_text = str(df.iloc[row_idx, col_idx]).strip()
                     if cell_text and cell_text.lower() != 'nan' and cell_text.lower() != 'none' and len(cell_text) > 2:
                         text_cells += 1
+                        
+                        # Check for Page 10 French labels
+                        cell_clean = clean_text_for_matching(cell_text)
+                        for label in PAGE10_FRENCH_LABELS:
+                            if clean_text_for_matching(label) in cell_clean:
+                                revenue_keywords += 5
+                                break
                     
                     val = safe_float(df.iloc[row_idx, col_idx])
                     if val != 0:
@@ -656,8 +726,7 @@ def find_best_data_sheet(sheets_dict):
                 except:
                     pass
         
-        # Score: heavily weight numeric/dollar cells
-        score = numeric_cells * 10 + dollar_cells * 20 + text_cells
+        score = numeric_cells * 10 + dollar_cells * 20 + text_cells + revenue_keywords * 15
         
         if text_cells > 3:
             candidates.append((sheet_name, df, score, numeric_cells, dollar_cells, len(df)))
@@ -670,9 +739,7 @@ def find_best_data_sheet(sheets_dict):
     if not candidates:
         return None
     
-    # Sort by score (highest first)
     candidates.sort(key=lambda x: x[2], reverse=True)
-    
     return candidates[0][0]
 
 def find_amount_column(df):
@@ -714,14 +781,19 @@ def find_amount_column(df):
     return 2
 
 def extract_data_from_text_sheet(df, month_name, year):
-    """Extract data from a text-based sheet (OCR or plain text)."""
+    """
+    Extract data from OCR/Text sheet.
+    Handles labels and values on separate lines.
+    Uses exact Page 10 French labels for better matching.
+    """
     result = {}
-    matches_found = 0
     
+    # Collect all non-empty lines
+    all_lines = []
     for row_idx in range(len(df)):
         try:
             if 'Text' in df.columns:
-                line = str(df.iloc[row_idx, 0])
+                line = str(df.iloc[row_idx, 0]).strip()
             else:
                 parts = []
                 for col_idx in range(min(10, len(df.columns))):
@@ -730,34 +802,61 @@ def extract_data_from_text_sheet(df, month_name, year):
                         parts.append(cell)
                 line = ' '.join(parts)
             
-            if not line or len(line) < 5:
-                continue
-            
-            line_upper = line.upper()
-            if 'REVENUE TOTAL' in line_upper or 'TOTAL REVENUE' in line_upper:
-                std_label, val = parse_text_line_for_data(line)
-                if val and val != 0:
-                    result['_REVENUE_TOTAL_'] = val
-                continue
-            
-            if 'CHARGE TOTALE' in line_upper or 'TOTAL OPERATING EXPENSES' in line_upper or 'TOTAL OPERATION EXPENSES' in line_upper:
-                std_label, val = parse_text_line_for_data(line)
-                if val and val != 0:
-                    result['_EXPENSE_TOTAL_'] = val
-                continue
-            
-            std_label, val = parse_text_line_for_data(line)
-            if std_label and val != 0:
-                matches_found += 1
-                if std_label in result:
-                    result[std_label] += val
-                else:
-                    result[std_label] = val
-        
-        except Exception:
+            if line and len(line) > 2:
+                all_lines.append(line)
+        except:
             continue
     
-    result['_DEBUG_MATCHES_'] = str(matches_found)
+    # Process each line
+    for i, line in enumerate(all_lines):
+        line_upper = line.upper()
+        
+        # Check for TOTAL REVENUS
+        if 'TOTAL REVENUS' in line_upper:
+            val = extract_dollar_amount_from_text(line)
+            if not val and i + 1 < len(all_lines):
+                val = extract_dollar_amount_from_text(all_lines[i+1])
+            if not val and i + 2 < len(all_lines):
+                val = extract_dollar_amount_from_text(all_lines[i+2])
+            if val and val != 0:
+                result['_REVENUE_TOTAL_'] = val
+            continue
+        
+        # Check for TOTAL DES FRAIS / TOTAL OPERATING
+        if 'TOTAL DES FRAIS' in line_upper or 'TOTAL OPERATING' in line_upper or 'TOTAL OPERATION' in line_upper:
+            val = extract_dollar_amount_from_text(line)
+            if not val and i + 1 < len(all_lines):
+                val = extract_dollar_amount_from_text(all_lines[i+1])
+            if not val and i + 2 < len(all_lines):
+                val = extract_dollar_amount_from_text(all_lines[i+2])
+            if val and val != 0:
+                result['_EXPENSE_TOTAL_'] = val
+            continue
+        
+        # Try to match label + value
+        std_label, val = parse_text_line_for_data(line)
+        
+        # If label found but no value, check next 2 lines
+        if std_label and not val:
+            if i + 1 < len(all_lines):
+                val = extract_dollar_amount_from_text(all_lines[i+1])
+            if not val and i + 2 < len(all_lines):
+                val = extract_dollar_amount_from_text(all_lines[i+2])
+        
+        # If value found but no label, check previous 2 lines
+        if not std_label and val:
+            if i > 0:
+                std_label, _ = parse_text_line_for_data(all_lines[i-1])
+            if not std_label and i > 1:
+                std_label, _ = parse_text_line_for_data(all_lines[i-2])
+        
+        if std_label and val and val != 0:
+            if std_label in result:
+                result[std_label] += val
+            else:
+                result[std_label] = val
+    
+    result['_DEBUG_MATCHES_'] = str(len([k for k in result.keys() if not k.startswith('_')]))
     return result
 
 def extract_monthly_data_from_file(uploaded_file):
@@ -842,13 +941,13 @@ def extract_monthly_data_from_file(uploaded_file):
                 for col_idx in range(min(10, len(df.columns))):
                     cell_text = str(df.iloc[row_idx, col_idx]).strip().upper()
                     
-                    if 'REVENUE TOTAL' in cell_text or 'TOTAL REVENUE' in cell_text:
+                    if 'TOTAL REVENUS' in cell_text or 'TOTAL REVENUE' in cell_text:
                         val = safe_float(df.iloc[row_idx, amount_col])
                         if val != 0:
                             result['_REVENUE_TOTAL_'] = val
                         break
                     
-                    if 'CHARGE TOTALE' in cell_text or 'TOTAL OPERATING EXPENSES' in cell_text:
+                    if 'TOTAL DES FRAIS' in cell_text or 'TOTAL OPERATING' in cell_text:
                         val = safe_float(df.iloc[row_idx, amount_col])
                         if val != 0:
                             result['_EXPENSE_TOTAL_'] = val
@@ -1008,14 +1107,10 @@ def extract_page3_data(uploaded_file):
         return None
     
     if 'Text' in df.columns:
-        for row_idx in range(len(df)):
-            try:
-                line = str(df.iloc[row_idx, 0])
-                std_label, val = parse_text_line_for_data(line)
-                if std_label and val != 0:
-                    result['yearly'][std_label] = val
-            except:
-                continue
+        data = extract_data_from_text_sheet(df, None, None)
+        for key, value in data.items():
+            if not key.startswith('_'):
+                result['yearly'][key] = value
     else:
         ytd_col = find_ytd_column(df)
         if ytd_col is None:
@@ -1198,7 +1293,6 @@ def merge_monthly_data(current_year_data, previous_year_data, year_map):
 # ============================================================================
 
 def update_budget_initial(wb, bi_data, parking_code):
-    """Fill Budget Initial Column S with Year Totals."""
     updates = []
     try:
         sheet_name = find_sheet_by_pattern(wb, SHEET_PATTERNS["Budget Initial"])
@@ -1229,7 +1323,7 @@ def update_budget_initial(wb, bi_data, parking_code):
                     filled_expense += yearly_value
         
         expected_net = find_pnl_value(bi_data, [
-            "NET INCOME", "net income", "revenus nets", "REVENUS NETS"
+            "NET INCOME", "net income", "revenus nets", "REVENUS NETS", "BÉNÉFICE NET"
         ])
         
         if expected_net != 0:
@@ -1418,9 +1512,7 @@ def fix_excel(
                     if d.get('error'):
                         updates.append(f"🔧 {d['file']}: ERROR - {d['error']}")
                     else:
-                        updates.append(f"🔧 {d['file']}: type={d['type']}, target={d['target']}, rows={d['rows']}x{d['cols']}, matches={d['matches']}, month={d['month']}, amount_col={d.get('amount_col','?')}")
-                        if d.get('sample'):
-                            updates.append(f"🔧 Sample: {d['sample'][:250]}")
+                        updates.append(f"🔧 {d['file']}: type={d['type']}, target={d['target']}, rows={d['rows']}x{d['cols']}, matches={d['matches']}, month={d['month']}")
             
             num_labels = len(dh_current_year_data.get('yearly', {}))
             updates.append(f"📊 Current year: {num_labels} labels")
