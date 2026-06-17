@@ -8,3 +8,4 @@ pydub
 simple-websocket
 audio-recorder-streamlit
 PyMuPDF
+Pillow
