@@ -111,7 +111,6 @@ FICHE_STATIONNEMENT_MAP = [
 # EXACT FRENCH LABELS FROM PAGE 10
 # ============================================================================
 PAGE10_FRENCH_LABELS = {
-    # REVENUS
     "Revenus mensuels": "Monthly Revenues",
     "Revenus Journaliers": "Transient Revenue",
     "Revenus Lave-Auto": "Car-Wash Revenue",
@@ -119,7 +118,6 @@ PAGE10_FRENCH_LABELS = {
     "Revenus de stationnement": "Parking Revenue",
     "(Gratuités - mensuels)": "Discount-Gratuities - Monthly",
     "TOTAL REVENUS": "TOTAL REVENUE",
-    # DÉPENSES
     "Salaires Stationnement": "Parking wages",
     "Uniformes": "Uniforms",
     "Fourn. de stationnement": "Parking supplies",
@@ -145,7 +143,6 @@ PAGE10_FRENCH_LABELS = {
 ALL_LABEL_MAPPINGS = {}
 ALL_LABEL_MAPPINGS.update(PAGE10_FRENCH_LABELS)
 ALL_LABEL_MAPPINGS.update({
-    # English versions
     "Monthly Revenues": "Monthly Revenues",
     "Monthly Revenue": "Monthly Revenues",
     "Daily Revenues": "Transient Revenue",
@@ -184,7 +181,6 @@ ALL_LABEL_MAPPINGS.update({
     "Incentives": "Incentives",
     "TOTAL OTHER EXPENSES": "Total other expenses",
     "NET INCOME": "NET INCOME",
-    # Other French
     "Revenus horaires": "Transient Revenue",
     "Revenus quotidiens": "Transient Revenue",
     "Total des revenus": "TOTAL REVENUE",
@@ -210,7 +206,6 @@ ALL_LABEL_MAPPINGS.update({
     "Serv. info. - Général": "Computer services",
     "Honoraires de gestion (base)": "Management Fees (Basic)",
     "Honoraire de gestion a %": "Percent Management fee",
-    # Excel monthly
     "Mensuels": "Monthly Revenues",
     "Gratuities - Monthlies": "Discount-Gratuities - Monthly",
     "Gratuites - Mensuels": "Discount-Gratuities - Monthly",
@@ -257,12 +252,9 @@ ALL_LABEL_MAPPINGS.update({
 })
 
 # ============================================================================
-# HARDCODED PAGE 10 STRUCTURE
+# HARDCODED PAGE 10 STRUCTURE - VERIFIED FROM SPATIAL MAPPING
 # ============================================================================
 
-# This is the EXACT structure of the Page 10 Profit & Loss statement
-# Format: (english_name, [french_name_alternatives], is_total, is_section_header)
-# Column 2 = Mois Courant (Current Month Actual) - this is what we extract
 PAGE10_STRUCTURE = [
     # SECTION 1: REVENUES (Rows 1-7)
     ("Monthly Revenues", ["Revenus mensuels"], False, False),
@@ -297,7 +289,7 @@ PAGE10_STRUCTURE = [
     ("NET INCOME", ["BÉNÉFICE NET", "BENEFICE NET"], True, False),
 ]
 
-# Keywords that indicate a page is NOT Page 10
+# FIXED: Removed MOIS COURANT and CUMULATIF - they are legitimate Page 10 column headers
 PAGE10_EXCLUDE_KEYWORDS = [
     'CONCILIATION BI', 'ÉCARTS AU BUDGET', 'ECARTS AU BUDGET',
     'SECTION 1', 'SECTION 2', 'SECTION 3', 'SECTION 4',
@@ -306,7 +298,6 @@ PAGE10_EXCLUDE_KEYWORDS = [
     'CF. EXTRAIT BI', 'AVANT TAXES', "FRAIS D'OUVERTURE",
     'COMMENTAIRES', 'ANALYSE', 'SOMMAIRE',
     'MENSUELS TOTALES', 'JOURNALIERS TOTALES', 'DÉPENSES TOTALES',
-    'MOIS COURANT', 'CUMULATIF', 'ÉCART DE',
 ]
 
 # ============================================================================
@@ -406,8 +397,8 @@ def read_pdf_with_ocr(uploaded_file):
 def read_pdf_with_fitz(uploaded_file):
     """
     Extract text from PDF using PyMuPDF (fitz).
-    Works well for born-digital PDFs with actual text content.
-    Creates sheets named Page1_Fitz, Page2_Fitz, etc.
+    Uses 'blocks' method for better table structure preservation.
+    Falls back to plain text if blocks don't give enough.
     """
     try:
         import fitz  # PyMuPDF
@@ -420,16 +411,32 @@ def read_pdf_with_fitz(uploaded_file):
 
         for page_num in range(len(doc)):
             page = doc[page_num]
-            text = page.get_text("text")
+            lines = []
+            
+            # Method 1: Try 'blocks' first - preserves table structure better
+            try:
+                blocks = page.get_text("blocks")
+                for block in blocks:
+                    if len(block) >= 7 and block[6] == 0:  # Text block
+                        text = block[4].strip() if len(block) > 4 else ""
+                        if text:
+                            block_lines = text.split('\n')
+                            lines.extend([l.strip() for l in block_lines if l.strip()])
+            except:
+                pass
+            
+            # Method 2: If blocks didn't give enough, try plain text
+            if len(lines) < 10:
+                text = page.get_text("text")
+                if text and len(text.strip()) > 30:
+                    text_lines = text.strip().split('\n')
+                    lines = [l.strip() for l in text_lines if l.strip()]
 
-            if text and len(text.strip()) > 30:
-                lines = text.strip().split('\n')
-                lines = [l.strip() for l in lines if l.strip()]
-                if lines:
-                    df = pd.DataFrame(lines, columns=['Text'])
-                    sheet_key = f"Page{page_num+1}_Fitz"
-                    sheets[sheet_key] = df
-                    total_text_lines += len(lines)
+            if lines and len(lines) > 5:
+                df = pd.DataFrame(lines, columns=['Text'])
+                sheet_key = f"Page{page_num+1}_Fitz"
+                sheets[sheet_key] = df
+                total_text_lines += len(lines)
 
         doc.close()
 
@@ -444,9 +451,7 @@ def read_pdf_with_fitz(uploaded_file):
         return None
 
 def read_pdf_to_dataframe(uploaded_file):
-    """
-    MAIN PDF READER - Fitz FIRST, pdfplumber as fallback.
-    """
+    """MAIN PDF READER - Fitz FIRST with blocks method, pdfplumber as fallback."""
     fitz_sheets = read_pdf_with_fitz(uploaded_file)
     if fitz_sheets:
         return fitz_sheets
@@ -661,7 +666,6 @@ def extract_dollar_amount_from_text(text):
     if not text:
         return None
 
-    # Try standard patterns
     patterns = [
         r'\$([\d,]+\.?\d*)',
         r'([\d,]+\.?\d*)\s*\$',
@@ -677,7 +681,6 @@ def extract_dollar_amount_from_text(text):
             except:
                 continue
 
-    # Try any number with 2 decimal places
     match = re.search(r'([\d,]+\.\d{2})', text)
     if match:
         try:
@@ -686,7 +689,6 @@ def extract_dollar_amount_from_text(text):
             pass
 
     # Handle space-separated numbers like "48 726,96"
-    # First replace comma with dot for decimal
     text_normalized = text.replace(',', '.')
     match = re.search(r'(\d{1,3}(?:\s+\d{3})*\.?\d*)', text_normalized)
     if match:
@@ -699,7 +701,6 @@ def extract_dollar_amount_from_text(text):
     return None
 
 def parse_text_line_for_data(line):
-    """Parse a text line for label and dollar amount."""
     if not line or len(line) < 5:
         return None, None
 
@@ -782,14 +783,10 @@ def extract_month_year_from_text(text):
 
 def is_actual_page10(text_lines):
     """
-    Verify this is REALLY Page 10 (P&L statement) using the hardcoded structure.
-    
-    Checks:
-    1. Does NOT contain exclude keywords (conciliation, budget variance, etc.)
-    2. HAS the exact sequence of accounts in order
-    3. HAS the required totals
+    Verify this is REALLY Page 10 (P&L statement).
+    Checks across ALL text combined, not line-by-line.
     """
-    if not text_lines or len(text_lines) < 15:
+    if not text_lines or len(text_lines) < 8:
         return False
     
     full_text = ' '.join(text_lines).upper()
@@ -799,73 +796,65 @@ def is_actual_page10(text_lines):
         if kw in full_text:
             return False
     
-    # STEP 2: Check for the EXACT sequence of accounts in order
+    # STEP 2: Check for the EXACT sequence of revenue accounts in order
     required_sequence = [
         'REVENUS MENSUELS',
-        'REVENUS JOURNALIERS',
+        'REVENUS JOURNALIERS', 
         'REVENUS LAVE-AUTO',
-        'DIVERS',
     ]
     
     last_pos = -1
     for account in required_sequence:
         pos = full_text.find(account)
         if pos == -1:
+            account_no_accents = account.replace('É', 'E').replace('È', 'E')
+            pos = full_text.find(account_no_accents)
+        if pos == -1:
             return False
         if pos <= last_pos:
-            return False  # Out of order
+            return False
         last_pos = pos
     
-    # STEP 3: Check for required totals
-    required_totals = [
-        'TOTAL REVENUS',
-        'DÉPENSES',
-        "RÉSULTAT D'EXPLOITATION",
-        'BÉNÉFICE NET',
-    ]
-    
-    for total in required_totals:
-        if total not in full_text:
-            # Try with normalized accents
-            normalized = total.replace('É', 'E').replace('È', 'E')
-            if normalized not in full_text:
-                return False
-    
-    # STEP 4: Count all Page 10 accounts present
-    page10_accounts_list = [
-        'REVENUS MENSUELS', 'REVENUS JOURNALIERS', 'REVENUS LAVE-AUTO',
-        'DIVERS', 'REVENUS DE STATIONNEMENT', 'GRATUITÉS',
-        'TOTAL REVENUS', 'DÉPENSES', "DÉPENSES D'EXPLOITATION",
+    # STEP 3: Need at least ONE expense account
+    expense_indicators = [
         'SALAIRES STATIONNEMENT', 'UNIFORMES', 'FOURN. DE STATIONNEMENT',
         'ENTRETIEN', 'TAXES ET PERMIS', 'ASSURANCES',
-        'RÉCLAMATIONS', 'TÉLÉCOMMUNICATION', 'FRAIS DE CARTES',
-        'FRAIS DE BUREAU', 'TOTAL DES FRAIS',
-        "RÉSULTAT D'EXPLOITATION", 'AUTRES FRAIS',
-        'HONORAIRES DE GESTION', 'BÉNÉFICE NET',
+        'TÉLÉCOMMUNICATION', 'FRAIS DE BUREAU', 'FRAIS DE CARTES',
     ]
     
-    matches = 0
-    for kw in page10_accounts_list:
-        if kw in full_text:
-            matches += 1
+    has_expense = False
+    for kw in expense_indicators:
+        if kw in full_text or kw.replace('É','E').replace('È','E') in full_text:
+            has_expense = True
+            break
     
-    # Need at least 12 matches
-    return matches >= 12
+    if not has_expense:
+        return False
+    
+    # STEP 4: Must have TOTAL REVENUS
+    if 'TOTAL REVENUS' not in full_text and 'TOTAL DES REVENUS' not in full_text:
+        return False
+    
+    # STEP 5: Must have BÉNÉFICE NET
+    if 'BÉNÉFICE NET' not in full_text and 'BENEFICE NET' not in full_text:
+        return False
+    
+    return True
 
 
 def find_page10_sheet(sheets_dict):
     """
     Search ALL sheets for the real Page 10.
-    Returns (sheet_name, score) or (None, 0) if not found.
+    Returns (sheet_name, score) or (None, debug_info_list).
     """
     if not sheets_dict:
-        return None, 0
+        return None, ["no_sheets"]
     
     candidates = []
     debug_info = []
     
     for sheet_name, df in sheets_dict.items():
-        if df is None or len(df) < 10:
+        if df is None or len(df) < 5:
             debug_info.append(f"{sheet_name}:too_small({len(df) if df is not None else 0})")
             continue
         
@@ -902,7 +891,7 @@ def find_page10_sheet(sheets_dict):
         if is_page10:
             full_text = ' '.join(text_lines).upper()
             
-            # Calculate score based on how many accounts are present
+            # Calculate score
             all_accounts = [
                 'REVENUS MENSUELS', 'REVENUS JOURNALIERS', 'REVENUS LAVE-AUTO',
                 'DIVERS', 'REVENUS DE STATIONNEMENT', 'GRATUITÉS',
@@ -920,31 +909,27 @@ def find_page10_sheet(sheets_dict):
                 if kw in full_text:
                     score += 1
             
-            # Bonus for Fitz sheets
             if 'Fitz' in sheet_name:
                 score += 5
             
             candidates.append((sheet_name, score, len(text_lines)))
             debug_info.append(f"{sheet_name}:MATCHED(score={score})")
         else:
-            # Show why it failed
             full_text = ' '.join(text_lines).upper()
             excluded = False
             for kw in PAGE10_EXCLUDE_KEYWORDS:
                 if kw in full_text:
                     excluded = True
-                    debug_info.append(f"{sheet_name}:excluded_by_{kw[:30]}")
+                    debug_info.append(f"{sheet_name}:excluded_by_{kw[:25]}")
                     break
             if not excluded:
-                # Count accounts
                 count = 0
                 for kw in ['REVENUS MENSUELS', 'REVENUS JOURNALIERS', 'TOTAL REVENUS', 'BÉNÉFICE NET']:
                     if kw in full_text:
                         count += 1
-                debug_info.append(f"{sheet_name}:accounts={count}")
+                debug_info.append(f"{sheet_name}:kw={count}")
     
     if not candidates:
-        # Return debug info through a side channel
         return None, debug_info
     
     candidates.sort(key=lambda x: (x[1], x[2]), reverse=True)
@@ -953,19 +938,11 @@ def find_page10_sheet(sheets_dict):
 
 def extract_page10_from_fitz_text(df):
     """
-    Extract data from Page 10 using the HARDCODED 27-row structure.
-    
-    For each account in PAGE10_STRUCTURE:
-    1. Find the line containing the French account name
-    2. Extract the dollar amount from that line or nearby lines
-    3. Return the value with the English account name
-    
-    Currently extracts Column 2 (Mois Courant / Current Month Actual).
-    To extract a different column, change which dollar amount we pick from the line.
+    Extract data from Page 10 using HARDCODED 27-row structure.
+    Extracts Column 2 (Mois Courant / Current Month Actual).
     """
     result = {}
 
-    # Get all text lines
     text_lines = []
     for row_idx in range(len(df)):
         try:
@@ -982,13 +959,11 @@ def extract_page10_from_fitz_text(df):
         except:
             continue
 
-    # Debug: store all lines
     result['_DEBUG_ALL_LINES_'] = ' || '.join(text_lines[:50])[:800]
     
-    # Extract ALL dollar amounts with their line indices
+    # Extract ALL dollar amounts
     all_values = []
     for idx, line in enumerate(text_lines):
-        # Check for multiple dollar amounts on one line
         amounts = re.findall(r'[\d\s,]+\\.?\\d*', line)
         for amt_str in amounts:
             try:
@@ -1003,7 +978,6 @@ def extract_page10_from_fitz_text(df):
     found_accounts = []
     accounts_not_found = []
 
-    # Process each account in the hardcoded Page 10 structure
     account_index = 0
     i = 0
     
@@ -1011,7 +985,6 @@ def extract_page10_from_fitz_text(df):
         line = text_lines[i]
         english_name, french_names, is_total, is_header = PAGE10_STRUCTURE[account_index]
         
-        # Check if this line matches the current account
         matched = False
         for french_name in french_names:
             if clean_text_for_matching(french_name) in clean_text_for_matching(line):
@@ -1023,12 +996,11 @@ def extract_page10_from_fitz_text(df):
             continue
         
         if english_name is None or is_header:
-            # Section header - skip
             account_index += 1
             i += 1
             continue
         
-        # Found the account! Now find its value (Column 2 = Current Month Actual)
+        # Found the account! Find its value
         val = None
         
         # Strategy 1: Dollar amount on this exact line
@@ -1046,9 +1018,8 @@ def extract_page10_from_fitz_text(df):
         if val is None and i > 0:
             val = extract_dollar_amount_from_text(text_lines[i - 1])
         
-        # Strategy 4: For space-separated numbers like "48 726,96"
+        # Strategy 4: Space-separated numbers
         if val is None:
-            # Remove all spaces and try to find a number pattern
             compact_line = line.replace(' ', '')
             match = re.search(r'(\d+[.,]?\d*)', compact_line)
             if match:
@@ -1057,7 +1028,7 @@ def extract_page10_from_fitz_text(df):
                 except:
                     pass
         
-        # Strategy 5: Look for the FIRST dollar amount after this line
+        # Strategy 5: First dollar amount after this line
         if val is None:
             for v_idx, v_val, v_str in all_values:
                 if v_idx >= i:
@@ -1173,10 +1144,8 @@ def extract_monthly_data_from_file(uploaded_file):
     available_sheets = list(sheets_dict.keys())
     result['_DEBUG_SHEETS_'] = str(available_sheets)[:200]
 
-    # Try to find the REAL Page 10
     page10_sheet, debug_info = find_page10_sheet(sheets_dict)
     
-    # Store debug info about the search
     if isinstance(debug_info, list):
         result['_DEBUG_PAGE10_SEARCH_'] = '; '.join(debug_info[:15])
     
@@ -1202,7 +1171,6 @@ def extract_monthly_data_from_file(uploaded_file):
     if hasattr(uploaded_file, 'name'):
         month_name, year = extract_month_year_from_text(uploaded_file.name)
 
-    # EXTRACT using the appropriate method
     if page10_sheet and 'Text' in df.columns:
         result['_DEBUG_METHOD_'] = "Page10_hardcoded_structure"
         data = extract_page10_from_fitz_text(df)
@@ -1909,7 +1877,7 @@ def fix_excel(
                         if d.get('all_values'):
                             updates.append(f"   💰 All values: {d['all_values']}")
                         if d.get('all_lines'):
-                            updates.append(f"   📝 Text lines: {d['all_lines']}")
+                            updates.append(f"   📝 Text lines (first 800 chars): {d['all_lines']}")
 
             num_labels = len(dh_current_year_data.get('yearly', {}))
             updates.append(f"📊 Current year: {num_labels} labels")
