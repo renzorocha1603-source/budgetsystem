@@ -1,6 +1,7 @@
-# excel_fixer.py
+# excel_fixer.py - COMPLETE VERSION FOR PAGE 1
 """
-Excel Fixer Module - Integrates PDF extraction with template filling
+Excel Fixer Module - PDF to Excel conversion + Template filling
+Only Solutions Inc. - Budget System
 """
 import pandas as pd
 import os
@@ -8,12 +9,13 @@ import re
 from datetime import datetime
 import fitz  # PyMuPDF
 from openpyxl import load_workbook
+from openpyxl.utils import get_column_letter
 from io import BytesIO
 import tempfile
 from pathlib import Path
 
 # ============================================
-# HARDCODED SPATIAL LAYOUT FOR P&L PAGE
+# HARDCODED SPATIAL LAYOUT - P&L PAGE
 # ============================================
 COLUMN_WIDTHS = [0.22, 0.10, 0.10, 0.10, 0.10, 0.10, 0.10, 0.10, 0.10]
 AMOUNT_COL = 1  # Mois Courant - ALWAYS column 1
@@ -31,8 +33,10 @@ PAGE_MARKERS = [
     "Mois Courant"
 ]
 
-# Row mapping (French -> Standard Label)
-ROW_MAPPING = {
+# ============================================
+# P&L ROW MAPPING (Row number -> French account name)
+# ============================================
+PAGE10_ROW_MAPPING = {
     1: 'Revenus mensuels',
     2: 'Revenus Journaliers',
     3: 'Revenus Lave-Auto',
@@ -40,6 +44,8 @@ ROW_MAPPING = {
     5: 'Revenus de stationnement',
     6: 'Gratuités - mensuels',
     7: 'TOTAL REVENUS',
+    8: 'DÉPENSES',  # Section header - skip
+    9: "DÉPENSES D'EXPLOITATION",  # Sub-header - skip
     10: 'Salaires Stationnement',
     11: 'Uniformes',
     12: 'Fourn. de stationnement',
@@ -54,279 +60,523 @@ ROW_MAPPING = {
     21: 'Frais de bureau',
     22: "Total des frais d'exploitation",
     23: "RÉSULTAT D'EXPLOITATION",
+    24: 'AUTRES FRAIS',  # Section header - skip
     25: 'Honoraires de gestion',
     26: 'Total des autres frais',
     27: 'BÉNÉFICE NET'
 }
 
-# French to English label mapping
-LABEL_MAPPING = {
-    'Revenus mensuels': 'Monthly Revenues',
-    'Revenus Journaliers': 'Daily Revenues',
-    'Revenus Lave-Auto': 'Car Wash Revenues',
-    'Divers': 'Miscellaneous Income',
-    'Revenus de stationnement': 'Total Parking Revenue',
-    'Gratuités - mensuels': 'Monthly Gratuities',
-    'TOTAL REVENUS': 'Total Revenue',
-    'Salaires Stationnement': 'Parking Salaries',
-    'Uniformes': 'Uniforms',
-    'Fourn. de stationnement': 'Parking Supplies',
-    'Entretien réparation - Nettoyage': 'Maintenance - Cleaning',
-    'Entretien réparation - Equipement': 'Maintenance - Equipment',
-    'Entretien réparation - Général': 'Maintenance - General',
-    'Taxes et permis': 'Taxes & Permits',
-    'Assurances Cautionnement': 'Insurance & Bonding',
-    'Réclamations': 'Claims',
-    'Télécommunication': 'Telecommunication',
-    'Frais de cartes de crédit': 'Credit Card Fees',
-    'Frais de bureau': 'Office Expenses',
-    "Total des frais d'exploitation": 'Total Operating Expenses',
-    "RÉSULTAT D'EXPLOITATION": 'Operating Surplus',
-    'Honoraires de gestion': 'Management Fees',
-    'Total des autres frais': 'Total Other Expenses',
-    'BÉNÉFICE NET': 'Net Income'
+# ============================================
+# TEMPLATE MAPPING
+# ============================================
+# Month -> Column in template (1-based)
+MONTH_COLUMN = {
+    'Janvier': 2,    # B
+    'Février': 3,    # C
+    'Mars': 4,       # D
+    'Avril': 5,      # E
+    'Mai': 6,        # F
+    'Juin': 7,       # G
+    'Juillet': 8,    # H
+    'Août': 9,       # I
+    'Septembre': 10, # J
+    'Octobre': 11,   # K
+    'Novembre': 12,  # L
+    'Décembre': 13   # M
 }
 
+# Maps P&L account (French) -> Template row number
+TEMPLATE_ROW_MAP = {
+    'Revenus mensuels': 11,           # Row 11: Revenus mensuels
+    'Revenus Journaliers': 9,         # Row 9: Revenus horaires (closest match)
+    'Revenus Lave-Auto': 12,          # Row 12: Revenus Lave-auto
+    'Divers': 15,                     # Row 15: Autres revenus
+    'Gratuités - mensuels': 18,       # Row 18: (Gratuités)
+    'TOTAL REVENUS': 24,              # Row 24: TOTAL REVENUS
+    'Salaires Stationnement': 27,     # Row 27: Salaire Stationnement
+    'Uniformes': 30,                  # Row 30: Uniformes
+    'Entretien réparation - Nettoyage': 34,    # Row 34: Nettoyage stationnement
+    'Entretien réparation - Equipement': 36,   # Row 36: Entretien équipement
+    'Entretien réparation - Général': 35,      # Row 35: Entretien stationnement
+    'Fourn. de stationnement': 40,    # Row 40: Fournitures stationnement
+    'Taxes et permis': 54,            # Row 54: Taxes et permis
+    'Assurances Cautionnement': 53,   # Row 53: Assurances et cautionnement
+    'Réclamations': 52,               # Row 52: Réclamations
+    'Télécommunication': 47,          # Row 47: Telecommunications
+    'Frais de cartes de crédit': 49,  # Row 49: Frais de cartes de crédit
+    'Frais de bureau': 46,            # Row 46: Fournitures de bureau
+    "Total des frais d'exploitation": 66,  # Row 66: TOTAL DÉPENSES
+    'Honoraires de gestion': 56,      # Row 56: Honoraires de gestion (combined)
+    'BÉNÉFICE NET': 68,              # Row 68: REVENUS NETS
+}
+
+# Accounts that MUST match for validation
+VALIDATION_PAIRS = [
+    ('BÉNÉFICE NET', 'REVENUS NETS', 68),
+    ('TOTAL REVENUS', 'TOTAL REVENUS', 24),
+    ("Total des frais d'exploitation", 'TOTAL DÉPENSES', 66),
+]
+
+# ============================================
+# UTILITY FUNCTIONS
+# ============================================
+
 def safe_float(value):
-    """Handle European numbers: '7 106 417,00' -> 7106417.00"""
+    """
+    Convert European number format to float.
+    Handles: "7 106 417,00", "(42 000,00)", "1 234.56"
+    """
     if value is None or value == "":
         return None
     if isinstance(value, (int, float)):
         return float(value)
-    value = str(value).strip().replace(" ", "").replace("\xa0", "")
-    value = value.replace(",", ".")
+    
+    value = str(value).strip()
+    
+    # Handle parentheses (negative)
+    is_negative = value.startswith('(') and value.endswith(')')
+    if is_negative:
+        value = value[1:-1]
+    
+    # Remove spaces
+    value = value.replace(" ", "").replace("\xa0", "").replace("\u202f", "")
+    
+    # Handle comma as decimal
+    if ',' in value:
+        value = value.replace(',', '.')
+    
+    # Remove any remaining non-numeric (except minus and dot)
+    value = re.sub(r'[^\d\.\-]', '', value)
+    
     try:
-        return float(value)
+        result = float(value)
+        return -result if is_negative else result
     except:
         return None
 
+def extract_month_from_filename(filename):
+    """Extract month name from filename"""
+    months = {
+        'janvier': 'Janvier', 'février': 'Février', 'mars': 'Mars',
+        'avril': 'Avril', 'mai': 'Mai', 'juin': 'Juin',
+        'juillet': 'Juillet', 'août': 'Août', 'septembre': 'Septembre',
+        'octobre': 'Octobre', 'novembre': 'Novembre', 'décembre': 'Décembre'
+    }
+    
+    if hasattr(filename, 'name'):
+        name = filename.name.lower()
+    else:
+        name = str(filename).lower()
+    
+    for key, value in months.items():
+        if key in name:
+            return value
+    
+    # Try regex
+    match = re.search(
+        r'(janvier|février|mars|avril|mai|juin|juillet|août|septembre|octobre|novembre|décembre)',
+        name, re.IGNORECASE
+    )
+    if match:
+        return match.group(1).capitalize()
+    
+    return None
+
+# ============================================
+# PDF EXTRACTION FUNCTIONS
+# ============================================
+
 def find_pl_page(pdf_path):
-    """Find P&L page by content markers"""
+    """Find P&L page by content markers (NOT page number)"""
     doc = fitz.open(pdf_path)
     for i in range(len(doc)):
         text = doc[i].get_text()
-        if all(m.lower() in text.lower() for m in PAGE_MARKERS):
+        matches = sum(1 for m in PAGE_MARKERS if m.lower() in text.lower())
+        if matches >= 3:  # At least 3 of 4 markers
+            print(f"   📄 P&L found on page {i+1} ({matches}/4 markers)")
             return doc, i
     doc.close()
     return None, None
 
 def extract_table_from_page(page):
-    """Extract 27 rows x 9 columns using hardcoded layout"""
+    """
+    Extract 27 rows × 9 columns using hardcoded spatial layout.
+    This is the SAME layout regardless of which page number.
+    """
     w, h = page.rect.width, page.rect.height
-    top, bottom = h * TABLE_TOP, h * TABLE_BOTTOM
-    left, right = w * TABLE_LEFT, w * TABLE_RIGHT
+    top = h * TABLE_TOP
+    bottom = h * TABLE_BOTTOM
+    left = w * TABLE_LEFT
+    right = w * TABLE_RIGHT
+    table_w = right - left
     row_h = (bottom - top) / NUM_ROWS
     
     data = []
-    for row in range(NUM_ROWS):
+    
+    for row_idx in range(NUM_ROWS):
         row_data = []
-        y = top + row * row_h
+        y = top + (row_idx * row_h)
         x = left
+        
         for col_w in COLUMN_WIDTHS:
-            cell_w = col_w * (right - left)
-            text = page.get_text("text", clip=fitz.Rect(x+1, y+1, x+cell_w-1, y+row_h-1))
+            cell_w = col_w * table_w
+            # Extract text with 1pt margin to avoid borders
+            rect = fitz.Rect(x + 1, y + 1, x + cell_w - 1, y + row_h - 1)
+            text = page.get_text("text", clip=rect)
             row_data.append(' '.join(text.strip().split()))
             x += cell_w
+        
         data.append(row_data)
+    
     return data
 
-def extract_from_pdf(pdf_path):
-    """Extract financial data from a PDF monthly report"""
+def pdf_to_excel(pdf_path, output_dir=None):
+    """
+    Convert PDF P&L page to Excel for verification.
+    Returns both the DataFrame and extracted financial data.
+    """
+    print(f"\n📄 Processing: {os.path.basename(pdf_path)}")
+    
     doc, page_num = find_pl_page(pdf_path)
     if doc is None:
-        print(f"❌ No P&L page found in {pdf_path}")
-        return {}
+        print(f"   ❌ P&L page not found")
+        return None, {}
     
-    table = extract_table_from_page(doc[page_num])
+    page = doc[page_num]
+    table = extract_table_from_page(page)
     doc.close()
     
-    # Extract amounts using row mapping
-    financial_data = {}
-    for row_num, french_label in ROW_MAPPING.items():
-        if row_num <= len(table):
-            raw_amount = table[row_num-1][AMOUNT_COL]
-            amount = safe_float(raw_amount)
-            if amount is not None:
-                english_label = LABEL_MAPPING.get(french_label, french_label)
-                financial_data[english_label] = amount
+    # Create DataFrame
+    columns = [
+        'Account', 'Mois Courant', 'Budget', 'Écart', 'An Préc',
+        'Cumulatif', 'Cumul budget', 'Écart cumul', 'An Préc cumul'
+    ]
+    df = pd.DataFrame(table, columns=columns)
     
-    return financial_data
+    # Save to Excel for verification
+    if output_dir:
+        os.makedirs(output_dir, exist_ok=True)
+        excel_path = os.path.join(output_dir, f"{Path(pdf_path).stem}_extracted.xlsx")
+        df.to_excel(excel_path, index=False)
+        print(f"   💾 Saved: {excel_path}")
+    
+    # Extract financial data
+    financial_data = {}
+    for row_num, account_name in PAGE10_ROW_MAPPING.items():
+        # Skip section headers
+        if account_name in ['DÉPENSES', "DÉPENSES D'EXPLOITATION", 'AUTRES FRAIS']:
+            continue
+        
+        if row_num <= len(table):
+            raw_amount = table[row_num - 1][AMOUNT_COL]
+            amount = safe_float(raw_amount)
+            
+            if amount is not None:
+                financial_data[account_name] = amount
+                print(f"   ✅ Row {row_num:2d}: {account_name[:40]:40s} = ${amount:>12,.2f}")
+            else:
+                print(f"   ⚠️ Row {row_num:2d}: {account_name[:40]:40s} = '{raw_amount}' (not converted)")
+    
+    return df, financial_data
+
+# ============================================
+# TEMPLATE FILLING FUNCTIONS
+# ============================================
+
+def fill_template_sheet(wb, all_monthly_data):
+    """
+    Fill the DONNÉES HISTORIQUES sheet with extracted data.
+    
+    Args:
+        wb: openpyxl Workbook
+        all_monthly_data: dict {month_name: {french_account: amount}}
+    
+    Returns:
+        updates: list of update messages
+    """
+    # Find the correct sheet
+    sheet_name = None
+    for sn in wb.sheetnames:
+        if 'DONNÉE' in sn.upper() or 'HISTORIQUE' in sn.upper():
+            sheet_name = sn
+            break
+    
+    if sheet_name is None:
+        # Try to find any sheet with data
+        for sn in wb.sheetnames:
+            ws = wb[sn]
+            if ws.max_row > 50:  # Assume sheet with lots of rows is the data sheet
+                sheet_name = sn
+                break
+    
+    if sheet_name is None:
+        sheet_name = wb.sheetnames[0]
+    
+    ws = wb[sheet_name]
+    updates = []
+    total_cells_updated = 0
+    
+    print(f"\n📝 Filling sheet: '{sheet_name}'")
+    
+    for month_name, account_data in all_monthly_data.items():
+        col = MONTH_COLUMN.get(month_name)
+        if col is None:
+            updates.append(f"⚠️ Unknown month: {month_name}")
+            continue
+        
+        month_updates = 0
+        
+        for french_account, amount in account_data.items():
+            row_num = TEMPLATE_ROW_MAP.get(french_account)
+            if row_num is None:
+                continue
+            
+            # Write to cell
+            cell = ws.cell(row=row_num, column=col)
+            cell.value = amount
+            
+            # Format as currency
+            cell.number_format = '#,##0.00'
+            
+            month_updates += 1
+            total_cells_updated += 1
+            
+            # Get template row label for logging
+            updates.append(f"   ✅ {month_name} (col {get_column_letter(col)}): "
+                          f"Row {row_num} = ${amount:,.2f}")
+        
+        if month_updates > 0:
+            updates.append(f"📊 {month_name}: {month_updates} cells filled")
+    
+    updates.append(f"\n📊 TOTAL: {total_cells_updated} cells filled in template")
+    return updates
+
+def validate_template(wb, all_monthly_data):
+    """
+    Validate that BÉNÉFICE NET (PDF) = REVENUS NETS (template).
+    Also check TOTAL REVENUS and TOTAL DÉPENSES.
+    """
+    sheet_name = None
+    for sn in wb.sheetnames:
+        if 'DONNÉE' in sn.upper() or 'HISTORIQUE' in sn.upper():
+            sheet_name = sn
+            break
+    if sheet_name is None:
+        sheet_name = wb.sheetnames[0]
+    
+    ws = wb[sheet_name]
+    validation_results = []
+    
+    for month_name, account_data in all_monthly_data.items():
+        col = MONTH_COLUMN.get(month_name)
+        if col is None:
+            continue
+        
+        # Check BÉNÉFICE NET vs REVENUS NETS
+        benefice_net = account_data.get('BÉNÉFICE NET')
+        revenus_nets_cell = ws.cell(row=68, column=col).value
+        
+        if benefice_net is not None and revenus_nets_cell is not None:
+            difference = abs(benefice_net - revenus_nets_cell)
+            if difference > 0.01:
+                validation_results.append(
+                    f"⚠️ {month_name}: BÉNÉFICE NET (${benefice_net:,.2f}) ≠ "
+                    f"REVENUS NETS (${revenus_nets_cell:,.2f}) - Diff: ${difference:,.2f}"
+                )
+            else:
+                validation_results.append(
+                    f"✅ {month_name}: BÉNÉFICE NET = REVENUS NETS = ${benefice_net:,.2f}"
+                )
+        
+        # Check TOTAL REVENUS
+        total_revenus = account_data.get('TOTAL REVENUS')
+        template_total = ws.cell(row=24, column=col).value
+        if total_revenus is not None and template_total is not None:
+            if abs(total_revenus - template_total) > 0.01:
+                validation_results.append(
+                    f"⚠️ {month_name}: TOTAL REVENUS mismatch: "
+                    f"PDF=${total_revenus:,.2f} vs Template=${template_total:,.2f}"
+                )
+    
+    return validation_results
+
+# ============================================
+# MAIN FUNCTIONS (called by app.py)
+# ============================================
 
 def get_parking_codes_from_pnl(file_obj):
     """
-    Extract parking codes from uploaded monthly file.
-    Looks for CMO codes in filename or content.
+    Extract parking codes from uploaded file.
+    Called by app.py to populate the parking code selector.
     """
     codes = []
-    file_obj.seek(0)
     
-    # Try from filename
     if hasattr(file_obj, 'name'):
+        # From filename
         matches = re.findall(r'(CMO\d+)', file_obj.name, re.IGNORECASE)
         codes.extend(matches)
-    
-    # Try from content (if PDF)
-    if hasattr(file_obj, 'name') and file_obj.name.lower().endswith('.pdf'):
-        try:
-            # Save to temp file for PyMuPDF
-            with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf') as tmp:
-                tmp.write(file_obj.read())
-                tmp_path = tmp.name
-            
-            doc = fitz.open(tmp_path)
-            for page in doc:
-                text = page.get_text()
-                # Look for parking codes in text
-                found_codes = re.findall(r'(?:parking|stationnement|code)\s*:?\s*(CMO\d+)', text, re.IGNORECASE)
-                codes.extend(found_codes)
-                if not found_codes:
-                    # Look for "1981 McGill College" or similar
-                    if "1981 McGill College" in text:
-                        codes.append("1981MCGILL")
-            doc.close()
-            os.unlink(tmp_path)
-        except Exception as e:
-            print(f"Error reading PDF for codes: {e}")
+        
+        # From content
+        file_obj.seek(0)
+        if file_obj.name.lower().endswith('.pdf'):
+            try:
+                with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf') as tmp:
+                    tmp.write(file_obj.read())
+                    tmp_path = tmp.name
+                
+                doc = fitz.open(tmp_path)
+                for page in doc:
+                    text = page.get_text()
+                    found = re.findall(r'(CMO\d+)', text, re.IGNORECASE)
+                    codes.extend(found)
+                doc.close()
+                os.unlink(tmp_path)
+            except:
+                pass
     
     file_obj.seek(0)
-    
-    # Deduplicate and uppercase
     return list(set([c.upper() for c in codes]))
 
-def process_monthly_files(monthly_files):
+def process_pdf_file(file_obj):
     """
-    Process a list of monthly report files and extract data.
-    Returns dict: {month_year: financial_data}
+    Process a single PDF file object.
+    Returns (month_name, financial_data_dict)
     """
-    results = {}
+    month = extract_month_from_filename(file_obj)
     
-    for file_obj in monthly_files:
-        # Get month from filename
-        month = "Unknown"
-        if hasattr(file_obj, 'name'):
-            match = re.search(
-                r'(janvier|février|mars|avril|mai|juin|juillet|août|septembre|octobre|novembre|décembre)\s+(\d{4})',
-                file_obj.name, re.IGNORECASE
-            )
-            if match:
-                month = f"{match.group(1)} {match.group(2)}"
-        
-        file_obj.seek(0)
-        
-        # Process based on file type
-        if hasattr(file_obj, 'name') and file_obj.name.lower().endswith('.pdf'):
-            # Save PDF to temp file
-            with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf') as tmp:
-                tmp.write(file_obj.read())
-                tmp_path = tmp.name
-            
-            try:
-                financial_data = extract_from_pdf(tmp_path)
-                if financial_data:
-                    results[month] = financial_data
-            finally:
-                os.unlink(tmp_path)
-        
-        elif hasattr(file_obj, 'name') and file_obj.name.lower().endswith(('.xlsx', '.xls')):
-            # Process Excel files
-            try:
-                df = pd.read_excel(file_obj)
-                # Look for P&L-like structure
-                financial_data = {}
-                for col in df.columns:
-                    for idx, row in df.iterrows():
-                        account = str(row.iloc[0]) if len(row) > 0 else ""
-                        for french_label, english_label in LABEL_MAPPING.items():
-                            if french_label.lower() in account.lower():
-                                amount = safe_float(row.iloc[1] if len(row) > 1 else None)
-                                if amount is not None:
-                                    financial_data[english_label] = amount
-                if financial_data:
-                    results[month] = financial_data
-            except Exception as e:
-                print(f"Error processing Excel: {e}")
-        
-        file_obj.seek(0)
+    # Save to temp file for PyMuPDF
+    file_obj.seek(0)
+    with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf') as tmp:
+        tmp.write(file_obj.read())
+        tmp_path = tmp.name
     
-    return results
+    try:
+        _, financial_data = pdf_to_excel(tmp_path)
+        return month, financial_data
+    finally:
+        if os.path.exists(tmp_path):
+            os.unlink(tmp_path)
 
 def fix_excel(excel_file, monthly_files_current=None, monthly_files_previous=None,
               budget_initial_file=None, fiche_stationnement_file=None,
               parking_code=None, word_data=None):
     """
-    Main fix_excel function that processes all inputs and returns updated Excel.
+    MAIN FUNCTION - Called by app.py when user clicks "Run Workflow".
     
-    Parameters:
-    - excel_file: Template Excel file (BytesIO or file object)
-    - monthly_files_current: List of current year monthly report files
-    - monthly_files_previous: List of previous year monthly report files  
-    - budget_initial_file: Budget initial source file
-    - fiche_stationnement_file: Fiche stationnement source file
-    - parking_code: Selected parking code
-    - word_data: Optional word document data
+    Process:
+    1. Convert all PDFs to data
+    2. Fill template DONNÉES HISTORIQUES sheet
+    3. Validate BÉNÉFICE NET = REVENUS NETS
+    4. Return updated Excel file
     
     Returns:
-    - fixed_excel_bytes: Updated Excel file as bytes
-    - updates: List of update messages
+        (excel_bytes, updates_list)
     """
     updates = []
+    all_monthly_data = {}
     
     try:
-        # Load the template
+        # ============================================
+        # STEP 1: Load template
+        # ============================================
+        updates.append("=" * 60)
+        updates.append("🏗️ BUDGET SYSTEM - WORKFLOW STARTED")
+        updates.append("=" * 60)
+        
         if isinstance(excel_file, bytes):
             wb = load_workbook(BytesIO(excel_file))
         else:
-            wb = load_workbook(excel_file)
+            excel_file.seek(0)
+            wb = load_workbook(BytesIO(excel_file.read()))
         
         updates.append(f"✅ Template loaded: {parking_code or 'Unknown'}")
+        updates.append(f"   Sheets available: {wb.sheetnames}")
         
-        # Process current year files
+        # ============================================
+        # STEP 2: Process current year PDFs (Jan-Apr 2026)
+        # ============================================
         if monthly_files_current:
-            current_data = process_monthly_files(monthly_files_current)
-            updates.append(f"✅ Current year: {len(current_data)} months extracted")
+            updates.append(f"\n📁 Processing {len(monthly_files_current)} current year files...")
             
-            for month, data in current_data.items():
-                updates.append(f"  📊 {month}: {len(data)} accounts")
-                # Here you would update the template with extracted data
-                # update_donnees_historiques(wb, month, data)
+            for file_obj in monthly_files_current:
+                month, data = process_pdf_file(file_obj)
+                if month and data:
+                    all_monthly_data[month] = data
+                    updates.append(f"   ✅ {month}: {len(data)} accounts extracted")
+                    
+                    # Show key figures
+                    if 'TOTAL REVENUS' in data:
+                        updates.append(f"      Revenue: ${data['TOTAL REVENUS']:,.2f}")
+                    if 'BÉNÉFICE NET' in data:
+                        updates.append(f"      Net Income: ${data['BÉNÉFICE NET']:,.2f}")
+                else:
+                    updates.append(f"   ❌ Failed to extract data")
         
-        # Process previous year files
+        # ============================================
+        # STEP 3: Process previous year PDFs (May-Dec 2025)
+        # ============================================
         if monthly_files_previous:
-            previous_data = process_monthly_files(monthly_files_previous)
-            updates.append(f"✅ Previous year: {len(previous_data)} months extracted")
+            updates.append(f"\n📁 Processing {len(monthly_files_previous)} previous year files...")
+            
+            for file_obj in monthly_files_previous:
+                month, data = process_pdf_file(file_obj)
+                if month and data:
+                    all_monthly_data[month] = data
+                    updates.append(f"   ✅ {month}: {len(data)} accounts extracted")
+                else:
+                    updates.append(f"   ❌ Failed to extract data")
         
-        # Process budget initial file
-        if budget_initial_file:
-            budget_initial_file.seek(0)
-            if hasattr(budget_initial_file, 'name') and budget_initial_file.name.lower().endswith('.pdf'):
-                with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf') as tmp:
-                    tmp.write(budget_initial_file.read())
-                    tmp_path = tmp.name
-                budget_data = extract_from_pdf(tmp_path)
-                os.unlink(tmp_path)
-                if budget_data:
-                    updates.append(f"✅ Budget initial extracted: {len(budget_data)} accounts")
+        # ============================================
+        # STEP 4: Fill template
+        # ============================================
+        if all_monthly_data:
+            updates.append(f"\n📝 Filling template with {len(all_monthly_data)} months of data...")
+            fill_updates = fill_template_sheet(wb, all_monthly_data)
+            updates.extend(fill_updates)
+            
+            # ============================================
+            # STEP 5: Validate
+            # ============================================
+            updates.append(f"\n🔍 Validating data integrity...")
+            validation_results = validate_template(wb, all_monthly_data)
+            updates.extend(validation_results)
+        else:
+            updates.append("\n⚠️ No data extracted from any files!")
         
-        # Process fiche stationnement file
-        if fiche_stationnement_file:
-            fiche_stationnement_file.seek(0)
-            if hasattr(fiche_stationnement_file, 'name') and fiche_stationnement_file.name.lower().endswith('.pdf'):
-                with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf') as tmp:
-                    tmp.write(fiche_stationnement_file.read())
-                    tmp_path = tmp.name
-                fiche_data = extract_from_pdf(tmp_path)
-                os.unlink(tmp_path)
-                if fiche_data:
-                    updates.append(f"✅ Fiche stationnement extracted: {len(fiche_data)} accounts")
-        
-        # Save updated workbook
+        # ============================================
+        # STEP 6: Save and return
+        # ============================================
         output = BytesIO()
         wb.save(output)
         output.seek(0)
         
-        updates.append("✅ Workflow completed successfully")
+        updates.append("\n" + "=" * 60)
+        updates.append("✅ WORKFLOW COMPLETED SUCCESSFULLY")
+        updates.append("=" * 60)
+        
         return output.getvalue(), updates
         
     except Exception as e:
-        updates.append(f"❌ Error: {str(e)}")
+        updates.append(f"\n❌ ERROR: {str(e)}")
+        import traceback
+        updates.append(traceback.format_exc())
         return None, updates
+
+
+# ============================================
+# STANDALONE TESTING
+# ============================================
+if __name__ == "__main__":
+    # Test with a single PDF
+    import sys
+    
+    if len(sys.argv) > 1:
+        pdf_path = sys.argv[1]
+        df, data = pdf_to_excel(pdf_path, "extracted_data")
+        
+        if data:
+            print(f"\n{'='*60}")
+            print("EXTRACTION SUMMARY")
+            print(f"{'='*60}")
+            for account, amount in data.items():
+                print(f"  {account}: ${amount:,.2f}")
