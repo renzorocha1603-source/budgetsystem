@@ -302,7 +302,7 @@ def read_pdf_with_ocr(uploaded_file):
         import pytesseract
         
         file_bytes = get_file_bytes(uploaded_file)
-        images = convert_from_bytes(file_bytes, dpi=300)
+        images = convert_from_bytes(file_bytes, dpi=250)
         
         sheets = {}
         for page_num, image in enumerate(images):
@@ -551,14 +551,24 @@ def parse_text_line_for_data(line):
     if not line or len(line) < 5:
         return None, None
     
-    # Try pattern: "Label Text $1,234.56" or "Label Text 1,234.56 $"
-    match = re.search(r'^(.+?)\s+\$?([\d,]+\.?\d*)\s*\$?\s*$', line.strip())
+    line = line.strip()
+    
+    # Try various patterns for "Label $1,234.56" or "Label 1,234.56 $"
+    match = re.search(r'^(.+?)\s+\$?([\d,]+\.?\d*)\s*\$?\s*$', line)
     if not match:
-        match = re.search(r'^(.+?)\s+\(?\$?([\d,]+\.?\d*)\)?\s*$', line.strip())
+        match = re.search(r'^(.+?)\s+\(?\$?([\d,]+\.?\d*)\)?\s*$', line)
+    if not match:
+        # Try to find any dollar amount in the line
+        match = re.search(r'(.+?)\s+\$([\d,]+\.?\d*)', line)
+    if not match:
+        match = re.search(r'(.+?)\s+([\d,]+\.?\d*)\s*\$', line)
     
     if match:
         label_text = match.group(1).strip()
         value_text = match.group(2).strip()
+        
+        # Clean up label - remove leading numbers/symbols
+        label_text = re.sub(r'^[\d\s\.\-\–\_]+', '', label_text).strip()
         
         if len(label_text) < 3:
             return None, None
@@ -618,7 +628,7 @@ def extract_month_year_from_text(text):
     return found_month, year
 
 def find_best_data_sheet(sheets_dict):
-    """Find the sheet with the most usable data."""
+    """Find the sheet with the most financial data (dollar amounts)."""
     if not sheets_dict:
         return None
     
@@ -629,52 +639,40 @@ def find_best_data_sheet(sheets_dict):
         
         text_cells = 0
         numeric_cells = 0
-        for row_idx in range(min(20, len(df))):
+        dollar_cells = 0
+        
+        for row_idx in range(min(40, len(df))):
             for col_idx in range(min(10, len(df.columns))):
                 try:
                     cell_text = str(df.iloc[row_idx, col_idx]).strip()
                     if cell_text and cell_text.lower() != 'nan' and cell_text.lower() != 'none' and len(cell_text) > 2:
                         text_cells += 1
-                    if safe_float(df.iloc[row_idx, col_idx]) != 0:
+                    
+                    val = safe_float(df.iloc[row_idx, col_idx])
+                    if val != 0:
                         numeric_cells += 1
+                        if '$' in cell_text:
+                            dollar_cells += 1
                 except:
                     pass
         
-        if text_cells > 3 or numeric_cells > 3:
-            candidates.append((sheet_name, df, text_cells, numeric_cells, len(df)))
+        # Score: heavily weight numeric/dollar cells
+        score = numeric_cells * 10 + dollar_cells * 20 + text_cells
+        
+        if text_cells > 3:
+            candidates.append((sheet_name, df, score, numeric_cells, dollar_cells, len(df)))
     
     if not candidates:
         for sheet_name, df in sheets_dict.items():
             if df is not None and len(df) > 0:
-                candidates.append((sheet_name, df, 0, 0, len(df)))
+                candidates.append((sheet_name, df, 0, 0, 0, len(df)))
     
     if not candidates:
         return None
     
-    # PRIORITY 1: Financial content
-    for sheet_name, df, text_cells, numeric_cells, rows in candidates:
-        for row_idx in range(min(15, len(df))):
-            for col_idx in range(min(10, len(df.columns))):
-                try:
-                    cell_text = str(df.iloc[row_idx, col_idx]).lower()
-                    if any(word in cell_text for word in ['total revenue', 'total parking', 'operating expense', 'net income', 'parking salaries']):
-                        return sheet_name
-                except:
-                    continue
+    # Sort by score (highest first)
+    candidates.sort(key=lambda x: x[2], reverse=True)
     
-    # PRIORITY 2: Keywords
-    for sheet_name, df, text_cells, numeric_cells, rows in candidates:
-        for row_idx in range(min(10, len(df))):
-            for col_idx in range(min(5, len(df.columns))):
-                try:
-                    cell_text = str(df.iloc[row_idx, col_idx]).lower()
-                    if any(word in cell_text for word in ['mensuels', 'monthly', 'transient', 'revenu', 'parking', 'salaries', 'expense', 'conciliation', 'taxes']):
-                        return sheet_name
-                except:
-                    continue
-    
-    # PRIORITY 3: Most text + numeric cells
-    candidates.sort(key=lambda x: x[2] + x[3], reverse=True)
     return candidates[0][0]
 
 def find_amount_column(df):
@@ -682,7 +680,9 @@ def find_amount_column(df):
     if df is None or len(df) == 0:
         return None
     
-    # Search headers
+    if 'Text' in df.columns:
+        return None
+    
     for row_idx in range(min(5, len(df))):
         for col_idx in range(min(15, len(df.columns))):
             try:
@@ -696,7 +696,6 @@ def find_amount_column(df):
             except:
                 continue
     
-    # Find column with most numeric values after label columns
     best_col = None
     best_count = 0
     for col_idx in range(1, min(8, len(df.columns))):
@@ -721,11 +720,9 @@ def extract_data_from_text_sheet(df, month_name, year):
     
     for row_idx in range(len(df)):
         try:
-            # Get the text from the first column
             if 'Text' in df.columns:
                 line = str(df.iloc[row_idx, 0])
             else:
-                # Try to reconstruct line from all columns
                 parts = []
                 for col_idx in range(min(10, len(df.columns))):
                     cell = str(df.iloc[row_idx, col_idx]).strip()
@@ -736,7 +733,6 @@ def extract_data_from_text_sheet(df, month_name, year):
             if not line or len(line) < 5:
                 continue
             
-            # Check for special markers
             line_upper = line.upper()
             if 'REVENUE TOTAL' in line_upper or 'TOTAL REVENUE' in line_upper:
                 std_label, val = parse_text_line_for_data(line)
@@ -744,13 +740,12 @@ def extract_data_from_text_sheet(df, month_name, year):
                     result['_REVENUE_TOTAL_'] = val
                 continue
             
-            if 'CHARGE TOTALE' in line_upper or 'TOTAL OPERATING EXPENSES' in line_upper:
+            if 'CHARGE TOTALE' in line_upper or 'TOTAL OPERATING EXPENSES' in line_upper or 'TOTAL OPERATION EXPENSES' in line_upper:
                 std_label, val = parse_text_line_for_data(line)
                 if val and val != 0:
                     result['_EXPENSE_TOTAL_'] = val
                 continue
             
-            # Parse for label + value
             std_label, val = parse_text_line_for_data(line)
             if std_label and val != 0:
                 matches_found += 1
@@ -797,7 +792,6 @@ def extract_monthly_data_from_file(uploaded_file):
     result['_DEBUG_ROWS_'] = str(len(df))
     result['_DEBUG_COLS_'] = str(len(df.columns))
     
-    # Show sample
     sample_rows = []
     for row_idx in range(min(5, len(df))):
         row_data = []
@@ -812,7 +806,6 @@ def extract_monthly_data_from_file(uploaded_file):
         sample_rows.append(" | ".join(row_data))
     result['_DEBUG_SAMPLE_'] = " || ".join(sample_rows)[:300]
     
-    # Extract month/year from filename
     if hasattr(uploaded_file, 'name'):
         month_name, year = extract_month_year_from_text(uploaded_file.name)
     
@@ -829,7 +822,6 @@ def extract_monthly_data_from_file(uploaded_file):
                 except Exception:
                     continue
     
-    # Determine if this is a text-based sheet (OCR/Text) or table-based
     is_text_sheet = ('Text' in df.columns or target_sheet.endswith('_OCR') or target_sheet.endswith('_Text'))
     
     if is_text_sheet:
@@ -837,7 +829,6 @@ def extract_monthly_data_from_file(uploaded_file):
         for key, value in data.items():
             result[key] = value
     else:
-        # Table-based extraction
         amount_col = find_amount_column(df)
         result['_DEBUG_AMOUNT_COL_'] = str(amount_col) if amount_col is not None else "None"
         
@@ -848,7 +839,6 @@ def extract_monthly_data_from_file(uploaded_file):
         
         for row_idx in range(len(df)):
             try:
-                # Check for special markers
                 for col_idx in range(min(10, len(df.columns))):
                     cell_text = str(df.iloc[row_idx, col_idx]).strip().upper()
                     
@@ -864,7 +854,6 @@ def extract_monthly_data_from_file(uploaded_file):
                             result['_EXPENSE_TOTAL_'] = val
                         break
                 
-                # Label matching
                 best_match = None
                 best_score = 0
                 
@@ -978,7 +967,6 @@ def find_ytd_column(df):
     if df is None or len(df) == 0:
         return None
     
-    # Check if text-based
     if 'Text' in df.columns:
         return None
     
@@ -1011,7 +999,6 @@ def extract_page3_data(uploaded_file):
     if sheets_dict is None:
         return None
     
-    # Find best sheet
     target_sheet = find_best_data_sheet(sheets_dict)
     if target_sheet is None:
         return None
@@ -1020,9 +1007,7 @@ def extract_page3_data(uploaded_file):
     if df is None or len(df) == 0:
         return None
     
-    # Check if text-based
     if 'Text' in df.columns:
-        # Parse text lines
         for row_idx in range(len(df)):
             try:
                 line = str(df.iloc[row_idx, 0])
@@ -1032,7 +1017,6 @@ def extract_page3_data(uploaded_file):
             except:
                 continue
     else:
-        # Table-based
         ytd_col = find_ytd_column(df)
         if ytd_col is None:
             return None
@@ -1420,7 +1404,6 @@ def fix_excel(
     
     updates.append(f"🔍 Processing: {parking_code}")
     
-    # ── Donnees Historiques from monthly files ────────────────────
     dh_current_year_data = None
     dh_previous_year_data = None
     monthly_totals = None
@@ -1465,7 +1448,6 @@ def fix_excel(
                     monthly_totals = {}
                 monthly_totals.update(prev_totals)
     
-    # ── Budget Initial data ───────────────────────────────────────
     bi_data = None
     if budget_initial_file:
         updates.append("📋 Processing Budget Initial source")
@@ -1478,7 +1460,6 @@ def fix_excel(
             if bi_data:
                 updates.append(f"📊 Budget Initial (P&L fallback): {len(bi_data.get('yearly', {}))} labels")
     
-    # ── Fiche Stationnement data ──────────────────────────────────
     fs_data = None
     if fiche_stationnement_file:
         updates.append("📋 Processing Fiche Stationnement source")
@@ -1491,11 +1472,9 @@ def fix_excel(
             if fs_data:
                 updates.append(f"📊 Fiche Stationnement (P&L fallback): {len(fs_data.get('yearly', {}))} labels")
     
-    # ── Check data ────────────────────────────────────────────────
     if dh_current_year_data is None and dh_previous_year_data is None:
         updates.append("⚠️ No monthly data available for Donnees Historiques")
     
-    # ── Read template ─────────────────────────────────────────────
     try:
         excel_file.seek(0) if hasattr(excel_file, 'seek') else None
         file_bytes = excel_file.read()
@@ -1505,10 +1484,8 @@ def fix_excel(
     except Exception as e:
         return None, [f"❌ Error reading template: {str(e)}"]
     
-    # ── Year mapping ──────────────────────────────────────────────
     year_map = read_year_mapping_from_template(wb_read)
     
-    # ── Merge monthly data for DH ─────────────────────────────────
     merged_monthly = {}
     if year_map and dh_current_year_data and dh_previous_year_data:
         merged_monthly = merge_monthly_data(dh_current_year_data, dh_previous_year_data, year_map)
@@ -1520,12 +1497,10 @@ def fix_excel(
     if not dh_data and dh_current_year_data:
         dh_data = dh_current_year_data['monthly']
     
-    # ── Update all sheets ─────────────────────────────────────────
     updates.extend(update_budget_initial(wb_write, bi_data, parking_code))
     updates.extend(update_fiche_stationnement(wb_write, fs_data, parking_code, word_data))
     updates.extend(update_donnees_historiques(wb_write, dh_data, parking_code, monthly_totals))
     
-    # ── Summary ───────────────────────────────────────────────────
     success_count = sum(1 for u in updates if u.startswith("✅"))
     if success_count == 0:
         updates.append("💡 No updates were made.")
