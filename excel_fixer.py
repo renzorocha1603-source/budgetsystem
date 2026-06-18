@@ -1,6 +1,7 @@
-# excel_fixer.py - COMPLETE CORRECTED VERSION
+# excel_fixer.py - WITH DIAGNOSTIC MODE
 """
 Extracts P&L data from PDFs and fills CMO111.xlsx template
+Set DIAGNOSTIC_MODE = True to debug extraction
 """
 import fitz
 import pandas as pd
@@ -13,8 +14,11 @@ from openpyxl import load_workbook
 from openpyxl.utils import get_column_letter
 
 # ============================================
-# PDF P&L PAGE - SPATIAL MAPPING
+# CONFIGURATION
 # ============================================
+DIAGNOSTIC_MODE = True  # Set to True to see detailed extraction debug
+
+# PDF P&L PAGE - SPATIAL MAPPING
 COLUMN_WIDTHS = [0.22, 0.10, 0.10, 0.10, 0.10, 0.10, 0.10, 0.10, 0.10]
 AMOUNT_COL = 1
 NUM_ROWS = 27
@@ -58,53 +62,36 @@ PDF_ROW_MAP = {
     27: 'BÉNÉFICE NET'
 }
 
-# ============================================
-# TEMPLATE "2-Données historiques" - SPATIAL MAPPING
-# ============================================
+# TEMPLATE MAPPING
 MONTH_COLUMN = {
     'Janvier': 2, 'Février': 3, 'Mars': 4, 'Avril': 5,
     'Mai': 6, 'Juin': 7, 'Juillet': 8, 'Août': 9,
     'Septembre': 10, 'Octobre': 11, 'Novembre': 12, 'Décembre': 13
 }
 
-# EXACT mapping: PDF account -> Template Row
-# Based on the spatial mappings provided
 PDF_TO_TEMPLATE = {
-    # REVENUES
-    'Revenus mensuels': 13,           # Template Row 13: Revenus mensuels
-    'Revenus Journaliers': 12,        # Template Row 12: Revenus horaires
-    'Revenus Lave-Auto': 14,          # Template Row 14: Revenus Lave-auto
-    'Divers': 17,                     # Template Row 17: Autres revenus
-    'Gratuités - mensuels': 20,       # Template Row 20: (Gratuités)
-    'TOTAL REVENUS': 26,              # Template Row 26: TOTAL REVENUS
-    
-    # LABOUR
-    'Salaires Stationnement': 29,     # Template Row 29: Salaire Stationnement
-    'Uniformes': 32,                  # Template Row 32: Uniformes
-    
-    # MAINTENANCE
-    'Fourn. de stationnement': 41,    # Template Row 41: Fournitures stationnement
-    'Entretien réparation - Nettoyage': 35,  # Template Row 35: Nettoyage stationnement
-    'Entretien réparation - Equipement': 37, # Template Row 37: Entretien équipement
-    'Entretien réparation - Général': 36,    # Template Row 36: Entretien stationnement
-    
-    # OVERHEAD
-    'Frais de carte de crédit': 53,   # Template Row 53: Frais de cartes de crédit
-    'Frais de bureau': 49,            # Template Row 49: Fournitures de bureau
-    'Télécommunication': 50,          # Template Row 50: Télécommunications
-    'Taxes et permis': 58,            # Template Row 58: Taxes et permis
-    'Assurances Cautionnement': 57,   # Template Row 57: Assurances et cautionnement
-    'Réclamations': 56,               # Template Row 56: Réclamations
-    'Honoraires de gestion': 63,      # Template Row 63: Honoraires de gestion de base
-    
-    # TOTALS
-    "Total des frais d'exploitation": 84,  # Template Row 84: TOTAL DÉPENSES
-    'BÉNÉFICE NET': 86,                   # Template Row 86: REVENUS NETS
+    'Revenus mensuels': 13,
+    'Revenus Journaliers': 12,
+    'Revenus Lave-Auto': 14,
+    'Divers': 17,
+    'Gratuités - mensuels': 20,
+    'TOTAL REVENUS': 26,
+    'Salaires Stationnement': 29,
+    'Uniformes': 32,
+    'Fourn. de stationnement': 41,
+    'Entretien réparation - Nettoyage': 35,
+    'Entretien réparation - Equipement': 37,
+    'Entretien réparation - Général': 36,
+    'Frais de cartes de crédit': 53,
+    'Frais de bureau': 49,
+    'Télécommunication': 50,
+    'Taxes et permis': 58,
+    'Assurances Cautionnement': 57,
+    'Réclamations': 56,
+    'Honoraires de gestion': 63,
+    "Total des frais d'exploitation": 84,
+    'BÉNÉFICE NET': 86,
 }
-
-# ============================================
-# UTILITY FUNCTIONS
-# ============================================
 
 def safe_float(value):
     """Convert European numbers: '7 106 417,00' -> 7106417.00"""
@@ -137,10 +124,6 @@ def extract_month_from_filename(file_obj):
             return value
     return None
 
-# ============================================
-# PDF EXTRACTION
-# ============================================
-
 def find_pl_page(pdf_path):
     """Find P&L page by content markers"""
     doc = fitz.open(pdf_path)
@@ -148,13 +131,80 @@ def find_pl_page(pdf_path):
         text = doc[i].get_text()
         matches = sum(1 for m in PAGE_MARKERS if m.lower() in text.lower())
         if matches >= 3:
+            if DIAGNOSTIC_MODE:
+                print(f"   📄 P&L found on page {i+1} ({matches}/4 markers)")
             return doc, i
+    
+    if DIAGNOSTIC_MODE:
+        print(f"   ❌ P&L NOT FOUND - checking all pages...")
+        for i in range(len(doc)):
+            text = doc[i].get_text()
+            if "Revenus" in text or "DÉPENSES" in text:
+                print(f"   Page {i+1} has financial content but missing markers")
+                print(f"   First 300 chars: {text[:300]}")
+    
     doc.close()
     return None, None
 
-def extract_table_from_page(page):
+def extract_table_from_page(page, pdf_name=""):
     """Extract 27 rows x 9 columns from P&L page"""
     w, h = page.rect.width, page.rect.height
+    
+    if DIAGNOSTIC_MODE:
+        print(f"\n   {'='*50}")
+        print(f"   DIAGNOSTIC: {pdf_name}")
+        print(f"   Page size: {w:.0f} x {h:.0f}")
+        print(f"   Table Y: {h*TABLE_TOP:.0f} to {h*TABLE_BOTTOM:.0f}")
+        print(f"   Row height: {(h*TABLE_BOTTOM - h*TABLE_TOP)/27:.1f}")
+        print(f"   {'='*50}")
+        
+        # Show full page text
+        full_text = page.get_text()
+        print(f"\n   FULL PAGE TEXT (first 2000 chars):")
+        print(f"   {full_text[:2000]}")
+        print(f"\n   {'='*50}")
+        
+        # Test multiple Y offsets
+        for y_off in [0.05, 0.06, 0.07, 0.08, 0.09, 0.10, 0.12]:
+            top = h * y_off
+            row_h = (h * TABLE_BOTTOM - top) / NUM_ROWS
+            left = w * TABLE_LEFT
+            right = w * TABLE_RIGHT
+            tw = right - left
+            cw = [0.22, 0.10, 0.10, 0.10, 0.10, 0.10, 0.10, 0.10, 0.10]
+            
+            print(f"\n   --- Testing Y offset: {y_off} (top={top:.0f}, row_h={row_h:.1f}) ---")
+            
+            for row_idx in range(NUM_ROWS):
+                y = top + row_idx * row_h
+                x = left
+                
+                w0 = cw[0] * tw
+                acc = page.get_text("text", clip=fitz.Rect(x, y, x+w0, y+row_h)).strip()
+                acc = ' '.join(acc.split())
+                
+                x += w0
+                w1 = cw[1] * tw
+                amt = page.get_text("text", clip=fitz.Rect(x, y, x+w1, y+row_h)).strip()
+                amt = ' '.join(amt.split())
+                
+                if acc:  # Only show rows with content
+                    marker = ""
+                    if "TOTAL REVENUS" in acc.upper():
+                        marker = " ⭐ TOTAL REVENUS"
+                    elif "BÉNÉFICE NET" in acc.upper():
+                        marker = " ⭐ BÉNÉFICE NET"
+                    elif "Total des frais" in acc:
+                        marker = " ⭐ TOTAL EXPENSES"
+                    elif "RÉSULTAT" in acc.upper():
+                        marker = " ⭐ OPERATING SURPLUS"
+                    
+                    print(f"   Row {row_idx+1:2d}: [{acc[:45]:45s}] [${amt[:20]:20s}]{marker}")
+            
+            # Check if we found key accounts at this offset
+            print()
+    
+    # Use the default coordinates
     top = h * TABLE_TOP
     bottom = h * TABLE_BOTTOM
     left = w * TABLE_LEFT
@@ -174,16 +224,26 @@ def extract_table_from_page(page):
             row_data.append(' '.join(text.strip().split()))
             x += cell_w
         data.append(row_data)
+    
+    if DIAGNOSTIC_MODE:
+        print(f"\n   {'='*50}")
+        print(f"   EXTRACTED DATA (using Y offset {TABLE_TOP}):")
+        print(f"   {'='*50}")
+        for row_idx, row in enumerate(data):
+            if row[0] or row[1]:
+                print(f"   Row {row_idx+1:2d}: [{row[0][:45]:45s}] [${row[1][:20]:20s}]")
+    
     return data
 
 def extract_from_pdf(pdf_path):
-    """Extract financial data from PDF, return {french_account: amount}"""
+    """Extract financial data from PDF"""
     doc, page_num = find_pl_page(pdf_path)
     if doc is None:
         return {}
     
     page = doc[page_num]
-    table = extract_table_from_page(page)
+    pdf_name = os.path.basename(pdf_path)
+    table = extract_table_from_page(page, pdf_name)
     doc.close()
     
     data = {}
@@ -193,18 +253,16 @@ def extract_from_pdf(pdf_path):
             amount = safe_float(raw)
             if amount is not None:
                 data[account_name] = amount
+                if DIAGNOSTIC_MODE:
+                    print(f"   ✅ Extracted: {account_name} = ${amount:,.2f}")
+            else:
+                if DIAGNOSTIC_MODE:
+                    print(f"   ❌ Failed: {account_name} - raw='{raw}'")
+    
     return data
 
-# ============================================
-# TEMPLATE FILLING
-# ============================================
-
 def fill_template(wb, all_data):
-    """
-    Fill '2-Données historiques' sheet with extracted data.
-    all_data: {month_name: {pdf_account: amount}}
-    """
-    # Find the sheet
+    """Fill '2-Données historiques' sheet"""
     sheet_name = None
     for sn in wb.sheetnames:
         if 'données' in sn.lower() or 'historique' in sn.lower():
@@ -212,8 +270,7 @@ def fill_template(wb, all_data):
             break
     if sheet_name is None:
         for sn in wb.sheetnames:
-            ws = wb[sn]
-            if ws.max_row >= 86:  # This sheet has 86+ rows
+            if wb[sn].max_row >= 86:
                 sheet_name = sn
                 break
     if sheet_name is None:
@@ -235,11 +292,9 @@ def fill_template(wb, all_data):
             if template_row is None:
                 continue
             
-            # Write value to cell
             cell = ws.cell(row=template_row, column=col)
             cell.value = amount
             cell.number_format = '#,##0.00'
-            
             month_cells += 1
             total_cells += 1
             
@@ -254,7 +309,7 @@ def fill_template(wb, all_data):
     return updates
 
 def validate_template(wb, all_data):
-    """Validate BÉNÉFICE NET (PDF) = REVENUS NETS (Template Row 86)"""
+    """Validate BÉNÉFICE NET = REVENUS NETS"""
     sheet_name = None
     for sn in wb.sheetnames:
         if 'données' in sn.lower() or 'historique' in sn.lower():
@@ -283,15 +338,15 @@ def validate_template(wb, all_data):
                 )
             else:
                 results.append(f"✅ {month_name}: BÉNÉFICE NET = REVENUS NETS = ${benefice_net_pdf:,.2f}")
+        elif benefice_net_pdf is None:
+            results.append(f"⚠️ {month_name}: BÉNÉFICE NET not extracted from PDF")
+        elif revenus_nets_template is None:
+            results.append(f"⚠️ {month_name}: REVENUS NETS not found in template")
     
     return results
 
-# ============================================
-# MAIN FUNCTIONS (called by app.py)
-# ============================================
-
 def get_parking_codes_from_pnl(file_obj):
-    """Extract parking codes from uploaded file"""
+    """Extract parking codes"""
     codes = []
     if hasattr(file_obj, 'name'):
         matches = re.findall(r'(CMO\d+)', file_obj.name, re.IGNORECASE)
@@ -317,18 +372,16 @@ def get_parking_codes_from_pnl(file_obj):
 def fix_excel(excel_file, monthly_files_current=None, monthly_files_previous=None,
               budget_initial_file=None, fiche_stationnement_file=None,
               parking_code=None, word_data=None):
-    """
-    MAIN FUNCTION - Extract P&L data from PDFs and fill template.
-    """
+    """MAIN FUNCTION"""
     updates = []
     all_data = {}
     
     try:
         updates.append("=" * 60)
         updates.append("🏗️ BUDGET SYSTEM - WORKFLOW")
+        updates.append(f"   Diagnostic Mode: {'ON' if DIAGNOSTIC_MODE else 'OFF'}")
         updates.append("=" * 60)
         
-        # Load template
         if isinstance(excel_file, bytes):
             wb = load_workbook(BytesIO(excel_file))
         else:
@@ -337,7 +390,6 @@ def fix_excel(excel_file, monthly_files_current=None, monthly_files_previous=Non
         
         updates.append(f"✅ Template loaded: {parking_code or 'Unknown'}")
         
-        # Process current year files (Jan-Apr 2026)
         if monthly_files_current:
             updates.append(f"\n📁 Current year: {len(monthly_files_current)} files")
             for file_obj in monthly_files_current:
@@ -349,10 +401,17 @@ def fix_excel(excel_file, monthly_files_current=None, monthly_files_previous=Non
                     tmp_path = tmp.name
                 
                 try:
+                    if DIAGNOSTIC_MODE:
+                        print(f"\n{'='*80}")
+                        print(f"PROCESSING: {month} - {file_obj.name}")
+                        print(f"{'='*80}")
+                    
                     data = extract_from_pdf(tmp_path)
                     if data:
                         all_data[month] = data
                         updates.append(f"   ✅ {month}: {len(data)} accounts")
+                        if 'TOTAL REVENUS' in data:
+                            updates.append(f"      Revenue: ${data['TOTAL REVENUS']:,.2f}")
                         if 'BÉNÉFICE NET' in data:
                             updates.append(f"      Net Income: ${data['BÉNÉFICE NET']:,.2f}")
                     else:
@@ -360,7 +419,6 @@ def fix_excel(excel_file, monthly_files_current=None, monthly_files_previous=Non
                 finally:
                     os.unlink(tmp_path)
         
-        # Process previous year files (May-Dec 2025)
         if monthly_files_previous:
             updates.append(f"\n📁 Previous year: {len(monthly_files_previous)} files")
             for file_obj in monthly_files_previous:
@@ -379,20 +437,17 @@ def fix_excel(excel_file, monthly_files_current=None, monthly_files_previous=Non
                 finally:
                     os.unlink(tmp_path)
         
-        # Fill template
         if all_data:
-            updates.append(f"\n📝 Filling template...")
+            updates.append(f"\n📝 Filling template with {len(all_data)} months...")
             fill_updates = fill_template(wb, all_data)
             updates.extend(fill_updates)
             
-            # Validate
             updates.append(f"\n🔍 Validation:")
             validations = validate_template(wb, all_data)
             updates.extend(validations)
         else:
-            updates.append("\n⚠️ No data extracted!")
+            updates.append("\n⚠️ No data extracted from any file!")
         
-        # Save
         output = BytesIO()
         wb.save(output)
         output.seek(0)
