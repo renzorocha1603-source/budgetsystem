@@ -1,1370 +1,1482 @@
-# excel_fixer.py
+import streamlit as st
+import pdfplumber
+from openpyxl import load_workbook
 import io
 import re
-import pandas as pd
-import fitz
-from openpyxl import load_workbook, Workbook
-from openpyxl.styles import Font
-from openpyxl.utils import get_column_letter
-from datetime import datetime
-import pdfplumber
-import tempfile
 import os
+import json
+import requests
+from datetime import datetime
+import csv
+import zipfile
+from xml.etree import ElementTree
+from audio_recorder_streamlit import audio_recorder
+from deepgram import DeepgramClient
+import base64
+from excel_fixer import fix_excel, get_parking_codes_from_pnl
 
 # ============================================================================
-# CONFIGURATION
+# PAGE CONFIG
 # ============================================================================
-
-MONTHS_EN = [
-    "January", "February", "March", "April", "May", "June",
-    "July", "August", "September", "October", "November", "December"
-]
-
-MONTH_NAMES_MAP = {
-    "january": "January", "february": "February", "march": "March",
-    "april": "April", "may": "May", "june": "June",
-    "july": "July", "august": "August", "september": "September",
-    "october": "October", "november": "November", "december": "December",
-    "janvier": "January", "février": "February", "fevrier": "February",
-    "mars": "March", "avril": "April", "mai": "May", "juin": "June",
-    "juillet": "July", "août": "August", "aout": "August",
-    "septembre": "September", "octobre": "October",
-    "novembre": "November", "décembre": "December", "decembre": "December",
-}
-
-SHEET_PATTERNS = {
-    "Budget Initial": ["budget initial", "budget"],
-    "Fiche Stationnement": ["fiche stationnement", "fiche de stationnement", "stationnement", "1. fiche"],
-    "Donnees Historiques": ["donnees historiques", "données historiques", "historiques", "historique", "2. donnees", "2. données"],
-}
+st.set_page_config(
+    page_title="Budget System · Only Solutions",
+    page_icon="🤖",
+    layout="wide",
+    initial_sidebar_state="expanded",
+)
 
 # ============================================================================
-# VERIFIED ROW MAPPING
+# DEEPGRAM CONFIGURATION
 # ============================================================================
-DH_ROW_MAPPING = {
-    12: ["Transient Revenue", "transient revenue"],
-    13: ["Monthly Revenues", "monthly revenues"],
-    14: ["Car-Wash Revenue", "car-wash revenue", "lave-auto"],
-    15: ["Hotel Revenue", "hotel revenue", "revenus hotel"],
-    16: ["Interests", "interests", "intérêts", "interets"],
-    17: ["Miscellaneous", "miscellaneous", "autres revenus", "Other Monthly revenue", "other monthly revenue", "other revenue", "Violation", "violation"],
-    20: ["Discount-Gratuities - Transient", "gratuities transient"],
-    22: ["Discount-Gratuities - Monthly", "rabais", "discount monthly"],
-    29: ["Parking wages", "parking wages", "salaire stationnement"],
-    30: ["Other wages", "other wages", "salaire superviseur", "supervisor"],
-    31: ["Training & Recr.", "training", "formation", "recrutement"],
-    32: ["Uniforms", "uniforms", "uniformes"],
-    35: ["R&M - Cleaning", "cleaning", "nettoyage"],
-    36: ["R&M - General", "maintenance", "entretien stationnement"],
-    37: ["R&M - Equipement", "entretien équipement", "entretien equipement"],
-    38: ["R&M - Signs", "signs", "signalisation", "signage"],
-    39: ["R&M - Lines", "lines", "lignage", "line painting"],
-    40: ["Snow Removal", "snow removal", "déneigement", "deneigement", "snow"],
-    41: ["Parking supplies", "parking supplies", "fournitures stationnement", "fournitures"],
-    42: ["Misc. Re-Billing", "re-billing", "refacturations diverses", "refacturations", "rebilling"],
-    43: ["R&M - General", "amenagement", "aménagement stationnement", "aménagement"],
-    46: ["Public services", "public services", "services publics", "utilities"],
-    49: ["Office expenses", "office expenses", "fournitures de bureau", "fournitures bureau"],
-    50: ["Telecommunication", "telecommunication", "telecommunications", "télécommunications", "telecom"],
-    51: ["Rent", "loyer"],
-    52: ["Travel expenses", "travel", "frais de déplacement", "frais de deplacement", "déplacement"],
-    53: ["Credit Card fees", "credit card", "frais de cartes de crédit", "frais de cartes de credit", "cartes de crédit"],
-    54: ["Bank fees", "bank fees", "intérêts et frais de banque", "interets et frais de banque", "frais de banque"],
-    55: ["Cash transportation fees", "cash transportation", "transport de fonds", "transport fonds"],
-    56: ["Claims", "claims", "réclamations", "reclamations"],
-    57: ["Insurance & Guarantee", "insurance", "assurances et cautionnement", "assurance", "cautionnement"],
-    58: ["Tax & license", "tax", "taxes et permis", "taxes", "permis", "license"],
-    59: ["Professional services", "accounting", "comptabilité", "comptabilite", "professional services"],
-    60: ["Equipment rent", "location d'équipement", "location d'equipement", "location équipement"],
-    61: ["Ad. & Promotion", "advertising", "publicité et promotion", "publicite et promotion", "promotion"],
-    62: ["Percent Management fee", "management fee", "honoraires de gestion en pourcentage", "honoraires de gestion en %"],
-    63: ["Management Fees (Basic)", "management fees basic", "honoraires de gestion de base", "honoraires de base"],
-    64: ["Incentives", "incentives", "incitatif annuel", "incitatif", "incentive"],
-    67: ["Depreciation", "depreciation", "amortissement"],
-    68: ["Financial fees", "interest", "intérêts sur emprunts", "interets sur emprunts", "emprunts"],
-    69: ["Security", "security", "sécurité", "securite"],
-    70: ["Co-ownership expenses", "co-ownership", "frais de copropriété", "frais de copropriete", "copropriété"],
-    71: ["Shuttle expenses", "shuttle", "frais de navettes", "navettes"],
-    72: ["Computer services", "computer", "services informatiques", "informatiques"],
-    73: ["Bad debts", "bad debts", "mauvaises créances", "mauvaises creances", "créances"],
-    74: ["Dues & Subscription", "dues", "cotisations", "subscription"],
-    76: ["Meal & Entertainment", "meal", "représentation repas", "representation repas", "repas", "entertainment"],
-}
-
-REVENUE_ROWS = [12, 13, 14, 15, 16, 17, 20, 22]
-EXPENSE_ROWS = [r for r in DH_ROW_MAPPING.keys() if r not in REVENUE_ROWS]
-REVENUE_CATCH_ALL_ROW = 17
-EXPENSE_CATCH_ALL_ROW = 76
-
-FICHE_STATIONNEMENT_MAP = [
-    ("K17", ["Transient Revenue", "transient revenue"]),
-    ("K18", ["Monthly Revenues", "monthly revenues"]),
-    ("K19", ["Car-Wash Revenue", "car-wash revenue", "lave-auto"]),
-    ("K20", ["Hotel Revenue", "hotel revenue", "revenus hotel"]),
-    ("K21", ["Interests", "interests", "intérêts", "interets"]),
-    ("K22", ["Miscellaneous", "miscellaneous", "autres revenus", "Other Monthly revenue", "other monthly revenue", "Violation", "violation"]),
-    ("K23", ["Discount-Gratuities - Transient", "gratuities transient"]),
-    ("K24", ["Discount-Gratuities - Monthly", "rabais", "discount monthly"]),
-    ("K25", ["Other Monthly revenue", "other monthly revenue", "Miscellaneous", "miscellaneous"]),
-    ("K26", ["TOTAL REVENUE", "Total Revenue", "total revenus", "TOTAL DES REVENUS"]),
-]
+DEEPGRAM_API_KEY = "3de1f753938a73b6e3f8d025c72ce235a3f41823"
 
 # ============================================================================
-# EXACT FRENCH LABELS FROM PAGE 10
+# MISTRAL CONFIGURATION
 # ============================================================================
-PAGE10_FRENCH_LABELS = {
-    "Revenus mensuels": "Monthly Revenues",
-    "Revenus Journaliers": "Transient Revenue",
-    "Revenus Lave-Auto": "Car-Wash Revenue",
-    "Divers": "Miscellaneous",
-    "Revenus de stationnement": "Parking Revenue",
-    "(Gratuités - mensuels)": "Discount-Gratuities - Monthly",
-    "TOTAL REVENUS": "TOTAL REVENUE",
-    "Salaires Stationnement": "Parking wages",
-    "Uniformes": "Uniforms",
-    "Fourn. de stationnement": "Parking supplies",
-    "Entretien réparation - Nettoyage": "R&M - Cleaning",
-    "Entretien réparation - Equipement": "R&M - Equipement",
-    "Entretien réparation - Général": "R&M - General",
-    "Taxes et permis": "Tax & license",
-    "Assurances Cautionnement": "Insurance & Guarantee",
-    "Réclamations": "Claims",
-    "Télécommunication": "Telecommunication",
-    "Frais de cartes de crédit": "Credit Card fees",
-    "Frais de bureau": "Office expenses",
-    "Total des frais d'exploitation": "Total Operation expenses",
-    "RÉSULTAT D'EXPLOITATION": "OPERATION SURPLUS",
-    "Honoraires de gestion": "Percent Management fee",
-    "Total des autres frais": "Total other expenses",
-    "BÉNÉFICE NET": "NET INCOME",
-}
+MISTRAL_API_KEY = "em5oqjSdA1Nus9iUpa1MNAJtQA4YfCtK"
+MISTRAL_URL = "https://api.mistral.ai/v1/chat/completions"
+MISTRAL_MODEL = "mistral-small-latest"
 
-# ============================================================================
-# COMBINED ALL LABEL MAPPINGS
-# ============================================================================
-ALL_LABEL_MAPPINGS = {}
-ALL_LABEL_MAPPINGS.update(PAGE10_FRENCH_LABELS)
-ALL_LABEL_MAPPINGS.update({
-    "Monthly Revenues": "Monthly Revenues",
-    "Monthly Revenue": "Monthly Revenues",
-    "Daily Revenues": "Transient Revenue",
-    "Daily Revenue": "Transient Revenue",
-    "Transient Revenue": "Transient Revenue",
-    "Car Wash Revenues": "Car-Wash Revenue",
-    "Car Wash Revenue": "Car-Wash Revenue",
-    "Violation": "Violation",
-    "Total Parking Revenue": "Parking Revenue",
-    "Gratuities - Monthly": "Discount-Gratuities - Monthly",
-    "Discounts - Gratuities (Monthly)": "Discount-Gratuities - Monthly",
-    "TOTAL REVENUE": "TOTAL REVENUE",
-    "Miscellaneous": "Miscellaneous",
-    "Parking Salaries": "Parking wages",
-    "Parking Wages": "Parking wages",
-    "Parking Supplies": "Parking supplies",
-    "Maintenance - Cleaning": "R&M - Cleaning",
-    "Maintenance - Equipment": "R&M - Equipement",
-    "Maintenance - General": "R&M - General",
-    "Repair & Maintenance": "R&M - General",
-    "Taxes & Permits": "Tax & license",
-    "Insurance & Bonding": "Insurance & Guarantee",
-    "Insurance & Guarantee": "Insurance & Guarantee",
-    "Claims": "Claims",
-    "Telecommunication": "Telecommunication",
-    "Credit Card Fees": "Credit Card fees",
-    "Bank Fees": "Credit Card fees",
-    "Office Expenses": "Office expenses",
-    "Ad. & Promotion": "Ad. & Promotion",
-    "TOTAL OPERATING EXPENSES": "Total Operation expenses",
-    "TOTAL OPERATION EXPENSES": "Total Operation expenses",
-    "OPERATING SURPLUS": "OPERATION SURPLUS",
-    "OPERATION SURPLUS": "OPERATION SURPLUS",
-    "Management Fees": "Percent Management fee",
-    "Percent Management Fee": "Percent Management fee",
-    "Incentives": "Incentives",
-    "TOTAL OTHER EXPENSES": "Total other expenses",
-    "NET INCOME": "NET INCOME",
-    "Revenus horaires": "Transient Revenue",
-    "Revenus quotidiens": "Transient Revenue",
-    "Total des revenus": "TOTAL REVENUE",
-    "Salaires": "Parking wages",
-    "Salaires stationnement": "Parking wages",
-    "Fournitures": "Parking supplies",
-    "Fournitures stationnements": "Parking supplies",
-    "Entretien": "R&M - General",
-    "Nettoyage": "R&M - Cleaning",
-    "Équipement": "R&M - Equipement",
-    "Assurances": "Insurance & Guarantee",
-    "Télécommunications": "Telecommunication",
-    "Publicité": "Ad. & Promotion",
-    "Frais bancaires": "Credit Card fees",
-    "Frais de banque & C.C.": "Credit Card fees",
-    "Total des dépenses": "Total Operation expenses",
-    "Surplus": "OPERATION SURPLUS",
-    "Frais de gestion": "Percent Management fee",
-    "Incitatifs": "Incentives",
-    "Revenu net": "NET INCOME",
-    "Location d'équipement": "Equipment rent",
-    "Sécurité": "Security",
-    "Serv. info. - Général": "Computer services",
-    "Honoraires de gestion (base)": "Management Fees (Basic)",
-    "Honoraire de gestion a %": "Percent Management fee",
-    "Mensuels": "Monthly Revenues",
-    "Gratuities - Monthlies": "Discount-Gratuities - Monthly",
-    "Gratuites - Mensuels": "Discount-Gratuities - Monthly",
-    "Mensuels collectés par le propriétaire": "Monthly Revenues",
-    "Monthlies Collected by the Owner": "Monthly Revenues",
-    "Autres - Ouverture de dossier": "Other Monthly revenue",
-    "Others - Processing Fee": "Other Monthly revenue",
-    "Revenus Visiteurs Jours": "Transient Revenue",
-    "Transient Revenue - Day": "Transient Revenue",
-    "Coin Box & Meter": "Transient Revenue",
-    "Revenus Remboursement": "Transient Revenue",
-    "Revenues Reimbursement": "Transient Revenue",
-    "Gratuities - Transient": "Discount-Gratuities - Transient",
-    "Gratuites - Journaliers": "Discount-Gratuities - Transient",
-    "Revenus validations": "Transient Revenue",
-    "Validation": "Transient Revenue",
-    "Revenus hotel": "Hotel Revenue",
-    "Hotel Revenues": "Hotel Revenue",
-    "Revenus navettes": "Shuttle expenses",
-    "Shuttle Revenues": "Shuttle expenses",
-    "Lave-Auto": "Car-Wash Revenue",
-    "Revenus violation": "Violation",
-    "Revenues Violation": "Violation",
-    "Frais de cartes perdues": "Miscellaneous",
-    "Lost card fees": "Miscellaneous",
-    "Intérêts Bancaires": "Other Monthly revenue",
-    "Monthly Processing Fees": "Other Monthly revenue",
-    "Visiteurs soirs": "Transient Revenue",
-    "Evening Tickets": "Transient Revenue",
-    "Autres revenus": "Miscellaneous",
-    "Others Tickets": "Miscellaneous",
-    "Revenus Événement Spécial": "Transient Revenue",
-    "Special Events": "Transient Revenue",
-    "Fin de semaine": "Transient Revenue",
-    "Week end visitors": "Transient Revenue",
-    "Réservation en ligne": "Transient Revenue",
-    "Online reservation": "Transient Revenue",
-    "Salaires - Supervision": "Other wages",
-    "Billet de stationnement": "Parking supplies",
-    "Entretien réparation - général": "R&M - General",
-    "Vehicle Expenses": "Vehicle expenses",
-    "Serv,info-Intrnet": "Computer services",
-    "Publicité et promotion": "Ad. & Promotion",
-})
+stop_requested = False
 
-PAGE10_EXCLUDE_KEYWORDS = [
-    'CONCILIATION BI', 'ÉCARTS AU BUDGET', 'ECARTS AU BUDGET',
-    'SECTION 1', 'SECTION 2', 'SECTION 3', 'SECTION 4',
-    'MANUAL BILLING', 'FAITS SAILLANTS',
-    'EXPLICATION DES ÉCARTS', 'AJUSTEMENT DÉPÔT',
-    'CF. EXTRAIT BI', 'AVANT TAXES', "FRAIS D'OUVERTURE",
-    'COMMENTAIRES', 'ANALYSE', 'SOMMAIRE',
-    'MENSUELS TOTALES', 'JOURNALIERS TOTALES', 'DÉPENSES TOTALES',
-]
 
-# ============================================================================
-# FILE TYPE HANDLERS
-# ============================================================================
+def ask_mistral(history: list) -> str:
+    """Send chat history to Mistral and return the AI response."""
+    global stop_requested
+    stop_requested = False
 
-def is_excel_file(file_bytes_or_obj):
-    if hasattr(file_bytes_or_obj, 'name'):
-        name = file_bytes_or_obj.name.lower()
-        if name.endswith('.xlsx') or name.endswith('.xls') or name.endswith('.xlsm'):
-            return True
-    return False
-
-def is_csv_file(file_bytes_or_obj):
-    if hasattr(file_bytes_or_obj, 'name'):
-        name = file_bytes_or_obj.name.lower()
-        if name.endswith('.csv') or name.endswith('.tsv'):
-            return True
-    return False
-
-def is_pdf_file(file_bytes_or_obj):
-    if hasattr(file_bytes_or_obj, 'name'):
-        name = file_bytes_or_obj.name.lower()
-        if name.endswith('.pdf'):
-            return True
-    return False
-
-def get_file_bytes(uploaded_file):
-    if hasattr(uploaded_file, 'read'):
-        uploaded_file.seek(0)
-        return uploaded_file.read()
-    if hasattr(uploaded_file, 'getvalue'):
-        return uploaded_file.getvalue()
-    return uploaded_file
-
-def read_excel_to_dataframe(uploaded_file):
+    system = {
+        "role": "system",
+        "content": (
+            "You are Allison, a senior budget analyst and operations specialist at Only Solutions Inc.\n\n"
+            "Your expertise covers parking operations, budget forecasting, traffic data analysis, and "
+            "inflation modeling with deep, specific knowledge of the province of Quebec and the "
+            "greater Montreal metropolitan area (boroughs, traffic corridors, seasonal patterns, "
+            "municipal context, and local operators).\n\n"
+            "You also have broad knowledge of the private parking industry in Canada, including how "
+            "major private operators are typically structured, how they approach budgeting, staffing, "
+            "and facility management, and how the competitive landscape works in markets like Montreal. "
+            "You speak about this in general, industry-level terms rather than referencing any specific "
+            "company's internal data.\n\n"
+            "Your personality:\n"
+            "- You are warm, direct, and collegial, a trusted co-worker, not a formal consultant\n"
+            "- You speak like a sharp colleague who genuinely wants to help, not like a report generator\n"
+            "- You keep answers precise and actionable, but never cold or robotic\n"
+            "- You use natural conversational language — short paragraphs, no unnecessary filler\n\n"
+            "Your rules — non-negotiable:\n"
+            "- If you don't know something, say so clearly and honestly: \"I don't have that data\" "
+            "or \"I'm not sure about that one\" — never guess, never fill gaps with assumptions\n"
+            "- If revenue or operational figures are present in the conversation, reference them "
+            "directly and specifically in your analysis — never speak in generalities when "
+            "real numbers are available\n"
+            "- Never fabricate statistics, benchmarks, or regulatory details — Quebec parking "
+            "regulations, SAAQ rules, municipal bylaws, or industry practices must only be cited "
+            "if you are certain they are accurate\n"
+            "- Never claim to have insider or proprietary knowledge of any specific company's "
+            "internal operations — speak only in general industry terms\n"
+            "- If asked something outside your domain, say so and redirect helpfully\n\n"
+            "You are Allison. You know your stuff, you're here to make the work easier, "
+            "and you treat every question like it deserves a real answer."
+        ),
+    }
     try:
-        file_bytes = get_file_bytes(uploaded_file)
-        xl = pd.ExcelFile(io.BytesIO(file_bytes), engine='openpyxl')
-        sheets = {}
-        for sheet_name in xl.sheet_names:
-            try:
-                df = pd.read_excel(xl, sheet_name=sheet_name, engine='openpyxl')
-                sheets[sheet_name] = df
-            except Exception:
-                pass
-        return sheets
-    except Exception:
-        return None
-
-def read_csv_to_dataframe(uploaded_file):
-    try:
-        file_bytes = get_file_bytes(uploaded_file)
-        text = file_bytes.decode('utf-8', errors='ignore')
-        df = pd.read_csv(io.StringIO(text))
-        return {"Sheet1": df}
-    except Exception:
-        try:
-            file_bytes = get_file_bytes(uploaded_file)
-            text = file_bytes.decode('latin-1', errors='ignore')
-            df = pd.read_csv(io.StringIO(text))
-            return {"Sheet1": df}
-        except Exception:
-            return None
-
-def read_pdf_with_ocr(uploaded_file):
-    """Extract text from image-based PDF using OCR (fallback for January)."""
-    try:
-        import pytesseract
-        from PIL import Image
-        
-        file_bytes = get_file_bytes(uploaded_file)
-        doc = fitz.open(stream=file_bytes, filetype="pdf")
-        sheets = {}
-        
-        for page_num in range(len(doc)):
-            page = doc[page_num]
-            pix = page.get_pixmap(dpi=300)
-            img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
-            
-            try:
-                text = pytesseract.image_to_string(img, lang='fra+eng', config='--psm 6')
-            except:
-                try:
-                    text = pytesseract.image_to_string(img, lang='eng', config='--psm 6')
-                except:
-                    continue
-            
-            if text and len(text.strip()) > 30:
-                lines = text.strip().split('\n')
-                lines = [l for l in lines if l.strip()]
-                if lines:
-                    df = pd.DataFrame(lines, columns=['Text'])
-                    sheet_key = f"OCR_Page{page_num+1}"
-                    sheets[sheet_key] = df
-        
-        doc.close()
-        return sheets if sheets else None
-    except Exception:
-        return None
-
-def read_pdf_with_fitz(uploaded_file):
-    """Extract text from PDF using PyMuPDF."""
-    try:
-        file_bytes = get_file_bytes(uploaded_file)
-        doc = fitz.open(stream=file_bytes, filetype="pdf")
-        sheets = {}
-        total_text_lines = 0
-        
-        for page_num in range(len(doc)):
-            page = doc[page_num]
-            text = page.get_text("text")
-            if text and len(text.strip()) > 30:
-                lines = text.strip().split('\n')
-                lines = [l.strip() for l in lines if l.strip()]
-                if lines:
-                    df = pd.DataFrame(lines, columns=['Text'])
-                    sheet_key = f"Page{page_num+1}_Fitz"
-                    sheets[sheet_key] = df
-                    total_text_lines += len(lines)
-        
-        doc.close()
-        if sheets and total_text_lines > 15:
-            return sheets
-        return None
-    except ImportError:
-        return None
-    except Exception:
-        return None
-
-# ============================================================================
-# PDF TO EXCEL CONVERTER
-# ============================================================================
-
-def find_page10_in_pdf(doc):
-    """Search ALL pages for Page 10 by checking content."""
-    for page_num in range(len(doc)):
-        page = doc[page_num]
-        words = page.get_text("words")
-        if not words or len(words) < 20:
-            continue
-        
-        rows = {}
-        for w in words:
-            y_key = round(w[1] / 15) * 15
-            if y_key not in rows:
-                rows[y_key] = []
-            rows[y_key].append(w[4])
-        
-        sorted_rows = sorted(rows.items())
-        line_texts = [' '.join(row_words).upper() for _, row_words in sorted_rows]
-        paired_lines = [line_texts[i] + ' ' + line_texts[i+1] for i in range(len(line_texts)-1)]
-        combined_text = ' '.join(line_texts) + ' ' + ' '.join(paired_lines)
-        
-        excluded = False
-        for kw in PAGE10_EXCLUDE_KEYWORDS:
-            if kw in combined_text:
-                excluded = True
-                break
-        
-        if excluded:
-            continue
-        
-        seq = ['REVENUS MENSUELS', 'REVENUS JOURNALIERS', 'REVENUS LAVE-AUTO']
-        last_pos = -1
-        seq_ok = True
-        for term in seq:
-            pos = combined_text.find(term)
-            if pos == -1 or pos <= last_pos:
-                seq_ok = False
-                break
-            last_pos = pos
-        
-        if not seq_ok:
-            continue
-        
-        expense_found = any(term in combined_text for term in [
-            'SALAIRES STATIONNEMENT', 'UNIFORMES', 'ENTRETIEN',
-            'TAXES ET PERMIS', 'ASSURANCES', 'TÉLÉCOMMUNICATION'])
-        
-        if not expense_found:
-            continue
-        
-        if 'TOTAL REVENUS' not in combined_text and 'TOTAL DES REVENUS' not in combined_text:
-            continue
-        
-        if 'BÉNÉFICE NET' not in combined_text and 'BENEFICE NET' not in combined_text:
-            continue
-        
-        return page_num
-    
-    return None
-
-def convert_page10_to_excel(uploaded_file):
-    """Convert Page 10 to Excel using coordinate-based extraction."""
-    try:
-        file_bytes = get_file_bytes(uploaded_file)
-        doc = fitz.open(stream=file_bytes, filetype="pdf")
-        page10_num = find_page10_in_pdf(doc)
-        
-        if page10_num is None:
-            doc.close()
-            return None
-        
-        page = doc[page10_num]
-        words = page.get_text("words")
-        
-        if not words:
-            doc.close()
-            return None
-        
-        rows_dict = {}
-        for word in words:
-            x0, y0, x1, y1, text, block, line, word_no = word
-            y_key = round(y0 / 10) * 10
-            if y_key not in rows_dict:
-                rows_dict[y_key] = []
-            rows_dict[y_key].append((x0, text))
-        
-        sorted_y = sorted(rows_dict.keys())
-        all_x = [x for y_key in sorted_y for x, _ in rows_dict[y_key]]
-        
-        if not all_x:
-            doc.close()
-            return None
-        
-        min_x = min(all_x)
-        max_x = max(all_x)
-        col_width = (max_x - min_x) / 9
-        
-        wb = Workbook()
-        ws = wb.active
-        ws.title = "Page10"
-        
-        headers = ["Account", "Mois Courant", "Budget période", "Écart Budget",
-                   "An. Préc.", "Cumulatif courant", "Cumulatif budget",
-                   "Écart Budget Cumul.", "An. Préc. Cumul."]
-        
-        for col, header in enumerate(headers, 1):
-            cell = ws.cell(row=1, column=col, value=header)
-            cell.font = Font(bold=True)
-        
-        excel_row = 2
-        for y_key in sorted_y:
-            row_items = rows_dict[y_key]
-            row_items.sort(key=lambda item: item[0])
-            cols = [''] * 9
-            
-            for x, text in row_items:
-                col_idx = min(8, max(0, int((x - min_x) / col_width)))
-                cols[col_idx] = (cols[col_idx] + ' ' + text).strip() if cols[col_idx] else text
-            
-            has_content = any(c.strip() for c in cols)
-            if has_content:
-                for col in range(9):
-                    val = cols[col].strip()
-                    if val:
-                        try:
-                            clean = val.replace('$', '').replace(',', '').replace(' ', '')
-                            if clean.startswith('(') and clean.endswith(')'):
-                                clean = '-' + clean[1:-1]
-                            if clean.replace('.', '').replace('-', '').isdigit():
-                                ws.cell(row=excel_row, column=col+1, value=float(clean))
-                                ws.cell(row=excel_row, column=col+1).number_format = '#,##0.00'
-                            else:
-                                ws.cell(row=excel_row, column=col+1, value=val)
-                        except:
-                            ws.cell(row=excel_row, column=col+1, value=val)
-                excel_row += 1
-        
-        doc.close()
-        output = io.BytesIO()
-        wb.save(output)
-        output.seek(0)
-        return output
-    except Exception:
-        return None
-
-def read_pdf_to_dataframe(uploaded_file):
-    """
-    MAIN PDF READER: Converter -> OCR -> Fitz -> pdfplumber.
-    """
-    excel_output = convert_page10_to_excel(uploaded_file)
-    if excel_output:
-        try:
-            xl = pd.ExcelFile(excel_output, engine='openpyxl')
-            sheets = {}
-            for sheet_name in xl.sheet_names:
-                df = pd.read_excel(xl, sheet_name=sheet_name, engine='openpyxl')
-                sheets[sheet_name] = df
-            if sheets:
-                return sheets
-        except:
-            pass
-
-    ocr_sheets = read_pdf_with_ocr(uploaded_file)
-    if ocr_sheets:
-        return ocr_sheets
-
-    fitz_sheets = read_pdf_with_fitz(uploaded_file)
-    if fitz_sheets:
-        return fitz_sheets
-
-    try:
-        file_bytes = get_file_bytes(uploaded_file)
-        sheets = {}
-        with pdfplumber.open(io.BytesIO(file_bytes)) as pdf:
-            for page_num, page in enumerate(pdf.pages):
-                tables = page.extract_tables()
-                if tables:
-                    for table_num, table in enumerate(tables):
-                        if table and len(table) > 1:
-                            headers = table[0] if table[0] else [f"Col{i}" for i in range(len(table[1]))]
-                            data = table[1:] if table[0] else table
-                            clean_headers = [str(h).strip() if h else "" for h in headers]
-                            df = pd.DataFrame(data, columns=clean_headers)
-                            sheet_key = f"Page{page_num+1}_Table{table_num+1}"
-                            sheets[sheet_key] = df
-                text = page.extract_text()
-                if text and len(text.strip()) > 50:
-                    lines = [l.strip() for l in text.strip().split('\n') if l.strip()]
-                    if lines:
-                        df = pd.DataFrame(lines, columns=['Text'])
-                        sheet_key = f"Page{page_num+1}_Text"
-                        sheets[sheet_key] = df
-        if sheets:
-            return sheets
-    except Exception:
-        pass
-
-    return None
-
-def read_any_file_to_dataframes(uploaded_file):
-    if uploaded_file is None:
-        return None, None
-    if is_excel_file(uploaded_file):
-        result = read_excel_to_dataframe(uploaded_file)
-        return (result, "excel") if result else (None, None)
-    if is_csv_file(uploaded_file):
-        result = read_csv_to_dataframe(uploaded_file)
-        return (result, "csv") if result else (None, None)
-    if is_pdf_file(uploaded_file):
-        result = read_pdf_to_dataframe(uploaded_file)
-        return (result, "pdf_converted") if result else (None, None)
-    try:
-        result = read_excel_to_dataframe(uploaded_file)
-        return (result, "excel") if result else (None, None)
-    except:
-        pass
-    try:
-        result = read_csv_to_dataframe(uploaded_file)
-        return (result, "csv") if result else (None, None)
-    except:
-        pass
-    return None, None
-
-# ============================================================================
-# HELPER FUNCTIONS
-# ============================================================================
-
-def extract_parking_code_from_filename(filename):
-    if not filename:
-        return None
-    name = filename.rsplit('.', 1)[0]
-    match = re.search(r'(CMO\d+)', name, re.IGNORECASE)
-    if match:
-        return match.group(1).upper()
-    if 'LUNA' in name.upper():
-        return 'LUNA'
-    parts = name.replace('(', ' ').replace(')', ' ').split('_')[0].split()[0]
-    return parts.upper()
-
-def get_parking_codes_from_pnl(pnl_file):
-    sheets_dict, _ = read_any_file_to_dataframes(pnl_file)
-    codes = []
-    if sheets_dict:
-        for sheet_name in sheets_dict.keys():
-            match = re.search(r'(CMO\d+)', sheet_name, re.IGNORECASE)
-            if match:
-                codes.append(match.group(1).upper())
-            if 'LUNA' in sheet_name.upper():
-                codes.append('LUNA')
-        for sheet_name, df in sheets_dict.items():
-            if df is None or len(df) == 0:
-                continue
-            for row_idx in range(min(10, len(df))):
-                for col_idx in range(min(10, len(df.columns))):
-                    try:
-                        cell_text = str(df.iloc[row_idx, col_idx])
-                        match = re.search(r'(CMO\d+)', cell_text, re.IGNORECASE)
-                        if match:
-                            code = match.group(1).upper()
-                            if code not in codes:
-                                codes.append(code)
-                    except:
-                        continue
-    return list(dict.fromkeys(codes))
-
-def find_sheet_by_pattern(wb, patterns):
-    for sheet_name in wb.sheetnames:
-        sheet_lower = sheet_name.lower().replace('.', ' ').replace('-', ' ').replace('_', ' ')
-        for pattern in patterns:
-            if pattern.lower().replace('.', ' ').replace('-', ' ').replace('_', ' ') in sheet_lower:
-                return sheet_name
-    return None
-
-def find_sheet_in_dict(sheets_dict, parking_code):
-    if not sheets_dict:
-        return None
-    for sheet_name in sheets_dict:
-        if sheet_name.upper().strip() == parking_code.upper().strip():
-            return sheet_name
-    for sheet_name in sheets_dict:
-        if parking_code.upper() in sheet_name.upper():
-            return sheet_name
-    if sheets_dict:
-        return max(sheets_dict.keys(), key=lambda n: len(sheets_dict[n]))
-    return None
-
-def safe_float(value, default=0.0):
-    try:
-        if pd.isna(value) or value is None:
-            return default
-        if isinstance(value, (int, float)):
-            return float(value)
-        if isinstance(value, str):
-            value = value.replace('$', '').replace(',', '').replace(' ', '').replace('\xa0', '').replace('€', '')
-            if value.startswith('(') and value.endswith(')'):
-                return -safe_float(value[1:-1], default)
-            if value.startswith('-'):
-                return -safe_float(value[1:], default)
-        return float(value)
-    except (ValueError, TypeError):
-        return default
-
-def clean_text_for_matching(text):
-    if not text:
-        return ""
-    text = text.lower().strip()
-    for c in 'éèêëàâäîïôöûüùçœ':
-        text = text.replace(c, 'e')
-    text = re.sub(r'[^a-z0-9 ]', ' ', text)
-    text = re.sub(r'\s+', ' ', text).strip()
-    return text
-
-def label_match_score(cell_text, label_text):
-    cell_clean = clean_text_for_matching(cell_text)
-    label_clean = clean_text_for_matching(label_text)
-    if not cell_clean or not label_clean:
-        return 0
-    if cell_clean == label_clean:
-        return 1.0
-    if label_clean in cell_clean:
-        ratio = len(label_clean) / len(cell_clean)
-        return ratio if ratio >= 0.5 else 0
-    if cell_clean in label_clean:
-        ratio = len(cell_clean) / len(label_clean)
-        return ratio if ratio >= 0.5 else 0
-    return 0
-
-def extract_dollar_amount_from_text(text):
-    if not text:
-        return None
-    for pattern in [r'\$([\d,]+\.?\d*)', r'([\d,]+\.?\d*)\s*\$', r'\$?\s*([\d,]+\.\d{2})\s*\$?', r'\(?\$?([\d,]+\.?\d*)\)?']:
-        match = re.search(pattern, text)
-        if match:
-            try:
-                return float(match.group(1).replace(',', ''))
-            except:
-                continue
-    match = re.search(r'([\d,]+\.\d{2})', text)
-    if match:
-        try:
-            return float(match.group(1).replace(',', ''))
-        except:
-            pass
-    return None
-
-def parse_text_line_for_data(line):
-    if not line or len(line) < 5:
-        return None, None
-    line = line.strip()
-    val = extract_dollar_amount_from_text(line)
-    for mapping_label, standard_label in ALL_LABEL_MAPPINGS.items():
-        if label_match_score(line, mapping_label) >= 0.6:
-            return standard_label, val
-    if val is not None:
-        label_text = re.sub(r'\$?[\d,]+\.?\d*\s*\$?', '', line).strip()
-        label_text = re.sub(r'\(?[\d,]+\.?\d*\)?', '', label_text).strip()
-        label_text = re.sub(r'\s+', ' ', label_text).strip()
-        if len(label_text) > 2:
-            for mapping_label, standard_label in ALL_LABEL_MAPPINGS.items():
-                if label_match_score(label_text, mapping_label) >= 0.6:
-                    return standard_label, val
-    return None, val
-
-def read_year_mapping_from_template(wb):
-    dh_sheet_name = find_sheet_by_pattern(wb, SHEET_PATTERNS["Donnees Historiques"])
-    if not dh_sheet_name:
-        current_year = datetime.now().year
-        return {i: current_year if i < 4 else current_year - 1 for i in range(12)}
-    ws = wb[dh_sheet_name]
-    for row_idx in range(1, 20):
-        year_map = {}
-        for col_idx in range(2, 14):
-            cell_value = ws.cell(row=row_idx, column=col_idx).value
-            if cell_value is not None and not (isinstance(cell_value, str) and str(cell_value).startswith('=')):
-                year_match = re.search(r'(20\d{2})', str(cell_value).strip())
-                if year_match:
-                    year_map[col_idx - 2] = int(year_match.group(1))
-        if len(year_map) >= 6:
-            return year_map
-    current_year = datetime.now().year
-    return {i: current_year if i < 4 else current_year - 1 for i in range(12)}
-
-def extract_month_year_from_text(text):
-    if not text:
-        return None, None
-    text_lower = text.lower()
-    year_match = re.search(r'(20\d{2})', text)
-    year = int(year_match.group(1)) if year_match else None
-    for month_name in MONTH_NAMES_MAP:
-        if month_name in text_lower:
-            return MONTH_NAMES_MAP[month_name], year
-    return None, year
-
-# ============================================================================
-# find_amount_column
-# ============================================================================
-
-def find_amount_column(df):
-    if df is None or len(df) == 0 or 'Text' in df.columns:
-        return None
-    col_names_lower = [str(c).lower().strip() for c in df.columns]
-    for preferred in ['mois courant', 'current month', 'current period', 'période']:
-        if preferred in col_names_lower:
-            found_idx = col_names_lower.index(preferred)
-            return found_idx
-    best_col, best_count = None, 0
-    scan_rows = min(50, len(df))
-    for col_idx in range(1, min(9, len(df.columns))):
-        numeric_count = sum(
-            1 for row_idx in range(scan_rows)
-            if safe_float(df.iloc[row_idx, col_idx]) != 0
+        resp = requests.post(
+            MISTRAL_URL,
+            headers={
+                "Authorization": f"Bearer {MISTRAL_API_KEY}",
+                "Content-Type": "application/json",
+            },
+            json={
+                "model": MISTRAL_MODEL,
+                "messages": [system] + history,
+            },
+            timeout=30,
         )
-        if numeric_count > best_count:
-            best_count = numeric_count
-            best_col = col_idx
-    if best_col is not None and best_count >= 1:
-        return best_col
-    return 1
-
-# ============================================================================
-# find_best_data_sheet
-# ============================================================================
-
-def find_best_data_sheet(sheets_dict):
-    if not sheets_dict:
-        return None
-    for name in sheets_dict:
-        if 'Page10' in name:
-            return name
-    ocr_sheets = [n for n in sheets_dict if n.startswith('OCR_')]
-    if ocr_sheets:
-        return max(ocr_sheets, key=lambda n: len(sheets_dict[n]))
-    fitz_sheets = [n for n in sheets_dict if 'Fitz' in n]
-    if fitz_sheets:
-        return max(fitz_sheets, key=lambda n: len(sheets_dict[n]))
-    candidates = []
-    for name, df in sheets_dict.items():
-        if df is None or len(df) == 0:
-            continue
-        text_cells = sum(
-            1 for row_idx in range(min(40, len(df)))
-            for col_idx in range(min(10, len(df.columns)))
-            if str(df.iloc[row_idx, col_idx]).strip().lower() not in ['nan', 'none', '']
-            and len(str(df.iloc[row_idx, col_idx]).strip()) > 2
-        )
-        if text_cells > 3:
-            candidates.append((name, text_cells))
-    if candidates:
-        return max(candidates, key=lambda x: x[1])[0]
-    return next((name for name, df in sheets_dict.items() if df is not None and len(df) > 0), None)
-
-# ============================================================================
-# EXTRACTION FUNCTIONS
-# ============================================================================
-
-def extract_data_from_text_sheet(df, month_name, year):
-    result = {}
-    all_lines = []
-    for row_idx in range(len(df)):
-        try:
-            if 'Text' in df.columns:
-                line = str(df.iloc[row_idx, 0]).strip()
-            else:
-                parts = [str(df.iloc[row_idx, c]).strip() for c in range(min(10, len(df.columns)))
-                        if str(df.iloc[row_idx, c]).strip().lower() not in ['nan', 'none', '']]
-                line = ' '.join(parts)
-            if line and len(line) > 2:
-                all_lines.append(line)
-        except:
-            continue
-    for i, line in enumerate(all_lines):
-        line_upper = line.upper()
-        if 'TOTAL REVENUS' in line_upper or 'TOTAL DES REVENUS' in line_upper:
-            val = extract_dollar_amount_from_text(line)
-            if not val and i + 1 < len(all_lines):
-                val = extract_dollar_amount_from_text(all_lines[i+1])
-            if val:
-                result['_REVENUE_TOTAL_'] = val
-            continue
-        if any(t in line_upper for t in ['TOTAL DES FRAIS', 'TOTAL OPERATING', 'TOTAL DEPENSES']):
-            val = extract_dollar_amount_from_text(line)
-            if not val and i + 1 < len(all_lines):
-                val = extract_dollar_amount_from_text(all_lines[i+1])
-            if val:
-                result['_EXPENSE_TOTAL_'] = val
-            continue
-        std_label, val = None, extract_dollar_amount_from_text(line)
-        for mapping_label, standard_label in ALL_LABEL_MAPPINGS.items():
-            if label_match_score(line, mapping_label) >= 0.6:
-                std_label = standard_label
-                break
-        if std_label and not val:
-            for offset in [1, 2]:
-                if i + offset < len(all_lines):
-                    val = extract_dollar_amount_from_text(all_lines[i+offset])
-                    if val:
-                        break
-        if not std_label and val:
-            for offset in [1, 2]:
-                if i - offset >= 0:
-                    for mapping_label, standard_label in ALL_LABEL_MAPPINGS.items():
-                        if label_match_score(all_lines[i-offset], mapping_label) >= 0.6:
-                            std_label = standard_label
-                            break
-                    if std_label:
-                        break
-        if std_label and val:
-            result[std_label] = result.get(std_label, 0) + val
-    result['_DEBUG_MATCHES_'] = str(len([k for k in result if not k.startswith('_')]))
-    return result
-
-# ============================================================================
-# extract_monthly_data_from_file
-# ============================================================================
-
-def extract_monthly_data_from_file(uploaded_file):
-    result = {}
-    month_name = None
-    year = None
-
-    sheets_dict, file_type = read_any_file_to_dataframes(uploaded_file)
-    result['_DEBUG_TYPE_'] = str(file_type)
-
-    if sheets_dict is None:
-        result['_DEBUG_ERROR_'] = "No sheets found"
-        return result, (None, None)
-
-    available_sheets = list(sheets_dict.keys())
-    result['_DEBUG_SHEETS_'] = str(available_sheets)[:200]
-
-    target_sheet = find_best_data_sheet(sheets_dict)
-    result['_DEBUG_TARGET_'] = str(target_sheet) if target_sheet else "None"
-
-    if target_sheet is None:
-        result['_DEBUG_ERROR_'] = "No suitable sheet found"
-        return result, (None, None)
-
-    df = sheets_dict[target_sheet]
-    if df is None or len(df) == 0:
-        result['_DEBUG_ERROR_'] = "Sheet has no data"
-        return result, (None, None)
-
-    result['_DEBUG_ROWS_'] = str(len(df))
-    result['_DEBUG_COLS_'] = str(len(df.columns))
-
-    if hasattr(uploaded_file, 'name'):
-        month_name, year = extract_month_year_from_text(uploaded_file.name)
-
-    if 'Text' in df.columns:
-        result['_DEBUG_METHOD_'] = "text_based"
-        data = extract_data_from_text_sheet(df, month_name, year)
-        for key, value in data.items():
-            result[key] = value
-        return result, (month_name, year)
-
-    result['_DEBUG_METHOD_'] = "table_based"
-    amount_col = find_amount_column(df)
-    result['_DEBUG_AMOUNT_COL_'] = str(amount_col) if amount_col is not None else "None"
-    if amount_col is None:
-        amount_col = 1
-
-    matches_found = 0
-
-    for row_idx in range(len(df)):
-        try:
-            row_text_upper = ' '.join(
-                str(df.iloc[row_idx, c]).upper()
-                for c in range(min(3, len(df.columns)))
-                if str(df.iloc[row_idx, c]).strip().lower() not in ('nan', 'none', '')
-            )
-            if 'TOTAL REVENUS' in row_text_upper or 'TOTAL REVENUE' in row_text_upper:
-                val = safe_float(df.iloc[row_idx, amount_col])
-                if val != 0:
-                    result['_REVENUE_TOTAL_'] = val
-            if 'TOTAL DES FRAIS' in row_text_upper or 'TOTAL OPERATING' in row_text_upper:
-                val = safe_float(df.iloc[row_idx, amount_col])
-                if val != 0:
-                    result['_EXPENSE_TOTAL_'] = val
-
-            best_std = None
-            best_score = 0.59
-
-            for col_idx in range(min(3, len(df.columns))):
-                cell_text = str(df.iloc[row_idx, col_idx]).strip()
-                if not cell_text or len(cell_text) < 3 or cell_text.lower() in ('nan', 'none'):
-                    continue
-                for label, standard in ALL_LABEL_MAPPINGS.items():
-                    score = label_match_score(cell_text, label)
-                    if score > best_score:
-                        best_score = score
-                        best_std = standard
-
-            if best_std:
-                val = safe_float(df.iloc[row_idx, amount_col])
-                if val != 0:
-                    matches_found += 1
-                    result[best_std] = result.get(best_std, 0) + val
-
-        except Exception:
-            continue
-
-    result['_DEBUG_MATCHES_'] = str(matches_found)
-    return result, (month_name, year)
-
-
-def build_monthly_data_from_files(monthly_files):
-    if not monthly_files:
-        return None
-    monthly_data = {}
-    yearly_data = {}
-    monthly_totals = {}
-    for uploaded_file in monthly_files:
-        file_data, (month_name, year) = extract_monthly_data_from_file(uploaded_file)
-        debug_info = {
-            'file': getattr(uploaded_file, 'name', 'unknown'),
-            'month': month_name, 'year': year,
-            'type': file_data.pop('_DEBUG_TYPE_', '?'),
-            'target': file_data.pop('_DEBUG_TARGET_', '?'),
-            'rows': file_data.pop('_DEBUG_ROWS_', '?'),
-            'cols': file_data.pop('_DEBUG_COLS_', '?'),
-            'method': file_data.pop('_DEBUG_METHOD_', '?'),
-            'matches': file_data.pop('_DEBUG_MATCHES_', '?'),
-            'amount_col': file_data.pop('_DEBUG_AMOUNT_COL_', '?'),
-            'error': file_data.pop('_DEBUG_ERROR_', None),
-        }
-        monthly_data.setdefault('_debug_info', []).append(debug_info)
-        if not file_data or month_name is None:
-            continue
-        revenue_total = file_data.pop('_REVENUE_TOTAL_', None)
-        expense_total = file_data.pop('_EXPENSE_TOTAL_', None)
-        if revenue_total or expense_total:
-            monthly_totals[month_name] = {"revenue_total": revenue_total, "expense_total": expense_total}
-        for label, value in file_data.items():
-            if label.startswith('_'):
-                continue
-            monthly_data.setdefault(label, {})[month_name] = value
-            yearly_data[label] = yearly_data.get(label, 0) + value
-    debug_list = monthly_data.pop('_debug_info', None)
-    if not monthly_data:
-        return {'monthly': {}, 'yearly': {}, '_debug_info': debug_list} if debug_list else None
-    result = {'monthly': monthly_data, 'yearly': yearly_data}
-    if monthly_totals:
-        result['_monthly_totals'] = monthly_totals
-    if debug_list:
-        result['_debug_info'] = debug_list
-    return result
-
-# ============================================================================
-# P&L / PAGE 3 EXTRACTION
-# ============================================================================
-
-def find_ytd_column(df):
-    if df is None or len(df) == 0 or 'Text' in df.columns:
-        return None
-    for col_idx in [5, 6, 7]:
-        if col_idx < len(df.columns) and any(safe_float(df.iloc[r, col_idx]) != 0 for r in range(min(20, len(df)))):
-            return col_idx
-    return None
-
-def extract_page3_data(uploaded_file):
-    result = {'monthly': {}, 'yearly': {}}
-    sheets_dict, _ = read_any_file_to_dataframes(uploaded_file)
-    if not sheets_dict:
-        return None
-    target_sheet = find_best_data_sheet(sheets_dict)
-    if not target_sheet:
-        return None
-    df = sheets_dict[target_sheet]
-    if df is None or len(df) == 0:
-        return None
-    if 'Text' in df.columns:
-        data = extract_data_from_text_sheet(df, None, None)
-        for k, v in data.items():
-            if not k.startswith('_'):
-                result['yearly'][k] = v
-    else:
-        ytd_col = find_ytd_column(df)
-        if ytd_col is None:
-            return None
-        for row_idx in range(len(df)):
-            try:
-                best_std = None
-                best_score = 0.59
-                for col_idx in range(min(3, len(df.columns))):
-                    cell_text = str(df.iloc[row_idx, col_idx]).strip()
-                    if len(cell_text) < 3 or cell_text.lower() in ('nan', 'none'):
-                        continue
-                    for label, standard in ALL_LABEL_MAPPINGS.items():
-                        score = label_match_score(cell_text, label)
-                        if score > best_score:
-                            best_score = score
-                            best_std = standard
-                if best_std:
-                    val = safe_float(df.iloc[row_idx, ytd_col])
-                    if val:
-                        result['yearly'][best_std] = val
-            except:
-                continue
-    return result if result['yearly'] else None
-
-def extract_pnl_data_from_dataframe(df, sheet_name_hint=None):
-    result = {'monthly': {}, 'yearly': {}}
-    if df is None or len(df) == 0:
-        return result
-    for row_idx in range(1, len(df)):
-        try:
-            label = str(df.iloc[row_idx, 0]).strip() if pd.notna(df.iloc[row_idx, 0]) else ""
-            if not label or label.lower() in ['code', '', 'nan', 'none']:
-                continue
-            monthly = {MONTHS_EN[m]: safe_float(df.iloc[row_idx, m+1]) for m in range(12) if m+1 < len(df.columns)}
-            yearly_total = safe_float(df.iloc[row_idx, -1]) if len(df.columns) > 1 else 0
-            clean_label = label.strip().replace('  ', ' ')
-            result['monthly'][clean_label] = monthly
-            result['yearly'][clean_label] = yearly_total
-        except:
-            continue
-    return result
-
-def extract_pnl_data(uploaded_file, parking_code):
-    sheets_dict, _ = read_any_file_to_dataframes(uploaded_file)
-    if not sheets_dict:
-        return None, None
-    sheet_name = find_sheet_in_dict(sheets_dict, parking_code)
-    if not sheet_name and sheets_dict:
-        sheet_name = max(sheets_dict.keys(), key=lambda n: len(sheets_dict[n]))
-    if not sheet_name:
-        return None, None
-    df = sheets_dict[sheet_name]
-    return extract_pnl_data_from_dataframe(df, sheet_name), None
-
-def find_pnl_value(pnl_data, label_alternatives):
-    if pnl_data is None:
-        return 0
-    yearly = pnl_data.get('yearly', {})
-    clean_alts = [clean_text_for_matching(a) for a in label_alternatives if len(clean_text_for_matching(a)) >= 3]
-    for alt in clean_alts:
-        for key, val in yearly.items():
-            key_clean = clean_text_for_matching(key)
-            if alt == key_clean or (alt in key_clean and len(alt) >= 5 and len(alt)/len(key_clean) >= 0.6) or (key_clean in alt and len(key_clean) >= 5 and len(key_clean)/len(alt) >= 0.6):
-                return val
-    return 0
-
-def find_monthly_pnl_value(monthly_data, label_alternatives):
-    if not monthly_data:
-        return {}
-    clean_alts = [clean_text_for_matching(a) for a in label_alternatives if len(clean_text_for_matching(a)) >= 3]
-    for alt in clean_alts:
-        for key, monthly in monthly_data.items():
-            key_clean = clean_text_for_matching(key)
-            if alt == key_clean or (alt in key_clean and len(alt) >= 5 and len(alt)/len(key_clean) >= 0.6) or (key_clean in alt and len(key_clean) >= 5 and len(key_clean)/len(alt) >= 0.6):
-                return monthly
-    return {}
-
-def merge_monthly_data(current_year_data, previous_year_data, year_map):
-    merged = {}
-    current_year = datetime.now().year
-    for month_idx, year in year_map.items():
-        month_name = MONTHS_EN[month_idx]
-        source = current_year_data if year == current_year else previous_year_data if year < current_year else current_year_data
-        if source and 'monthly' in source:
-            for label, monthly_values in source['monthly'].items():
-                merged.setdefault(label, {})[month_name] = monthly_values.get(month_name, 0)
-    return merged
-
-# ============================================================================
-# SHEET UPDATE FUNCTIONS
-# ============================================================================
-
-def update_budget_initial(wb, bi_data, parking_code):
-    updates = []
-    try:
-        sheet_name = find_sheet_by_pattern(wb, SHEET_PATTERNS["Budget Initial"])
-        if not sheet_name:
-            return ["❌ Budget Initial: Sheet not found"]
-        ws = wb[sheet_name]
-        if bi_data is None:
-            return ["⚠️ Budget Initial: No data available"]
-        cells_updated, filled_revenue, filled_expense = 0, 0, 0
-        for dh_row, pnl_labels in DH_ROW_MAPPING.items():
-            yearly_value = find_pnl_value(bi_data, pnl_labels)
-            if yearly_value != 0:
-                ws[f"S{dh_row}"] = yearly_value
-                ws[f"S{dh_row}"].number_format = '#,##0.00'
-                cells_updated += 1
-                updates.append(f"✅ BI Row {dh_row}: ${yearly_value:,.2f} ({pnl_labels[0]})")
-                if dh_row in REVENUE_ROWS:
-                    filled_revenue += yearly_value
-                elif dh_row in EXPENSE_ROWS:
-                    filled_expense += yearly_value
-        updates.append(f"✅ Budget Initial: {cells_updated} cells updated" if cells_updated else "⚠️ Budget Initial: No cells updated")
-    except Exception as e:
-        updates.append(f"❌ Budget Initial: {str(e)}")
-    return updates
-
-def update_fiche_stationnement(wb, fs_data, parking_code, word_data=None):
-    updates = []
-    try:
-        sheet_name = find_sheet_by_pattern(wb, SHEET_PATTERNS["Fiche Stationnement"])
-        if not sheet_name:
-            return ["❌ Fiche Stationnement: Sheet not found"]
-        ws = wb[sheet_name]
-        if fs_data is None:
-            return ["⚠️ Fiche Stationnement: No data available"]
-        for cell, pnl_labels in FICHE_STATIONNEMENT_MAP:
-            yearly_value = find_pnl_value(fs_data, pnl_labels)
-            if yearly_value != 0:
-                ws[cell] = yearly_value
-                ws[cell].number_format = '#,##0.00'
-                updates.append(f"✅ {cell} = ${yearly_value:,.2f}")
-            else:
-                updates.append(f"⚠️ {cell} = Not found")
-    except Exception as e:
-        updates.append(f"❌ Fiche Stationnement: {str(e)}")
-    return updates
-
-def update_donnees_historiques(wb, merged_monthly_data, parking_code, monthly_totals=None):
-    updates = []
-    try:
-        dh_sheet_name = find_sheet_by_pattern(wb, SHEET_PATTERNS["Donnees Historiques"])
-        if not dh_sheet_name:
-            return ["❌ Donnees Historiques: Sheet not found"]
-        ws_dh = wb[dh_sheet_name]
-        year_map = read_year_mapping_from_template(wb)
-        updates.append(f"📅 Year mapping: Jan={year_map.get(0)}, Apr={year_map.get(3)}, May={year_map.get(4)}, Dec={year_map.get(11)}")
-        if not merged_monthly_data:
-            return ["⚠️ Donnees Historiques: No merged monthly data available"]
-        monthly_filled_revenue, monthly_filled_expense = {}, {}
-        cells_updated, rows_filled = 0, []
-        for dh_row, pnl_labels in DH_ROW_MAPPING.items():
-            monthly_values = find_monthly_pnl_value(merged_monthly_data, pnl_labels)
-            if not monthly_values or all(v == 0 for v in monthly_values.values()):
-                continue
-            row_cells = 0
-            for month_idx, month_name in enumerate(MONTHS_EN):
-                if month_name in monthly_values:
-                    val = monthly_values[month_name]
-                    if val != 0:
-                        col_letter = get_column_letter(month_idx + 2)
-                        ws_dh[f"{col_letter}{dh_row}"] = val
-                        ws_dh[f"{col_letter}{dh_row}"].number_format = '#,##0.00'
-                        cells_updated += 1
-                        row_cells += 1
-                        if dh_row in REVENUE_ROWS:
-                            monthly_filled_revenue[month_name] = monthly_filled_revenue.get(month_name, 0) + val
-                        elif dh_row in EXPENSE_ROWS:
-                            monthly_filled_expense[month_name] = monthly_filled_expense.get(month_name, 0) + val
-            if row_cells > 0:
-                rows_filled.append(f"  Row {dh_row}: {pnl_labels[0]} ({row_cells} months)")
-        if monthly_totals:
-            balancing_updates = []
-            for month_name, totals in monthly_totals.items():
-                if month_name not in MONTHS_EN:
-                    continue
-                month_idx = MONTHS_EN.index(month_name)
-                col_letter = get_column_letter(month_idx + 2)
-                for total_type, catch_row, filled_dict in [
-                    ("revenue_total", REVENUE_CATCH_ALL_ROW, monthly_filled_revenue),
-                    ("expense_total", EXPENSE_CATCH_ALL_ROW, monthly_filled_expense)
-                ]:
-                    expected = totals.get(total_type)
-                    if expected and expected != 0:
-                        actual = filled_dict.get(month_name, 0)
-                        gap = expected - actual
-                        if abs(gap) > 0.99:
-                            cell_ref = f"{col_letter}{catch_row}"
-                            current_val = safe_float(ws_dh[cell_ref].value)
-                            ws_dh[cell_ref] = current_val + gap
-                            ws_dh[cell_ref].number_format = '#,##0.00'
-                            balancing_updates.append(f"  ⚖️ {month_name}: Added ${gap:,.2f} to Row {catch_row}")
-                            cells_updated += 1
-            if balancing_updates:
-                updates.append(f"⚖️ Balancing ({len(balancing_updates)} adjustments):")
-                updates.extend(balancing_updates)
-        if cells_updated > 0:
-            updates.append(f"✅ Donnees Historiques: {cells_updated} cells in {len(rows_filled)} rows")
-            updates.extend(rows_filled)
+        if resp.status_code == 200:
+            return resp.json()["choices"][0]["message"]["content"]
+        elif resp.status_code == 401:
+            return "⚠️ **API key rejected (401).** Open [console.mistral.ai](https://console.mistral.ai) → API Keys → verify the key is active."
+        elif resp.status_code == 403:
+            return "⚠️ **IP not allowed (403).** Your Mistral key has an IP allowlist restriction. Go to **console.mistral.ai → API Keys → edit your key → remove the IP restriction** (or add the server IP). Then reload this page."
+        elif resp.status_code == 429:
+            return "⚠️ **Rate limit hit.** Wait a few seconds and try again."
         else:
-            updates.append("⚠️ Donnees Historiques: No cells updated")
+            return f"⚠️ Mistral error {resp.status_code}: {resp.text[:300]}"
+    except requests.exceptions.Timeout:
+        return "⚠️ Request timed out. Check your internet connection."
     except Exception as e:
-        updates.append(f"❌ Donnees Historiques: {str(e)}")
-    return updates
+        return f"⚠️ Unexpected error: {e}"
+
 
 # ============================================================================
-# MAIN FUNCTION
+# VOICE: Speech-to-Text (transcription)
 # ============================================================================
-
-def fix_excel(excel_file, monthly_files_current=None, monthly_files_previous=None,
-              budget_initial_file=None, fiche_stationnement_file=None,
-              parking_code=None, word_data=None):
-    updates = []
-    if not parking_code and hasattr(excel_file, 'name'):
-        parking_code = extract_parking_code_from_filename(excel_file.name)
-    if not parking_code:
-        return None, ["❌ Could not determine parking code."]
-    updates.append(f"🔍 Processing: {parking_code}")
-    dh_current_year_data = dh_previous_year_data = None
-    monthly_totals = None
-
-    if monthly_files_current:
-        updates.append("📋 Processing Current Year monthly files")
-        dh_current_year_data = build_monthly_data_from_files(monthly_files_current)
-        if dh_current_year_data:
-            debug_info = dh_current_year_data.pop('_debug_info', None)
-            if debug_info:
-                for d in debug_info:
-                    if d.get('error'):
-                        updates.append(f"🔧 {d['file']}: ERROR - {d['error']}")
-                    else:
-                        updates.append(f"🔧 {d['file']}: type={d['type']}, target={d['target']}, rows={d['rows']}x{d['cols']}, method={d.get('method','?')}, matches={d['matches']}, amount_col={d.get('amount_col','?')}, month={d['month']}")
-            updates.append(f"📊 Current year: {len(dh_current_year_data.get('yearly', {}))} labels")
-            if '_monthly_totals' in dh_current_year_data:
-                monthly_totals = dh_current_year_data.pop('_monthly_totals')
-
-    if monthly_files_previous:
-        updates.append("📋 Processing Previous Year monthly files")
-        dh_previous_year_data = build_monthly_data_from_files(monthly_files_previous)
-        if dh_previous_year_data:
-            debug_info = dh_previous_year_data.pop('_debug_info', None)
-            if debug_info:
-                for d in debug_info:
-                    if d.get('error'):
-                        updates.append(f"🔧 {d['file']}: ERROR - {d['error']}")
-                    else:
-                        updates.append(f"🔧 {d['file']}: type={d['type']}, target={d['target']}, matches={d['matches']}")
-            updates.append(f"📊 Previous year: {len(dh_previous_year_data.get('yearly', {}))} labels")
-            if '_monthly_totals' in dh_previous_year_data:
-                prev_totals = dh_previous_year_data.pop('_monthly_totals')
-                monthly_totals = {**(monthly_totals or {}), **prev_totals}
-
-    bi_data = fs_data = None
-    if budget_initial_file:
-        updates.append("📋 Processing Budget Initial source")
-        bi_data = extract_page3_data(budget_initial_file)
-        if not bi_data or not bi_data.get('yearly'):
-            bi_data, _ = extract_pnl_data(budget_initial_file, parking_code)
-        updates.append(f"📊 Budget Initial: {len(bi_data.get('yearly', {})) if bi_data else 0} labels")
-    if fiche_stationnement_file:
-        updates.append("📋 Processing Fiche Stationnement source")
-        fs_data = extract_page3_data(fiche_stationnement_file)
-        if not fs_data or not fs_data.get('yearly'):
-            fs_data, _ = extract_pnl_data(fiche_stationnement_file, parking_code)
-        updates.append(f"📊 Fiche Stationnement: {len(fs_data.get('yearly', {})) if fs_data else 0} labels")
-
-    if not dh_current_year_data and not dh_previous_year_data:
-        updates.append("⚠️ No monthly data available")
+def transcribe_with_deepgram(audio_bytes, lang="en"):
+    """Transcribe audio using Deepgram SDK v7"""
+    if not DEEPGRAM_API_KEY:
+        return None
 
     try:
-        excel_file.seek(0) if hasattr(excel_file, 'seek') else None
-        file_bytes = excel_file.read()
-        excel_file.seek(0) if hasattr(excel_file, 'seek') else None
-        wb_write = load_workbook(io.BytesIO(file_bytes))
-        wb_read = load_workbook(io.BytesIO(file_bytes), data_only=True)
+        deepgram = DeepgramClient(DEEPGRAM_API_KEY)
+
+        payload = {
+            "buffer": audio_bytes,
+        }
+
+        if lang == "fr":
+            speech_language = "fr"
+        else:
+            speech_language = "en"
+
+        options = {
+            "model": "nova-2",
+            "smart_format": True,
+            "language": speech_language,
+        }
+
+        response = deepgram.listen.prerecorded.v("1").transcribe_file(
+            payload,
+            options
+        )
+
+        transcript = response["results"]["channels"][0]["alternatives"][0]["transcript"]
+        return transcript
     except Exception as e:
-        return None, [f"❌ Error reading template: {str(e)}"]
+        return None
 
-    year_map = read_year_mapping_from_template(wb_read)
-    merged_monthly = {}
-    if year_map and dh_current_year_data and dh_previous_year_data:
-        merged_monthly = merge_monthly_data(dh_current_year_data, dh_previous_year_data, year_map)
-    if not merged_monthly and dh_current_year_data:
-        merged_monthly = dh_current_year_data['monthly']
-    dh_data = merged_monthly or (dh_current_year_data['monthly'] if dh_current_year_data else {})
 
-    updates.extend(update_budget_initial(wb_write, bi_data, parking_code))
-    updates.extend(update_fiche_stationnement(wb_write, fs_data, parking_code, word_data))
-    updates.extend(update_donnees_historiques(wb_write, dh_data, parking_code, monthly_totals))
+# ============================================================================
+# VOICE: Text-to-Speech (Allison speaks back)
+# ============================================================================
+def clean_text_for_speech(text):
+    """Remove markdown and symbols for clean speech"""
+    clean = text
+    clean = re.sub(r'\*\*(.*?)\*\*', r'\1', clean)
+    clean = re.sub(r'\*(.*?)\*', r'\1', clean)
+    clean = re.sub(r'`(.*?)`', r'\1', clean)
+    clean = re.sub(r'\[(.*?)\]\(.*?\)', r'\1', clean)
+    clean = re.sub(r'#+\s*', '', clean)
+    clean = re.sub(r'[-*]\s', '', clean)
+    clean = re.sub(r'[\$\€\£\%\^\(\)\[\]\{\}]', '', clean)
+    clean = re.sub(r'\s+', ' ', clean)
+    return clean.strip()
 
-    if not any(u.startswith("✅") for u in updates):
-        updates.append("💡 No updates were made.")
 
-    output = io.BytesIO()
-    wb_write.save(output)
-    output.seek(0)
-    return output, updates
+def text_to_speech(text, lang="en"):
+    """Convert Allison's text response to speech using Deepgram TTS (Aura-2)"""
+    try:
+        clean_text = clean_text_for_speech(text)
+
+        deepgram = DeepgramClient(DEEPGRAM_API_KEY)
+
+        if lang == "fr":
+            voice_model = "aura-2-agathe-fr"
+        else:
+            voice_model = "aura-2-asteria-en"
+
+        options = {
+            "model": voice_model,
+        }
+
+        response = deepgram.speak.v("1").save(
+            "allison_audio.mp3",
+            {"text": clean_text},
+            options
+        )
+
+        with open("allison_audio.mp3", "rb") as f:
+            audio_bytes = f.read()
+
+        audio_b64 = base64.b64encode(audio_bytes).decode()
+        return audio_b64
+    except Exception as e:
+        return None
+
+
+def play_audio_html(audio_b64):
+    """Create HTML audio player that autoplays"""
+    if audio_b64:
+        audio_html = f"""
+        <audio autoplay>
+            <source src="data:audio/mp3;base64,{audio_b64}" type="audio/mp3">
+        </audio>
+        """
+        st.markdown(audio_html, unsafe_allow_html=True)
+
+
+# ============================================================================
+# FILE EXTRACTION FUNCTIONS (for AI chat file analysis)
+# ============================================================================
+def extract_text_from_excel(file_bytes):
+    """Extract text from Excel file for AI context"""
+    wb = load_workbook(io.BytesIO(file_bytes))
+    ws = wb.active
+    excel_data = []
+    for row in ws.iter_rows(min_row=1, max_row=min(50, ws.max_row), values_only=True):
+        excel_data.append([str(cell) if cell is not None else "" for cell in row])
+    return excel_data
+
+
+def extract_text_from_csv(file_bytes):
+    """Extract text from CSV file for AI context"""
+    text = file_bytes.decode('utf-8', errors='ignore')
+    reader = csv.reader(io.StringIO(text))
+    csv_data = []
+    for i, row in enumerate(reader):
+        if i >= 50:
+            break
+        csv_data.append(row)
+    return csv_data
+
+
+def extract_text_from_pdf(file_bytes):
+    """Extract text from PDF file using pdfplumber"""
+    text = ""
+    try:
+        with pdfplumber.open(io.BytesIO(file_bytes)) as pdf:
+            text = "".join(p.extract_text() or "" for p in pdf.pages)
+    except Exception:
+        pass
+    return text if text.strip() else "Could not extract text from PDF"
+
+
+def extract_text_from_docx(file_bytes):
+    """Extract text from Word document"""
+    try:
+        with zipfile.ZipFile(io.BytesIO(file_bytes)) as z:
+            if 'word/document.xml' in z.namelist():
+                xml_content = z.read('word/document.xml')
+                tree = ElementTree.fromstring(xml_content)
+                ns = {'w': 'http://schemas.openxmlformats.org/wordprocessingml/2006/main'}
+                paragraphs = tree.findall('.//w:p', ns)
+                text_parts = []
+                for p in paragraphs:
+                    texts = p.findall('.//w:t', ns)
+                    para_text = ''.join(t.text for t in texts if t.text)
+                    if para_text:
+                        text_parts.append(para_text)
+                return '\n'.join(text_parts)
+    except Exception:
+        pass
+    return "Could not extract text from this document"
+
+
+def extract_text_from_txt(file_bytes):
+    """Extract text from text file"""
+    return file_bytes.decode('utf-8', errors='ignore')
+
+
+def process_any_file(uploaded_file):
+    """Process any uploaded file and return extracted content for AI chat"""
+    file_name = uploaded_file.name.lower()
+    file_bytes = uploaded_file.read()
+
+    if file_name.endswith('.xlsx') or file_name.endswith('.xls'):
+        return extract_text_from_excel(file_bytes), "excel", file_bytes
+    elif file_name.endswith('.csv'):
+        return extract_text_from_csv(file_bytes), "csv", file_bytes
+    elif file_name.endswith('.pdf'):
+        return extract_text_from_pdf(file_bytes), "pdf", file_bytes
+    elif file_name.endswith('.docx'):
+        return extract_text_from_docx(file_bytes), "docx", file_bytes
+    elif file_name.endswith('.txt') or file_name.endswith('.md') or file_name.endswith('.py') or file_name.endswith('.json') or file_name.endswith('.xml') or file_name.endswith('.html') or file_name.endswith('.css') or file_name.endswith('.js'):
+        return extract_text_from_txt(file_bytes), "text", file_bytes
+    else:
+        try:
+            return file_bytes.decode('utf-8', errors='ignore'), "text", file_bytes
+        except Exception:
+            return f"Binary file: {file_name} (content cannot be displayed as text)", "binary", file_bytes
+
+
+# ============================================================================
+# TRANSLATIONS
+# ============================================================================
+T_DATA = {
+    "en": {
+        "brand": "BUDGET SYSTEM",
+        "brand_sub": "Only Solutions Inc.",
+        "email_lbl": "Email address",
+        "pass_lbl": "Password",
+        "login_btn": "Sign in",
+        "logout_btn": "Sign out",
+        "wrong_creds": "Incorrect email or password.",
+        "ai_title": "🤖 Allison · AI Assistant",
+        "clear_chat": "Clear chat",
+        "chat_hint": "Ask Allison about budget, forecasts, or calculations…",
+        "no_msgs": "No messages yet — start a conversation with Allison.",
+        "files_title": "File Upload",
+        "excel_lbl": "📊 Upload Excel Template (.xlsx)",
+        "monthly_current_lbl": "📁 Current Year Monthly Reports (4 files: Jan-Apr 2026)",
+        "monthly_previous_lbl": "📁 Previous Year Monthly Reports (8 files: May-Dec 2025)",
+        "budget_initial_lbl": "📁 Budget Initial Source (Dec 2025 Page 3 / P&L)",
+        "fiche_stationnement_lbl": "📁 Fiche Stationnement Source (Dec 2024 Page 3 / P&L)",
+        "processing": "Processing files…",
+        "files_ready": "✅ All files ready — you can now run the workflow.",
+        "files_ready_partial": "✅ Template + Current Year data ready. Other files recommended.",
+        "config_title": "Workflow",
+        "run_btn": "🚀 Run Workflow",
+        "running": "Processing your budget...",
+        "run_ok": "✅ Done — file ready to download.",
+        "dl_btn": "📥 Download Budget File",
+        "upload_first": "⚠️ Upload Excel Template + Data files to unlock workflow.",
+        "theme_dark": "🌙 Dark Mode",
+        "theme_light": "☀️ Light Mode",
+        "footer": "Budget System · Only Solutions Inc.",
+        "settings": "Settings",
+        "profile": "Profile",
+        "language": "Language",
+        "appearance": "Appearance",
+        "send": "Send",
+        "stop": "⏹ STOP",
+        "ai_file_upload": "📎 Upload any file to analyze",
+        "ai_file_loaded": "ready for questions",
+        "clear_workflow": "🔄 Clear Workflow",
+        "speak_now": "🎤 SPEAK NOW",
+        "allison_online": "🟢 Allison is online and ready",
+        "parking_code_lbl": "🏢 Select Parking Code",
+        "parking_code_help": "Choose the parking location",
+        "no_parking_codes": "No parking codes detected in uploaded files",
+        "file_note_monthly": "Upload PDF or Excel files. Each file should be named with the month (e.g., January 2026.xlsx).",
+        "file_note_page3": "Upload the December Page 3 Financial Summary (PDF or Excel). Extracts YTD Actual / Cumulatif courant values.",
+        "file_note_accept": "Accepts: Excel, PDF, CSV",
+    },
+    "fr": {
+        "brand": "SYSTÈME BUDGÉTAIRE",
+        "brand_sub": "Only Solutions Inc.",
+        "email_lbl": "Adresse courriel",
+        "pass_lbl": "Mot de passe",
+        "login_btn": "Se connecter",
+        "logout_btn": "Se déconnecter",
+        "wrong_creds": "Courriel ou mot de passe incorrect.",
+        "ai_title": "🤖 Allison · Assistant IA",
+        "clear_chat": "Effacer",
+        "chat_hint": "Demandez à Allison budget, prévisions, calculs…",
+        "no_msgs": "Aucun message — commencez une conversation avec Allison.",
+        "files_title": "Fichiers",
+        "excel_lbl": "📊 Téléverser le modèle Excel (.xlsx)",
+        "monthly_current_lbl": "📁 Rapports mensuels année courante (4 fichiers: Jan-Avr 2026)",
+        "monthly_previous_lbl": "📁 Rapports mensuels année précédente (8 fichiers: Mai-Déc 2025)",
+        "budget_initial_lbl": "📁 Source Budget Initial (Déc 2025 Page 3 / P&L)",
+        "fiche_stationnement_lbl": "📁 Source Fiche Stationnement (Déc 2024 Page 3 / P&L)",
+        "processing": "Traitement…",
+        "files_ready": "✅ Tous les fichiers prêts — exécutez le workflow.",
+        "files_ready_partial": "✅ Modèle + données année courante prêts. Autres fichiers recommandés.",
+        "config_title": "Workflow",
+        "run_btn": "🚀 Exécuter",
+        "running": "Traitement de votre budget...",
+        "run_ok": "✅ Terminé — fichier prêt.",
+        "dl_btn": "📥 Télécharger le fichier",
+        "upload_first": "⚠️ Téléversez le modèle Excel + fichiers de données.",
+        "theme_dark": "🌙 Mode Sombre",
+        "theme_light": "☀️ Mode Clair",
+        "footer": "Système budgétaire · Only Solutions Inc.",
+        "settings": "Paramètres",
+        "profile": "Profil",
+        "language": "Langue",
+        "appearance": "Apparence",
+        "send": "Envoyer",
+        "stop": "⏹ STOP",
+        "ai_file_upload": "📎 Téléverser tout fichier à analyser",
+        "ai_file_loaded": "prêt pour les questions",
+        "clear_workflow": "🔄 Effacer Workflow",
+        "speak_now": "🎤 PARLEZ",
+        "allison_online": "🟢 Allison est en ligne et prête",
+        "parking_code_lbl": "🏢 Sélectionner le code stationnement",
+        "parking_code_help": "Choisissez le stationnement",
+        "no_parking_codes": "Aucun code stationnement détecté dans les fichiers",
+        "file_note_monthly": "Téléversez des fichiers PDF ou Excel. Chaque fichier doit être nommé avec le mois (ex: Janvier 2026.xlsx).",
+        "file_note_page3": "Téléversez le Page 3 Résumé Financier de décembre (PDF ou Excel). Extrait les valeurs YTD Actual / Cumulatif courant.",
+        "file_note_accept": "Accepte: Excel, PDF, CSV",
+    },
+}
+
+
+# ============================================================================
+# PERSISTENT CHAT MEMORY
+# ============================================================================
+CHAT_HISTORY_FILE = "chat_history.json"
+
+
+def save_chat_history(messages):
+    """Save chat messages to a file"""
+    try:
+        with open(CHAT_HISTORY_FILE, "w") as f:
+            json.dump(messages, f, indent=2)
+    except Exception:
+        pass
+
+
+def load_chat_history():
+    """Load chat messages from file"""
+    try:
+        if os.path.exists(CHAT_HISTORY_FILE):
+            with open(CHAT_HISTORY_FILE) as f:
+                return json.load(f)
+    except Exception:
+        pass
+    return []
+
+
+def clear_chat_history():
+    """Delete the chat history file"""
+    try:
+        if os.path.exists(CHAT_HISTORY_FILE):
+            os.remove(CHAT_HISTORY_FILE)
+    except Exception:
+        pass
+
+
+# ============================================================================
+# USER MANAGEMENT
+# ============================================================================
+USERS_FILE = "users.json"
+ADMIN_EMAIL = "admin@onlys.com"
+
+DEFAULT_USERS = {
+    ADMIN_EMAIL: {
+        "password": "12345",
+        "name": "Administrator",
+        "role": "admin",
+        "created": datetime.now().isoformat(),
+    }
+}
+
+
+def load_users():
+    """Load users from JSON file"""
+    if os.path.exists(USERS_FILE):
+        with open(USERS_FILE) as f:
+            return json.load(f)
+    save_users(DEFAULT_USERS)
+    return DEFAULT_USERS
+
+
+def save_users(u):
+    """Save users to JSON file"""
+    with open(USERS_FILE, "w") as f:
+        json.dump(u, f, indent=2)
+
+
+def authenticate(email, pw):
+    """Authenticate a user by email and password"""
+    u = load_users().get(email)
+    return u if (u and u["password"] == pw) else None
+
+
+def create_user(email, name, pw, role="user"):
+    """Create a new user"""
+    users = load_users()
+    if email in users:
+        return False
+    users[email] = {
+        "password": pw,
+        "name": name,
+        "role": role,
+        "created": datetime.now().isoformat()
+    }
+    save_users(users)
+    return True
+
+
+def delete_user(email):
+    """Delete a user (cannot delete admin)"""
+    if email == ADMIN_EMAIL:
+        return False
+    users = load_users()
+    if email in users:
+        del users[email]
+        save_users(users)
+        return True
+    return False
+
+
+def reset_password(email, pw):
+    """Reset a user's password"""
+    users = load_users()
+    if email in users:
+        users[email]["password"] = pw
+        save_users(users)
+        return True
+    return False
+
+
+# ============================================================================
+# SESSION STATE INITIALIZATION
+# ============================================================================
+_D = dict(
+    authenticated=False,
+    user_email="",
+    user_name="",
+    user_role="",
+    lang="en",
+    theme="dark",
+    messages=[],
+    excel_bytes=None,
+    monthly_current_files=[],
+    monthly_previous_files=[],
+    budget_initial_file=None,
+    fiche_stationnement_file=None,
+    files_ready=False,
+    fixed_excel=None,
+    workflow_log=[],
+    show_settings=False,
+    thinking=False,
+    thinking_from_voice=False,
+    ai_file_data=None,
+    ai_file_name="",
+    ai_file_type="",
+    voice_text="",
+    last_audio=None,
+    last_processed_text="",
+    parking_codes=[],
+    selected_parking_code=None,
+    extracted_rev={},
+)
+
+for k, v in _D.items():
+    if k not in st.session_state:
+        st.session_state[k] = v
+
+
+def T(key):
+    """Get translated string for current language"""
+    return T_DATA[st.session_state.lang].get(key, key)
+
+
+def do_logout():
+    """Log out the current user and clear session"""
+    save_chat_history(st.session_state.messages)
+    for k, v in _D.items():
+        st.session_state[k] = v
+    st.rerun()
+
+
+# ============================================================================
+# THEME TOKENS
+# ============================================================================
+DARK = dict(
+    bg="#0D1117",
+    surface="#161B22",
+    border="#30363D",
+    accent="#58A6FF",
+    accent2="#D2A8FF",
+    accent3="#3FB950",
+    text="#E6EDF3",
+    text_secondary="#8B949E",
+    muted="#8B949E",
+    danger="#F85149",
+    bubble_user="#1F6FEB",
+    bubble_bot="#21262D",
+    input_bg="#0D1117",
+    navbar="#161B22",
+    btn_bg="#E67E22",
+    btn_border="#F39C12",
+    btn_text="#FFFFFF",
+    run_bg="#E67E22",
+    run_bg2="#F39C12",
+    dl_bg="#E67E22",
+    dl_color="#FFFFFF",
+    dl_border="#F39C12",
+    highlight="#F39C12",
+)
+
+LIGHT = dict(
+    bg="#F5F7FA",
+    surface="#FFFFFF",
+    border="#D4DCE8",
+    accent="#0066CC",
+    accent2="#7C3AED",
+    accent3="#0E7933",
+    text="#1A2E45",
+    text_secondary="#5C6F8C",
+    muted="#5C6F8C",
+    danger="#DC2626",
+    bubble_user="#E6F0FF",
+    bubble_bot="#F8FAFE",
+    input_bg="#FFFFFF",
+    navbar="#F0F4F9",
+    btn_bg="#E67E22",
+    btn_border="#F39C12",
+    btn_text="#FFFFFF",
+    run_bg="#E67E22",
+    run_bg2="#F39C12",
+    dl_bg="#E67E22",
+    dl_color="#FFFFFF",
+    dl_border="#F39C12",
+    highlight="#E67E22",
+)
+
+
+def TK():
+    """Return current theme token dictionary"""
+    return DARK if st.session_state.theme == "dark" else LIGHT
+
+
+def inject_css():
+    """Inject custom CSS based on current theme"""
+    C = TK()
+    st.markdown(f"""
+    <style>
+    @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500;600&family=Inter:wght@300;400;500;600;700&display=swap');
+
+    html, body, [class*="css"], .stApp, .main, .stApp > div, div[data-testid="stAppViewContainer"], div[data-testid="stHeader"] {{
+        background-color: {C['bg']} !important;
+        color: {C['text']} !important;
+    }}
+    
+    p, span, div, label, .stMarkdown, .stText, .stCaption, .stException, .stCodeBlock, .stAlert, 
+    .stSuccess, .stInfo, .stWarning, .stError, .stDataFrame, .stTable, .stJson,
+    .element-container, .stTextInput label, .stSelectbox label, .stNumberInput label,
+    .stFileUploader label, .stMultiSelect label, .stTextArea label {{
+        color: {C['text']} !important;
+    }}
+    
+    .chat-messages {{
+        max-height: 400px;
+        overflow-y: auto;
+        overflow-x: hidden;
+        padding-right: 8px;
+        margin-bottom: 10px;
+        scrollbar-width: thin;
+    }}
+    
+    .chat-messages::-webkit-scrollbar {{ width: 6px; }}
+    .chat-messages::-webkit-scrollbar-track {{ background: {C['border']}; border-radius: 3px; }}
+    .chat-messages::-webkit-scrollbar-thumb {{ background: {C['highlight']}; border-radius: 3px; }}
+    .chat-messages::-webkit-scrollbar-thumb:hover {{ background: {C['run_bg2']}; }}
+    
+    .thinking-container {{
+        display: inline-flex !important;
+        align-items: center;
+        gap: 6px;
+        padding: 0.5rem 0.8rem;
+        background: {C['bubble_bot']};
+        border: 1px solid {C['border']};
+        border-left: 2px solid {C['accent2']};
+        border-radius: 2px 8px 8px 8px;
+        margin-bottom: 0.5rem;
+    }}
+    
+    .robot-icon {{ font-size: 1.1rem; line-height: 1; }}
+    
+    .dot {{
+        display: inline-block;
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        background: {C['highlight']};
+        animation: dot-bounce 1.4s infinite ease-in-out both;
+    }}
+    
+    .dot:nth-child(2) {{ animation-delay: -0.32s; }}
+    .dot:nth-child(3) {{ animation-delay: -0.16s; }}
+    .dot:nth-child(4) {{ animation-delay: 0s; }}
+    
+    @keyframes dot-bounce {{
+        0%, 80%, 100% {{ transform: scale(0.6); opacity: 0.4; }}
+        40% {{ transform: scale(1); opacity: 1; }}
+    }}
+    
+    @keyframes pulse-green {{
+        0%, 100% {{ box-shadow: 0 0 0 0 rgba(63, 185, 80, 0.7); transform: scale(1); }}
+        50% {{ box-shadow: 0 0 0 6px rgba(63, 185, 80, 0); transform: scale(1.15); }}
+    }}
+    
+    .alive-dot {{
+        display: inline-block;
+        width: 8px;
+        height: 8px;
+        background-color: #3FB950;
+        border-radius: 50%;
+        animation: pulse-green 2s infinite ease-in-out;
+        vertical-align: middle;
+    }}
+
+    .stop-btn > button {{
+        background: #DC2626 !important;
+        color: #FFFFFF !important;
+        border: 1px solid #DC2626 !important;
+        animation: pulse-stop 1s infinite;
+    }}
+    
+    @keyframes pulse-stop {{
+        0%, 100% {{ box-shadow: 0 0 0 0 rgba(220, 38, 38, 0.5); }}
+        50% {{ box-shadow: 0 0 0 6px rgba(220, 38, 38, 0); }}
+    }}
+
+    div[data-baseweb="select"] input[type="text"] {{
+        color: #FFFFFF !important;
+        background-color: #1A1A2E !important;
+    }}
+    
+    div[data-baseweb="popover"] {{
+        max-height: 300px !important;
+        overflow-y: auto !important;
+    }}
+    
+    ul[role="listbox"] {{
+        max-height: 250px !important;
+        overflow-y: auto !important;
+    }}
+    
+    ul[role="listbox"] li {{
+        color: #FFFFFF !important;
+        background-color: #161B22 !important;
+        padding: 8px 12px !important;
+        cursor: pointer !important;
+    }}
+    
+    ul[role="listbox"] li:hover {{
+        background-color: #F39C12 !important;
+        color: #000000 !important;
+    }}
+    
+    div[data-baseweb="select"] input {{
+        color: #FFFFFF !important;
+        caret-color: #FFFFFF !important;
+    }}
+    
+    div[data-testid="stSelectbox"] > div {{
+        background-color: #161B22 !important;
+        border: 1px solid #30363D !important;
+        border-radius: 6px !important;
+    }}
+    
+    div[data-testid="stSelectbox"] label {{
+        color: #E6EDF3 !important;
+        font-weight: 600 !important;
+    }}
+
+    div[data-baseweb="select"] div, 
+    div[data-baseweb="select"] span,
+    div[data-testid="stSelectbox"] div,
+    .stSelectbox div,
+    .stSelectbox span,
+    div[role="listbox"] div,
+    div[role="option"] {{
+        color: {C['text']} !important;
+        background-color: {C['surface']} !important;
+    }}
+    
+    div[data-baseweb="popover"] div,
+    div[data-baseweb="popover"] span,
+    ul[role="listbox"] li div {{
+        color: {C['text']} !important;
+        background-color: {C['surface']} !important;
+    }}
+    
+    div[data-baseweb="select"] [aria-selected="true"] {{
+        background-color: {C['highlight']} !important;
+        color: #000000 !important;
+    }}
+    
+    div[data-testid="stFileUploader"] span, 
+    div[data-testid="stFileUploader"] p, 
+    div[data-testid="stFileUploader"] div,
+    .stFileUploader div,
+    .uploadedFileName,
+    .stFileUploader span,
+    div[data-testid="stFileUploader"] small,
+    .stFileUploader small {{
+        color: {C['highlight']} !important;
+        opacity: 1 !important;
+        font-weight: 500 !important;
+    }}
+    
+    div[data-testid="stFileUploaderDropzone"] p {{
+        color: {C['highlight']} !important;
+        font-weight: 500 !important;
+    }}
+    
+    .stFileUploader .e1y5xznm0 {{ color: {C['highlight']} !important; }}
+    .stMarkdown small, .stCaption, .text-muted, .secondary-text {{ color: {C['highlight']} !important; }}
+    
+    .stButton > button {{
+        background: #E67E22 !important;
+        color: #FFFFFF !important;
+        border: 1px solid #F39C12 !important;
+        font-family: 'IBM Plex Mono', monospace !important;
+        font-size: 0.68rem !important;
+        font-weight: 600 !important;
+        letter-spacing: 0.09em !important;
+        text-transform: uppercase !important;
+        border-radius: 6px !important;
+        padding: 0.45rem 0.9rem !important;
+        width: 100% !important;
+        transition: all 0.2s ease !important;
+        cursor: pointer !important;
+    }}
+    
+    .stButton > button:hover {{
+        background: #F39C12 !important;
+        border-color: #FFFFFF !important;
+        transform: scale(1.01) !important;
+        box-shadow: 0 2px 8px rgba(230,126,34,0.3) !important;
+    }}
+    
+    .stButton > button[kind="primary"] {{
+        background: #E67E22 !important;
+        color: #FFFFFF !important;
+        border-color: #F39C12 !important;
+    }}
+    
+    .stButton > button[kind="primary"]:hover {{
+        background: #F39C12 !important;
+        transform: scale(1.01) !important;
+    }}
+    
+    div[data-testid="stFormSubmitButton"] > button {{
+        background: #E67E22 !important;
+        color: #FFFFFF !important;
+        border: 1px solid #F39C12 !important;
+        font-family: 'IBM Plex Mono', monospace !important;
+        font-size: 0.68rem !important;
+        font-weight: 600 !important;
+        letter-spacing: 0.09em !important;
+        text-transform: uppercase !important;
+        border-radius: 6px !important;
+        padding: 0.45rem 0.9rem !important;
+        width: 100% !important;
+        transition: all 0.2s ease !important;
+        cursor: pointer !important;
+    }}
+    
+    div[data-testid="stFormSubmitButton"] > button:hover {{
+        background: #F39C12 !important;
+        border-color: #FFFFFF !important;
+        transform: scale(1.01) !important;
+        box-shadow: 0 2px 8px rgba(230,126,34,0.3) !important;
+    }}
+    
+    .stDownloadButton > button {{
+        background: #E67E22 !important;
+        color: #FFFFFF !important;
+        border: 1px solid #F39C12 !important;
+        font-family: 'IBM Plex Mono', monospace !important;
+        font-size: 0.68rem !important;
+        font-weight: 600 !important;
+        letter-spacing: 0.09em !important;
+        text-transform: uppercase !important;
+        border-radius: 6px !important;
+        padding: 0.45rem 0.9rem !important;
+        width: 100% !important;
+    }}
+    
+    .stDownloadButton > button:hover {{
+        background: #F39C12 !important;
+        border-color: #FFFFFF !important;
+    }}
+    
+    button[kind="secondary"][data-testid="baseButton-secondary"] {{
+        background: transparent !important;
+        border: none !important;
+        color: #E67E22 !important;
+        font-size: 1.3rem !important;
+        padding: 0.1rem 0.2rem !important;
+        width: auto !important;
+        min-width: auto !important;
+        line-height: 1 !important;
+    }}
+    
+    button[kind="secondary"][data-testid="baseButton-secondary"]:hover {{
+        background: transparent !important;
+        color: #F39C12 !important;
+        transform: scale(1.15) !important;
+        box-shadow: none !important;
+    }}
+    
+    details {{
+        background: {C['surface']} !important;
+        border: 1px solid {C['border']} !important;
+        border-radius: 8px !important;
+        margin-bottom: 1rem !important;
+    }}
+    
+    details summary {{
+        color: {C['text']} !important;
+        font-family: 'IBM Plex Mono', monospace !important;
+        font-size: 0.7rem !important;
+        padding: 0.5rem !important;
+    }}
+    
+    .main {{ padding: 0 !important; }}
+    .block-container {{ padding: 1rem 1.5rem 2rem !important; max-width: 100% !important; }}
+    #MainMenu, footer, header {{ visibility: hidden; }}
+    
+    ::-webkit-scrollbar {{ width: 4px; }}
+    ::-webkit-scrollbar-track {{ background: {C['bg']}; }}
+    ::-webkit-scrollbar-thumb {{ background: {C['border']}; border-radius: 4px; }}
+
+    .navbar {{ display: flex; align-items: center; padding: 0.55rem 0.25rem; gap: 0.75rem; border-bottom: 1px solid {C['border']}; margin-bottom: 1.25rem; }}
+    .navbar-brand {{ font-family: 'IBM Plex Mono', monospace; font-size: 0.82rem; font-weight: 600; color: {C['accent']} !important; letter-spacing: 0.07em; flex: 1; }}
+    .navbar-user {{ font-family: 'IBM Plex Mono', monospace; font-size: 0.6rem; color: {C['text_secondary']} !important; border-left: 1px solid {C['border']}; padding-left: 0.75rem; margin-left: 0.25rem; }}
+
+    .scard {{ background: {C['surface']}; border: 1px solid {C['border']}; border-radius: 8px; padding: 1rem 1.1rem 1.1rem; margin-bottom: 1rem; }}
+    .scard-title {{ font-family: 'IBM Plex Mono', monospace; font-size: 0.6rem; font-weight: 500; color: {C['accent']} !important; text-transform: uppercase; letter-spacing: 0.16em; margin-bottom: 0.85rem; padding-bottom: 0.45rem; border-bottom: 1px solid {C['border']}; display: flex; align-items: center; gap: 0.4rem; }}
+    .scard-title::before {{ content: ''; width: 2px; height: 9px; background: {C['accent']}; border-radius: 2px; flex-shrink: 0; }}
+
+    .bubble-user {{ background: {C['bubble_user']}; border: 1px solid {C['border']}; border-right: 2px solid {C['accent']}; padding: 0.5rem 0.75rem; border-radius: 8px 2px 8px 8px; margin-bottom: 0.5rem; margin-left: auto; margin-right: 0; max-width: 85%; width: fit-content; font-size: 0.82rem; line-height: 1.5; color: {C['text']} !important; }}
+    .bubble-bot {{ background: {C['bubble_bot']}; border: 1px solid {C['border']}; border-left: 2px solid {C['accent2']}; padding: 0.5rem 0.75rem; border-radius: 2px 8px 8px 8px; margin-bottom: 0.5rem; margin-right: auto; margin-left: 0; max-width: 85%; width: fit-content; font-size: 0.82rem; line-height: 1.5; color: {C['text']} !important; }}
+    .bubble-lbl {{ font-family: 'IBM Plex Mono', monospace; font-size: 0.52rem; letter-spacing: 0.1em; text-transform: uppercase; color: {C['text_secondary']} !important; margin-bottom: 0.2rem; opacity: 0.7; }}
+    .no-msgs {{ font-family: 'IBM Plex Mono', monospace; font-size: 0.68rem; color: {C['text_secondary']} !important; text-align: center; padding: 2rem 0 1.5rem; letter-spacing: 0.06em; }}
+
+    .log-line {{ font-family: 'IBM Plex Mono', monospace; font-size: 0.65rem; color: {C['accent3']} !important; padding: 0.15rem 0; letter-spacing: 0.03em; }}
+    .log-line::before {{ content: '▸ '; opacity: 0.5; }}
+
+    .hr {{ height: 1px; background: {C['border']}; margin: 0.7rem 0; }}
+
+    .login-box {{ background: {C['surface']}; border: 1px solid {C['border']}; border-top: 2px solid {C['accent']}; border-radius: 10px; padding: 2rem 2rem 1.75rem; margin-top: 8vh; }}
+    .login-brand {{ font-family: 'IBM Plex Mono', monospace; font-size: 1.05rem; font-weight: 600; color: {C['accent']} !important; letter-spacing: 0.07em; margin-bottom: 0.15rem; }}
+    .login-sub {{ font-size: 0.6rem; color: {C['text_secondary']} !important; letter-spacing: 0.13em; text-transform: uppercase; margin-bottom: 1.6rem; }}
+
+    .db-footer {{ text-align: center; font-family: 'IBM Plex Mono', monospace; font-size: 0.55rem; color: {C['text_secondary']} !important; letter-spacing: 0.1em; text-transform: uppercase; padding: 1.25rem 0 0.5rem; border-top: 1px solid {C['border']}; margin-top: 0.5rem; }}
+    
+    .streamlit-expanderContent {{ background: {C['surface']} !important; }}
+    
+    div[data-testid="stFileUploader"] button {{
+        background: #E67E22 !important;
+        color: #FFFFFF !important;
+        border: 1px solid #F39C12 !important;
+        border-radius: 6px !important;
+        font-weight: 600 !important;
+    }}
+    
+    div[data-testid="stFileUploader"] button:hover {{
+        background: #F39C12 !important;
+        border-color: #FFFFFF !important;
+    }}
+    
+    .stCaption, caption, .help-text, .hint-text, .stFileUploader .e1y5xznm0 {{ color: {C['highlight']} !important; }}
+    .metric-label {{ color: {C['highlight']} !important; }}
+    .stSelectbox div[data-baseweb="select"] div {{ color: {C['text']} !important; }}
+    
+    .stInfo {{
+        background-color: {C['surface']} !important;
+        border: 1px solid {C['highlight']} !important;
+        color: {C['text']} !important;
+    }}
+    
+    .stInfo .stMarkdown {{ color: {C['text']} !important; }}
+    
+    .file-upload-note {{
+        font-size: 0.55rem !important;
+        color: {C['text_secondary']} !important;
+        margin-top: -0.5rem !important;
+        margin-bottom: 0.3rem !important;
+        font-style: italic;
+    }}
+    
+    .parking-selector {{
+        background: {C['surface']} !important;
+        border: 1px solid {C['highlight']} !important;
+        border-radius: 6px !important;
+        padding: 0.6rem 0.8rem !important;
+        margin-bottom: 0.8rem !important;
+    }}
+    </style>
+    """, unsafe_allow_html=True)
+
+
+# ============================================================================
+# LOGIN PAGE
+# ============================================================================
+def page_login():
+    """Render the login page"""
+    inject_css()
+
+    r1, r2, r3, r4 = st.columns([8, 0.75, 0.55, 0.55])
+    with r2:
+        theme_label = T("theme_light") if st.session_state.theme == "dark" else T("theme_dark")
+        if st.button(theme_label, key="login_theme"):
+            st.session_state.theme = "light" if st.session_state.theme == "dark" else "dark"
+            st.rerun()
+    with r3:
+        if st.button("EN", key="login_en"):
+            st.session_state.lang = "en"
+            st.rerun()
+    with r4:
+        if st.button("FR", key="login_fr"):
+            st.session_state.lang = "fr"
+            st.rerun()
+
+    _, center, _ = st.columns([1, 1.05, 1])
+    with center:
+        st.markdown(f"""
+        <div class="login-box">
+            <div class="login-brand">🤖 {T('brand')}</div>
+            <div class="login-sub">{T('brand_sub')}</div>
+        </div>
+        """, unsafe_allow_html=True)
+
+        with st.form("login_form", clear_on_submit=False):
+            email = st.text_input(T("email_lbl"), placeholder="admin@onlys.com")
+            password = st.text_input(T("pass_lbl"), type="password", placeholder="••••••••")
+            submit = st.form_submit_button(T("login_btn"), use_container_width=True)
+
+            if submit:
+                user = authenticate(email, password)
+                if user:
+                    st.session_state.authenticated = True
+                    st.session_state.user_email = email
+                    st.session_state.user_name = user["name"]
+                    st.session_state.user_role = user["role"]
+                    st.session_state.messages = load_chat_history()
+                    st.rerun()
+                else:
+                    st.error(T("wrong_creds"))
+
+        st.markdown(f'<div class="db-footer">{T("footer")}</div>', unsafe_allow_html=True)
+
+
+# ============================================================================
+# SETTINGS MENU
+# ============================================================================
+def render_settings_menu():
+    """Render the settings expander"""
+    if st.session_state.show_settings:
+        with st.expander(f"⚙️ {T('settings')}", expanded=True):
+            st.markdown(f"**{T('profile')}**")
+            st.info(f"**{st.session_state.user_name}**  \n`{st.session_state.user_email}`  \nRole: **{st.session_state.user_role.upper()}**")
+            st.markdown("---")
+            st.markdown(f"**{T('appearance')}**")
+            col1, col2 = st.columns(2)
+            with col1:
+                if st.button(T("theme_dark"), use_container_width=True, key="theme_dark_settings"):
+                    st.session_state.theme = "dark"
+                    st.rerun()
+            with col2:
+                if st.button(T("theme_light"), use_container_width=True, key="theme_light_settings"):
+                    st.session_state.theme = "light"
+                    st.rerun()
+            st.markdown(f"**{T('language')}**")
+            col1, col2 = st.columns(2)
+            with col1:
+                if st.button("English", use_container_width=True, key="en_settings"):
+                    st.session_state.lang = "en"
+                    st.rerun()
+            with col2:
+                if st.button("Français", use_container_width=True, key="fr_settings"):
+                    st.session_state.lang = "fr"
+                    st.rerun()
+            st.markdown("---")
+            if st.button(T("logout_btn"), use_container_width=True, key="logout_settings"):
+                do_logout()
+            if st.session_state.user_role == "admin":
+                st.markdown("---")
+                st.markdown("### 👑 Admin Management")
+                st.markdown("### 👤 Create New User")
+                with st.form("create_user_form"):
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        new_name = st.text_input("Full name", placeholder="John Doe")
+                    with col2:
+                        new_email = st.text_input("Email", placeholder="user@example.com")
+                    new_password = st.text_input("Password", type="password", placeholder="••••••••")
+                    new_role = st.selectbox("Role", ["user", "admin"])
+                    if st.form_submit_button("➕ Create User", type="primary"):
+                        if new_email and new_name and new_password:
+                            if create_user(new_email, new_name, new_password, new_role):
+                                st.success("✅ User created successfully.")
+                                st.rerun()
+                            else:
+                                st.error("❌ Email already in use.")
+                        else:
+                            st.warning("All fields required")
+                with st.expander("📋 User List"):
+                    users = load_users()
+                    for ue, ud in users.items():
+                        ca, cb = st.columns([5, 1])
+                        with ca:
+                            tag = "👑 ADMIN" if ud["role"] == "admin" else "👤 USER"
+                            st.markdown(f"**{ud['name']}** \n`{ue}`  \n*{tag}*", unsafe_allow_html=True)
+                        with cb:
+                            if ud["role"] != "admin":
+                                if st.button("🗑️", key=f"del_{ue}"):
+                                    delete_user(ue)
+                                    st.rerun()
+                        st.markdown("---")
+                with st.expander("🔑 Reset password"):
+                    users = load_users()
+                    sel = st.selectbox("Select user", list(users.keys()), key="reset_select")
+                    npw = st.text_input("New password", type="password", key="reset_password_input")
+                    if st.button("Reset Password", use_container_width=True):
+                        if sel and npw:
+                            reset_password(sel, npw)
+                            st.success("Password updated successfully.")
+
+
+# ============================================================================
+# MAIN DASHBOARD
+# ============================================================================
+def page_dashboard():
+    """Render the main dashboard page after login"""
+    inject_css()
+
+    # ── Navbar ──
+    n1, n2 = st.columns([6, 0.65])
+    with n1:
+        st.markdown(f"""
+        <div class="navbar">
+            <span class="navbar-brand">🤖 {T('brand')}</span>
+            <span class="navbar-user">{st.session_state.user_name} · {st.session_state.user_role.upper()}</span>
+        </div>
+        """, unsafe_allow_html=True)
+    with n2:
+        col_time, col_settings, col_alive = st.columns([2.5, 0.5, 0.5])
+        with col_time:
+            st.markdown(
+                f"<div style='font-family:IBM Plex Mono,monospace;font-size:0.58rem;"
+                f"color:{TK()['text_secondary']};padding-top:0.6rem;text-align:right;'>"
+                f"{datetime.now().strftime('%Y-%m-%d %H:%M')}</div>",
+                unsafe_allow_html=True
+            )
+        with col_settings:
+            if st.button("⚙️", key="settings_btn"):
+                st.session_state.show_settings = not st.session_state.show_settings
+                st.rerun()
+        with col_alive:
+            st.markdown(
+                '<div style="padding-top:0.55rem;text-align:center;">'
+                '<span class="alive-dot"></span></div>',
+                unsafe_allow_html=True
+            )
+
+    if st.session_state.show_settings:
+        render_settings_menu()
+
+    # ── AI CHAT SECTION ──
+    st.markdown(f'<div class="scard"><div class="scard-title">{T("ai_title")}</div>', unsafe_allow_html=True)
+
+    col_upload_area, col_clear_area = st.columns([1.5, 0.8])
+    with col_upload_area:
+        uploaded_file_for_ai = st.file_uploader(
+            T("ai_file_upload"),
+            type=None,
+            key="ai_file_upload",
+            label_visibility="collapsed"
+        )
+    with col_clear_area:
+        if st.button(T("clear_chat"), key="clr", use_container_width=True):
+            st.session_state.messages = []
+            st.session_state.ai_file_data = None
+            st.session_state.ai_file_name = ""
+            st.session_state.ai_file_type = ""
+            st.session_state.last_processed_text = ""
+            clear_chat_history()
+            st.rerun()
+
+    if uploaded_file_for_ai and not st.session_state.ai_file_data:
+        try:
+            file_content, file_type, _ = process_any_file(uploaded_file_for_ai)
+            st.session_state.ai_file_data = file_content
+            st.session_state.ai_file_name = uploaded_file_for_ai.name
+            st.session_state.ai_file_type = file_type
+            st.success(f"✅ {uploaded_file_for_ai.name} loaded — ask me about it!")
+            st.rerun()
+        except Exception as e:
+            st.error(f"Could not read file: {e}")
+
+    if st.session_state.ai_file_data:
+        file_name = st.session_state.ai_file_name
+        file_type = st.session_state.ai_file_type
+        st.markdown(
+            f'<div style="font-size:0.6rem;color:{TK()["highlight"]};margin-bottom:0.5rem;">'
+            f'📎 {file_name} ({file_type}) {T("ai_file_loaded")}</div>',
+            unsafe_allow_html=True
+        )
+
+    # ── Chat Messages ──
+    st.markdown('<div class="chat-messages">', unsafe_allow_html=True)
+    if not st.session_state.messages:
+        st.markdown(f'<div class="no-msgs">— {T("no_msgs")} —</div>', unsafe_allow_html=True)
+    for msg in st.session_state.messages:
+        if msg["role"] == "user":
+            st.markdown(f'<div class="bubble-user"><div class="bubble-lbl">You</div>{msg["content"]}</div>', unsafe_allow_html=True)
+        else:
+            st.markdown(f'<div class="bubble-bot"><div class="bubble-lbl">Allison</div>{msg["content"]}</div>', unsafe_allow_html=True)
+    if st.session_state.thinking:
+        st.markdown(f"""<div class="thinking-container"><span class="robot-icon">🤖</span><span class="dot"></span><span class="dot"></span><span class="dot"></span></div>""", unsafe_allow_html=True)
+    st.markdown('</div>', unsafe_allow_html=True)
+
+    # ── Chat Input ──
+    with st.form(key="chat_form", clear_on_submit=True):
+        col_input, col_send = st.columns([5, 1])
+        with col_input:
+            user_input = st.text_input(T("chat_hint"), placeholder=T("chat_hint"), label_visibility="collapsed", key="chat_input")
+        with col_send:
+            if st.session_state.thinking:
+                st.markdown('<div class="stop-btn">', unsafe_allow_html=True)
+                stop_clicked = st.form_submit_button("⏹ " + T("stop"), use_container_width=True)
+                st.markdown('</div>', unsafe_allow_html=True)
+                submitted = False
+            else:
+                submitted = st.form_submit_button("➤ " + T("send"), use_container_width=True)
+                stop_clicked = False
+    st.markdown('</div>', unsafe_allow_html=True)
+
+    if stop_clicked:
+        st.session_state.thinking = False
+        st.rerun()
+
+    if submitted and user_input and user_input.strip() and user_input != st.session_state.last_processed_text:
+        st.session_state.last_processed_text = user_input
+        st.session_state.messages.append({"role": "user", "content": user_input})
+        st.session_state.thinking = True
+        st.session_state.thinking_from_voice = False
+        st.rerun()
+
+    # ── Logo + Status + Microphone ──
+    col_status_gap, col_logo_gap, col_mic_gap = st.columns([1.5, 1, 1.5])
+    with col_status_gap:
+        st.markdown(f"""<div style="text-align:right; padding-top: 12px; font-family: 'IBM Plex Mono', monospace; font-size: 0.7rem; color: {TK()['highlight']};">{T("allison_online")}</div>""", unsafe_allow_html=True)
+    with col_logo_gap:
+        st.markdown(f"""<div style="text-align:center; padding: 0; margin: 0;"><img src="https://i.ibb.co/0yfv7KCS/image-1.jpg" width="130" style="border-radius: 8px; opacity: 0.9;"></div>""", unsafe_allow_html=True)
+    with col_mic_gap:
+        audio_bytes = audio_recorder(text=T("speak_now"), recording_color="#DC2626", neutral_color="#E67E22", icon_name="microphone", icon_size="1x", key="mic_recorder", pause_threshold=120.0, sample_rate=16000, energy_threshold=0.001)
+
+    if audio_bytes:
+        transcript = transcribe_with_deepgram(audio_bytes, st.session_state.lang)
+        if transcript and transcript.strip() and transcript != st.session_state.last_processed_text:
+            st.session_state.last_processed_text = transcript
+            st.session_state.messages.append({"role": "user", "content": transcript})
+            st.session_state.thinking = True
+            st.session_state.thinking_from_voice = True
+            st.rerun()
+
+    # ── FILE UPLOAD + WORKFLOW SECTION ──
+    col_files, col_wf = st.columns([1, 1])
+
+    with col_files:
+        st.markdown(f'<div class="scard"><div class="scard-title">{T("files_title")}</div>', unsafe_allow_html=True)
+
+        # 1. Excel Template (REQUIRED)
+        excel_file = st.file_uploader(T("excel_lbl"), type=["xlsx"], key="xl")
+
+        st.markdown('<div class="hr"></div>', unsafe_allow_html=True)
+
+        # 2. Current Year Monthly Reports
+        monthly_current = st.file_uploader(
+            T("monthly_current_lbl"),
+            type=["xlsx", "xls", "xlsm", "pdf", "csv"],
+            accept_multiple_files=True,
+            key="monthly_current"
+        )
+        st.markdown(f'<div class="file-upload-note">{T("file_note_monthly")}</div>', unsafe_allow_html=True)
+
+        # 3. Previous Year Monthly Reports
+        monthly_previous = st.file_uploader(
+            T("monthly_previous_lbl"),
+            type=["xlsx", "xls", "xlsm", "pdf", "csv"],
+            accept_multiple_files=True,
+            key="monthly_previous"
+        )
+        st.markdown(f'<div class="file-upload-note">{T("file_note_monthly")}</div>', unsafe_allow_html=True)
+
+        st.markdown('<div class="hr"></div>', unsafe_allow_html=True)
+
+        # 4. Budget Initial Source (Dec 2025 Page 3 or P&L)
+        budget_initial_file = st.file_uploader(
+            T("budget_initial_lbl"),
+            type=["xlsx", "xls", "xlsm", "pdf", "csv", "tsv", "txt", "docx"],
+            key="budget_initial"
+        )
+        st.markdown(f'<div class="file-upload-note">{T("file_note_page3")} {T("file_note_accept")}</div>', unsafe_allow_html=True)
+
+        # 5. Fiche Stationnement Source (Dec 2024 Page 3 or P&L)
+        fiche_stationnement_file = st.file_uploader(
+            T("fiche_stationnement_lbl"),
+            type=["xlsx", "xls", "xlsm", "pdf", "csv", "tsv", "txt", "docx"],
+            key="fiche_stationnement"
+        )
+        st.markdown(f'<div class="file-upload-note">{T("file_note_page3")} {T("file_note_accept")}</div>', unsafe_allow_html=True)
+
+        # Check if minimum required files are ready
+        if excel_file:
+            st.session_state.excel_bytes = excel_file
+            st.session_state.budget_initial_file = budget_initial_file if budget_initial_file else None
+            st.session_state.fiche_stationnement_file = fiche_stationnement_file if fiche_stationnement_file else None
+
+            if monthly_current:
+                st.session_state.monthly_current_files = list(monthly_current)
+                st.session_state.monthly_previous_files = list(monthly_previous) if monthly_previous else []
+                st.session_state.files_ready = True
+
+                # Try to get parking codes from first monthly file
+                try:
+                    if len(monthly_current) > 0:
+                        monthly_current[0].seek(0)
+                        codes = get_parking_codes_from_pnl(monthly_current[0])
+                        monthly_current[0].seek(0)
+                        st.session_state.parking_codes = codes
+                except Exception:
+                    st.session_state.parking_codes = []
+
+                if monthly_previous and budget_initial_file and fiche_stationnement_file:
+                    st.success(T("files_ready"))
+                else:
+                    st.info(T("files_ready_partial"))
+            else:
+                st.warning("⚠️ Current Year monthly files are required.")
+                st.session_state.files_ready = False
+
+        st.markdown('</div>', unsafe_allow_html=True)
+
+    with col_wf:
+        st.markdown(f'<div class="scard"><div class="scard-title">{T("config_title")}</div>', unsafe_allow_html=True)
+
+        if not st.session_state.files_ready:
+            st.markdown(f'<div style="font-size:0.78rem;color:{TK()["text_secondary"]};padding:1rem 0;">{T("upload_first")}</div>', unsafe_allow_html=True)
+        else:
+            template_name = st.session_state.excel_bytes.name if hasattr(st.session_state.excel_bytes, 'name') else "Template"
+            st.markdown(f"**Template:** {template_name}")
+            st.markdown(f"**Current Year Files:** {len(st.session_state.monthly_current_files)} files")
+            st.markdown(f"**Previous Year Files:** {len(st.session_state.monthly_previous_files)} files")
+
+            bi_name = st.session_state.budget_initial_file.name if st.session_state.budget_initial_file and hasattr(st.session_state.budget_initial_file, 'name') else "Not provided"
+            fs_name = st.session_state.fiche_stationnement_file.name if st.session_state.fiche_stationnement_file and hasattr(st.session_state.fiche_stationnement_file, 'name') else "Not provided"
+            st.markdown(f"**Budget Initial Source:** {bi_name}")
+            st.markdown(f"**Fiche Stationnement Source:** {fs_name}")
+
+            st.markdown('<div class="hr"></div>', unsafe_allow_html=True)
+
+            # ── PARKING CODE SELECTOR ──
+            parking_codes = st.session_state.get("parking_codes", [])
+            if parking_codes:
+                selected_code = st.selectbox(T("parking_code_lbl"), options=parking_codes, help=T("parking_code_help"), key="parking_code_select")
+                st.session_state.selected_parking_code = selected_code
+            else:
+                fallback_code = None
+                if hasattr(st.session_state.excel_bytes, 'name'):
+                    match = re.search(r'(CMO\d+)', st.session_state.excel_bytes.name, re.IGNORECASE)
+                    if match:
+                        fallback_code = match.group(1).upper()
+                if fallback_code:
+                    st.info(f"📌 Parking code from filename: **{fallback_code}**")
+                    st.session_state.selected_parking_code = fallback_code
+                else:
+                    st.warning(T("no_parking_codes"))
+                    st.session_state.selected_parking_code = None
+
+            st.markdown('<div class="hr"></div>', unsafe_allow_html=True)
+
+            col_run, col_clear_wf = st.columns([1, 1])
+            with col_run:
+                if st.button(T("run_btn"), use_container_width=True, type="primary"):
+                    if not st.session_state.selected_parking_code:
+                        st.error("❌ Please select a parking code before running.")
+                    else:
+                        with st.spinner(T("running")):
+                            try:
+                                fixed_excel, updates = fix_excel(
+                                    excel_file=st.session_state.excel_bytes,
+                                    monthly_files_current=st.session_state.monthly_current_files,
+                                    monthly_files_previous=st.session_state.monthly_previous_files,
+                                    budget_initial_file=st.session_state.budget_initial_file,
+                                    fiche_stationnement_file=st.session_state.fiche_stationnement_file,
+                                    parking_code=st.session_state.selected_parking_code,
+                                    word_data=None
+                                )
+
+                                st.session_state.fixed_excel = fixed_excel
+                                st.session_state.workflow_log = updates
+
+                                if updates:
+                                    for update in updates:
+                                        st.markdown(f'<div class="log-line">{update}</div>', unsafe_allow_html=True)
+                                    success_count = sum(1 for u in updates if u.startswith("✅"))
+                                    if fixed_excel:
+                                        if success_count > 0:
+                                            st.success(T("run_ok"))
+                                        else:
+                                            st.warning("Workflow completed with warnings.")
+                                    else:
+                                        st.error("Workflow failed - no output file generated.")
+                                else:
+                                    st.warning("No updates were made.")
+                            except Exception as e:
+                                st.error(f"Workflow error: {str(e)}")
+
+            with col_clear_wf:
+                if st.button(T("clear_workflow"), use_container_width=True):
+                    st.session_state.excel_bytes = None
+                    st.session_state.monthly_current_files = []
+                    st.session_state.monthly_previous_files = []
+                    st.session_state.budget_initial_file = None
+                    st.session_state.fiche_stationnement_file = None
+                    st.session_state.files_ready = False
+                    st.session_state.fixed_excel = None
+                    st.session_state.workflow_log = []
+                    st.session_state.parking_codes = []
+                    st.session_state.selected_parking_code = None
+                    st.rerun()
+
+            if st.session_state.fixed_excel:
+                st.markdown('<div class="hr"></div>', unsafe_allow_html=True)
+                template_name_clean = template_name.rsplit('.', 1)[0].replace(" ", "_")
+                st.download_button(
+                    label=T("dl_btn"),
+                    data=st.session_state.fixed_excel,
+                    file_name=f"{template_name_clean}_updated_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    use_container_width=True,
+                )
+
+        st.markdown('</div>', unsafe_allow_html=True)
+
+    st.markdown(f'<div class="db-footer">{T("footer")}</div>', unsafe_allow_html=True)
+
+
+# ============================================================================
+# PROCESS AI RESPONSE WITH MEMORY
+# ============================================================================
+if st.session_state.thinking:
+    user_messages = [m for m in st.session_state.messages if m["role"] == "user"]
+    if user_messages:
+        last_user_msg = user_messages[-1]["content"]
+        ctx_suffix = ""
+        if st.session_state.ai_file_data:
+            file_data = st.session_state.ai_file_data
+            file_name = st.session_state.ai_file_name
+            file_type = st.session_state.ai_file_type
+            ctx_suffix += f"\n\n[Uploaded {file_type} file: {file_name}]\n"
+            if file_type in ["excel", "csv"]:
+                ctx_suffix += "Spreadsheet:\n"
+                for row in file_data[:30]:
+                    ctx_suffix += " | ".join(row) + "\n"
+            else:
+                ctx_suffix += f"Content:\n{str(file_data)[:3000]}\n"
+            ctx_suffix += f"\n[End of {file_name}]\n"
+        if st.session_state.get("extracted_rev"):
+            rev = st.session_state.extracted_rev
+            ctx_suffix += (
+                f" [Budget: Transient ${rev['transient']:,.0f}, "
+                f"Monthly ${rev['monthly']:,.0f}, Total ${rev['total']:,.0f}]"
+            )
+        recent_history = st.session_state.messages[-12:] if len(st.session_state.messages) > 12 else st.session_state.messages
+        history_for_mistral = []
+        for msg in recent_history[:-1]:
+            history_for_mistral.append({"role": msg["role"], "content": msg["content"]})
+        history_for_mistral.append({"role": "user", "content": last_user_msg + ctx_suffix})
+        reply = ask_mistral(history_for_mistral)
+        st.session_state.messages.append({"role": "assistant", "content": reply})
+        st.session_state.thinking = False
+        save_chat_history(st.session_state.messages)
+        if st.session_state.thinking_from_voice:
+            audio_b64 = text_to_speech(reply, st.session_state.lang)
+            st.session_state.last_audio = audio_b64
+        else:
+            st.session_state.last_audio = None
+        st.rerun()
+
+if st.session_state.get("last_audio"):
+    play_audio_html(st.session_state.last_audio)
+    st.session_state.last_audio = None
+
+
+# ============================================================================
+# ROUTER
+# ============================================================================
+if st.session_state.authenticated:
+    page_dashboard()
+else:
+    page_login()
