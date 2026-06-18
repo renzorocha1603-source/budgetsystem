@@ -1,4 +1,4 @@
-# excel_fixer.py - REGEX ONLY (Allison removed, regex fixed)
+# excel_fixer.py - FINAL WITH ZERO DETECTION
 import io
 import re
 import fitz
@@ -83,7 +83,7 @@ MONTH_COLUMN = {
 }
 
 # ============================================================================
-# TEXT SEARCH EXTRACTION (FIXED - 20 CHAR WINDOW)
+# TEXT SEARCH EXTRACTION
 # ============================================================================
 
 def extract_from_pdf(pdf_path, debug_updates=None):
@@ -102,19 +102,28 @@ def extract_from_pdf(pdf_path, debug_updates=None):
         if idx == -1:
             if debug_updates is not None:
                 debug_updates.append(f"  ❌ {search_term}: NOT FOUND")
+            data[template_row] = 0.0
             continue
         
         after_text = full_text[idx + len(search_term):]
         
-        # Look for a number within 20 characters (Mois Courant is closest)
-        # If cell is empty (no number nearby), this returns None → $0.00
+        # First check: is there a 0,00 within 20 characters? (explicit zero)
+        zero_match = re.search(r'(?:^|\s)0,00(?:\s|\$|$)', after_text[:20])
+        
+        if zero_match:
+            data[template_row] = 0.0
+            if debug_updates is not None:
+                debug_updates.append(f"  ⚠️ {search_term}: $0.00 (found 0,00) -> Row {template_row}")
+            continue
+        
+        # Second check: is there any number within 20 characters?
         match = re.search(r'(\d[\d\s]*,\d{2})\s*\$?', after_text[:20])
         
         if match:
             before = after_text[:match.start()].strip()
             is_neg = before.endswith('-') or before.endswith('(')
             amount = parse_amount(match.group(1))
-            if amount is not None:
+            if amount is not None and amount != 0:
                 if is_neg:
                     amount = -abs(amount)
                 data[template_row] = amount
@@ -123,7 +132,7 @@ def extract_from_pdf(pdf_path, debug_updates=None):
             else:
                 data[template_row] = 0.0
                 if debug_updates is not None:
-                    debug_updates.append(f"  ⚠️ {search_term}: $0.00 (parse failed) -> Row {template_row}")
+                    debug_updates.append(f"  ⚠️ {search_term}: $0.00 (zero/parse failed) -> Row {template_row}")
         else:
             # No number nearby = empty cell = $0.00
             data[template_row] = 0.0
