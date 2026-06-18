@@ -55,6 +55,12 @@ MONTH_COLUMN = {
 }
 
 # ONLY map to YELLOW (user input) cells - NO formula rows
+# Rows: 12-17, 20, 22, 24 (Revenues)
+# Rows: 29-32 (Labour)
+# Rows: 35-43 (Maintenance)
+# Row: 46 (Public Services)
+# Rows: 49-64 (Overheads)
+# Rows: 67-80 (Other Expenses)
 PDF_TO_TEMPLATE = {
     # REVENUES - Yellow rows 12-17, 20, 22, 24
     'Revenus Journaliers': 12,    # Revenus horaires
@@ -74,7 +80,7 @@ PDF_TO_TEMPLATE = {
     'Fourn. de stationnement': 41,            # Fournitures stationnement
     
     # PUBLIC SERVICES - Yellow row 46
-    # (none mapped directly from PDF)
+    # (none mapped directly from PDF - might need to map if PDF has it)
     
     # OVERHEAD - Yellow rows 49-64
     'Frais de bureau': 49,                    # Fournitures de bureau
@@ -347,7 +353,14 @@ def fill_template(wb, all_data):
         for pdf_account, amount in pdf_data.items():
             template_row = PDF_TO_TEMPLATE.get(pdf_account)
             if template_row is None:
-                continue  # Skip formula rows and validation-only accounts
+                # Skip formula rows and validation-only accounts
+                continue
+            
+            # Check if this is a formula row (should not happen, but double-check)
+            # Formula rows: 18, 26, 33, 44, 47, 65, 82, 84, 86
+            formula_rows = {18, 26, 33, 44, 47, 65, 82, 84, 86}
+            if template_row in formula_rows:
+                continue
             
             cell = ws.cell(row=template_row, column=col)
             cell.value = amount
@@ -403,11 +416,20 @@ def validate_template(wb, all_data):
                         results.append(f"   🔍 TOTAL REVENUS mismatch: PDF=${total_revenus_pdf:,.2f} vs Template=${total_revenus_template:,.2f}")
                         
                         # Check individual revenue accounts
-                        for acc, row in [('Revenus mensuels', 13), ('Revenus Journaliers', 12), ('Revenus Lave-Auto', 14), ('Divers', 17), ('Gratuités - mensuels', 20)]:
+                        revenue_accounts = [
+                            ('Revenus mensuels', 13),
+                            ('Revenus Journaliers', 12),
+                            ('Revenus Lave-Auto', 14),
+                            ('Divers', 17),
+                            ('Gratuités - mensuels', 20)
+                        ]
+                        for acc, row in revenue_accounts:
                             pdf_val = pdf_data.get(acc)
                             template_val = ws.cell(row=row, column=col).value
                             if pdf_val is not None:
                                 results.append(f"      {acc}: PDF=${pdf_val:,.2f} → Template Row {row}=${template_val}")
+                            else:
+                                results.append(f"      {acc}: Not found in PDF → Template Row {row}")
             else:
                 results.append(f"✅ {month_name}: BÉNÉFICE NET = REVENUS NETS = ${benefice_net_pdf:,.2f}")
         elif benefice_net_pdf is None:
