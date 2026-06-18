@@ -8,9 +8,6 @@ from openpyxl.styles import Font
 from openpyxl.utils import get_column_letter
 from datetime import datetime
 import pdfplumber
-import csv
-import zipfile
-from xml.etree import ElementTree
 import tempfile
 import os
 
@@ -545,13 +542,7 @@ def convert_page10_to_excel(uploaded_file):
 def read_pdf_to_dataframe(uploaded_file):
     """
     MAIN PDF READER: Converter -> OCR -> Fitz -> pdfplumber.
-    Priority order:
-      1. convert_page10_to_excel (coordinate-based, best quality)
-      2. read_pdf_with_ocr       (image-based PDFs like January)
-      3. read_pdf_with_fitz      (text PDFs, no structure)
-      4. pdfplumber              (last resort)
     """
-    # Path 1: coordinate converter
     excel_output = convert_page10_to_excel(uploaded_file)
     if excel_output:
         try:
@@ -565,17 +556,14 @@ def read_pdf_to_dataframe(uploaded_file):
         except:
             pass
 
-    # Path 2: OCR (image-based PDF like January)
     ocr_sheets = read_pdf_with_ocr(uploaded_file)
     if ocr_sheets:
         return ocr_sheets
 
-    # Path 3: fitz plain text
     fitz_sheets = read_pdf_with_fitz(uploaded_file)
     if fitz_sheets:
         return fitz_sheets
 
-    # Path 4: pdfplumber
     try:
         file_bytes = get_file_bytes(uploaded_file)
         sheets = {}
@@ -1326,7 +1314,10 @@ def fix_excel(excel_file, monthly_files_current=None, monthly_files_previous=Non
             debug_info = dh_previous_year_data.pop('_debug_info', None)
             if debug_info:
                 for d in debug_info:
-                    updates.append(f"🔧 {d['file']}: {'ERROR - '+d['error'] if d.get('error') else f'type={d[\"type\"]}, target={d[\"target\"]}, matches={d[\"matches\"]}'}")
+                    if d.get('error'):
+                        updates.append(f"🔧 {d['file']}: ERROR - {d['error']}")
+                    else:
+                        updates.append(f"🔧 {d['file']}: type={d['type']}, target={d['target']}, matches={d['matches']}")
             updates.append(f"📊 Previous year: {len(dh_previous_year_data.get('yearly', {}))} labels")
             if '_monthly_totals' in dh_previous_year_data:
                 prev_totals = dh_previous_year_data.pop('_monthly_totals')
