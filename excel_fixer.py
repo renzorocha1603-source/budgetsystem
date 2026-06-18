@@ -1,4 +1,4 @@
-# excel_fixer.py - EXCEL P&L + ALLISON + DEBUG
+# excel_fixer.py - CORRECTED P&L MAPPING
 import io
 import re
 import pandas as pd
@@ -17,9 +17,10 @@ MISTRAL_URL = "https://api.mistral.ai/v1/chat/completions"
 MISTRAL_MODEL = "mistral-small-latest"
 
 # ============================================================================
-# EXCEL P&L MAPPING (P&L Row -> Template Row)
+# CORRECTED P&L MAPPING (from actual Excel structure)
 # ============================================================================
 PANDL_TO_TEMPLATE = {
+    # PARKING REVENUE (Rows 17-29)
     23: 12,   # Transient Revenue
     17: 13,   # Monthly Revenues
     26: 14,   # Car-Wash Revenue
@@ -28,10 +29,12 @@ PANDL_TO_TEMPLATE = {
     28: 17,   # Miscellaneous
     33: 20,   # Discount-Gratuities - Transient
     34: 22,   # Discount-Gratuities - Monthly
+    
+    # OPERATING EXPENSES (Rows 38-75)
     38: 29,   # Parking wages
     40: 30,   # Other wages
     41: 31,   # Training & Recr.
-    42: 32,   # Uniformes
+    42: 32,   # Uniforms
     45: 35,   # R&M - Cleaning
     50: 36,   # R&M - General
     46: 37,   # R&M - Equipment
@@ -65,10 +68,11 @@ PANDL_TO_TEMPLATE = {
 }
 
 PANDL_VALIDATION = {
+    29: "_PARKING_REVENUE_",
     36: "_TOTAL_REVENUS_",
     75: "_TOTAL_EXPENSES_",
     77: "_OPERATION_SURPLUS_",
-    90: "_BENEFICE_NET_",
+    92: "_BENEFICE_NET_",
 }
 
 PANDL_MONTH_COLUMNS = {
@@ -101,7 +105,6 @@ MONTH_COLUMN = {
 # ============================================================================
 
 def extract_from_pnl_excel(file_bytes, parking_code, debug_updates=None):
-    """Extract data from P&L Excel file for a specific parking code."""
     try:
         xl = pd.ExcelFile(io.BytesIO(file_bytes))
         
@@ -122,15 +125,7 @@ def extract_from_pnl_excel(file_bytes, parking_code, debug_updates=None):
         df = pd.read_excel(xl, sheet_name=tab_name, header=None)
         
         if debug_updates is not None:
-            debug_updates.append(f"📐 P&L has {len(df)} rows x {len(df.columns)} cols")
-            
-            # DEBUG: Show what's in key P&L rows
-            debug_updates.append("🔍 DEBUG - P&L Row Contents (Column C = January):")
-            for r in [12, 13, 14, 15, 17, 23, 24, 26, 28, 31, 33, 34, 36, 38, 40, 41, 42, 43, 44, 45, 46, 47, 48, 50, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 72, 75, 77, 80, 81, 84, 85, 90]:
-                if r <= len(df):
-                    col_a = str(df.iloc[r-1, 0])[:60] if len(df.columns) > 0 else 'N/A'
-                    col_c = df.iloc[r-1, 2] if len(df.columns) > 2 else 'N/A'
-                    debug_updates.append(f"  P&L Row {r}: A='{col_a}' | C={col_c}")
+            debug_updates.append(f"📐 P&L: {len(df)} rows x {len(df.columns)} cols")
         
         data = {}
         
@@ -175,7 +170,7 @@ def extract_from_pnl_excel(file_bytes, parking_code, debug_updates=None):
         
     except Exception as e:
         if debug_updates is not None:
-            debug_updates.append(f"❌ P&L extraction error: {e}")
+            debug_updates.append(f"❌ P&L error: {e}")
         return {}
 
 # ============================================================================
@@ -183,31 +178,20 @@ def extract_from_pnl_excel(file_bytes, parking_code, debug_updates=None):
 # ============================================================================
 
 def validate_with_allison(all_data, debug_updates=None):
-    """Ask Allison to validate the extracted data."""
     if debug_updates is not None:
-        debug_updates.append("🤖 Asking Allison to validate...")
+        debug_updates.append("🤖 Allison validating...")
     
-    summary = "Extracted data:\n"
+    summary = ""
     for month_name, month_data in all_data.items():
         ben = month_data.get('_BENEFICE_NET_', 'N/A')
         rev = month_data.get('_TOTAL_REVENUS_', 'N/A')
         exp = month_data.get('_TOTAL_EXPENSES_', 'N/A')
-        summary += f"\n{month_name}: Net Income={ben}, Revenue={rev}, Expenses={exp}\n"
-        
-        for key, amount in month_data.items():
-            if not str(key).startswith('_'):
-                summary += f"  Row {key}: {amount:,.2f}\n"
+        summary += f"\n{month_name}: Net={ben}, Rev={rev}, Exp={exp}\n"
     
-    prompt = f"""Validate this financial data extraction:
-
+    prompt = f"""Validate this P&L extraction quickly:
 {summary}
-
-Check:
-1. Does NET INCOME = TOTAL REVENUS - TOTAL EXPENSES for each month?
-2. Are there any suspicious values (unusually large, wrong sign)?
-3. Are any accounts missing that should have values?
-
-Reply with ONLY: "VALID" if everything checks out, or list specific issues found."""
+Check: Does NET INCOME = TOTAL REVENUS - TOTAL EXPENSES?
+Reply "VALID" or list issues briefly."""
     
     try:
         resp = requests.post(
@@ -216,16 +200,10 @@ Reply with ONLY: "VALID" if everything checks out, or list specific issues found
             json={"model": MISTRAL_MODEL, "messages": [{"role": "user", "content": prompt}], "temperature": 0.1},
             timeout=30
         )
-        
         if resp.status_code == 200:
-            response = resp.json()["choices"][0]["message"]["content"]
-            if debug_updates is not None:
-                debug_updates.append(f"📝 Allison: {response[:300]}")
-            return response
-    except Exception as e:
-        if debug_updates is not None:
-            debug_updates.append(f"⚠️ Allison error: {e}")
-    
+            return resp.json()["choices"][0]["message"]["content"]
+    except:
+        pass
     return None
 
 # ============================================================================
@@ -239,12 +217,8 @@ def extract_monthly_data(file_obj, parking_code, debug_updates=None):
     if hasattr(file_obj, 'name') and file_obj.name.lower().endswith(('.xlsx', '.xls')):
         if debug_updates is not None:
             debug_updates.append("📊 Excel file detected")
-        data = extract_from_pnl_excel(file_bytes, parking_code, debug_updates)
-        if data:
-            return data
+        return extract_from_pnl_excel(file_bytes, parking_code, debug_updates)
     
-    if debug_updates is not None:
-        debug_updates.append("📄 Not an Excel file or extraction failed")
     return {}
 
 # ============================================================================
@@ -307,23 +281,21 @@ def validate_results(wb, all_data):
         if col is None:
             continue
         
-        pdf_ben = month_data.get('_BENEFICE_NET_')
-        pdf_rev = month_data.get('_TOTAL_REVENUS_')
-        pdf_exp = month_data.get('_TOTAL_EXPENSES_')
+        ben = month_data.get('_BENEFICE_NET_')
+        rev = month_data.get('_TOTAL_REVENUS_')
+        exp = month_data.get('_TOTAL_EXPENSES_')
         
         results.append(f"\n📊 {month_en}:")
         
-        if pdf_ben is not None and pdf_rev is not None and pdf_exp is not None:
-            expected = pdf_rev - pdf_exp
-            diff = abs(pdf_ben - expected)
+        if ben is not None and rev is not None and exp is not None:
+            expected = rev - exp
+            diff = abs(ben - expected)
             if diff > 0.01:
-                results.append(f"   ⚠️ P&L Net: {pdf_ben:,.2f} $ | Expected: {expected:,.2f} $ (diff: {diff:,.2f} $)")
+                results.append(f"   ⚠️ P&L Net: {ben:,.2f} $ | Expected: {expected:,.2f} $")
             else:
-                results.append(f"   ✅ NET INCOME = {pdf_ben:,.2f} $")
-        elif pdf_ben is not None:
-            results.append(f"   ⚠️ P&L Net: {pdf_ben:,.2f} $")
-        else:
-            results.append(f"   ⚠️ Not found")
+                results.append(f"   ✅ NET INCOME = {ben:,.2f} $")
+        elif ben is not None:
+            results.append(f"   ⚠️ Net: {ben:,.2f} $")
     
     return results
 
@@ -344,9 +316,6 @@ def get_parking_codes_from_pnl(file_obj):
                         codes.append(match.group(1).upper())
             except:
                 pass
-        else:
-            matches = re.findall(r'(CMO\d+)', file_obj.name, re.IGNORECASE)
-            codes.extend(matches)
     file_obj.seek(0)
     return list(set([c.upper() for c in codes]))
 
@@ -387,9 +356,8 @@ def fix_excel(excel_file, monthly_files_current=None, monthly_files_previous=Non
         
         for file_obj in all_files:
             file_obj.seek(0)
-            
             try:
-                debug.append(f"--- Processing {getattr(file_obj, 'name', 'unknown')} ---")
+                debug.append(f"--- {getattr(file_obj, 'name', 'unknown')} ---")
                 data = extract_monthly_data(file_obj, parking_code, debug)
                 
                 if data:
@@ -397,9 +365,9 @@ def fix_excel(excel_file, monthly_files_current=None, monthly_files_previous=Non
                         all_data[mn] = md
                         cnt = len([k for k in md if not str(k).startswith('_')])
                         ben = md.get('_BENEFICE_NET_', 'N/A')
-                        updates.append(f"   ✅ {mn}: {cnt} accounts | P&L Net: {ben} $")
+                        updates.append(f"   ✅ {mn}: {cnt} accounts | Net: {ben} $")
                 else:
-                    updates.append(f"   ❌ No data extracted")
+                    updates.append(f"   ❌ No data")
             finally:
                 pass
         
@@ -410,13 +378,11 @@ def fix_excel(excel_file, monthly_files_current=None, monthly_files_previous=Non
         if all_data:
             updates.append(f"\n📝 Filling {len(all_data)} months...")
             updates.extend(fill_template(wb, all_data))
-            
-            updates.append(f"\n🤖 Allison Validation:")
-            allison_response = validate_with_allison(all_data, debug)
-            if allison_response:
-                updates.append(f"   {allison_response[:300]}")
-            
-            updates.append(f"\n🔍 P&L Validation:")
+            updates.append(f"\n🤖 Allison:")
+            ar = validate_with_allison(all_data, debug)
+            if ar:
+                updates.append(f"   {ar[:300]}")
+            updates.append(f"\n🔍 Validation:")
             updates.extend(validate_results(wb, all_data))
         else:
             updates.append("\n⚠️ No data!")
