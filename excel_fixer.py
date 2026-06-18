@@ -1,4 +1,4 @@
-# excel_fixer.py - GRID-BASED EXTRACTION (FINAL FINAL)
+# excel_fixer.py - CANADIAN DOLLAR FORMAT + OCR (FINAL FINAL)
 import io
 import re
 import fitz
@@ -8,14 +8,12 @@ import tempfile
 import os
 
 # ============================================================================
-# GRID CONFIGURATION (from February PDF analysis)
+# GRID CONFIGURATION
 # ============================================================================
 
-# Mois Courant column x-range (where the first number after account name appears)
 MOIS_COURANT_X_MIN = 165
 MOIS_COURANT_X_MAX = 195
 
-# Row y-positions for each account (from PDF word positions)
 ACCOUNT_ROWS = {
     164: 13,   # Revenus mensuels
     175: 12,   # Revenus Journaliers
@@ -37,11 +35,41 @@ ACCOUNT_ROWS = {
     482: 63,   # Honoraires de gestion
 }
 
-# Validation rows
 VALIDATION_ROWS = {
     249: "_TOTAL_REVENUS_",
     430: "_TOTAL_EXPENSES_",
     514: "_BENEFICE_NET_",
+}
+
+OCR_SEARCH_TERMS = {
+    "revenus mensuels": 13,
+    "revenus journaliers": 12,
+    "revenus horaires": 12,
+    "revenus lave-auto": 14,
+    "divers": 17,
+    "gratuités": 20,
+    "salaires stationnement": 29,
+    "salaire stationnement": 29,
+    "uniformes": 32,
+    "nettoyage": 35,
+    "entretien réparation - général": 36,
+    "entretien réparation - general": 36,
+    "entretien stationnement": 36,
+    "entretien réparation - equipement": 37,
+    "entretien réparation - équipement": 37,
+    "fourn. de stationnement": 41,
+    "fournitures stationnement": 41,
+    "frais de bureau": 49,
+    "télécommunication": 50,
+    "telecommunication": 50,
+    "frais de cartes de crédit": 53,
+    "frais de cartes de credit": 53,
+    "réclamations": 56,
+    "reclamations": 56,
+    "assurances cautionnement": 57,
+    "assurances": 57,
+    "taxes et permis": 58,
+    "honoraires de gestion": 63,
 }
 
 # ============================================================================
@@ -89,36 +117,34 @@ MONTH_COLUMN = {
 }
 
 # ============================================================================
-# GRID-BASED EXTRACTION
+# GRID EXTRACTION (digital PDFs)
 # ============================================================================
 
 def find_pl_page(doc):
-    """Find the P&L page."""
     for page_num in range(len(doc)):
         text = doc[page_num].get_text()
         if "revenus mensuels" in text.lower() and "bénéfice net" in text.lower():
             return page_num
     return None
 
-def extract_from_pdf(pdf_path, debug_updates=None):
-    """Extract P&L data using fixed grid coordinates."""
+def extract_by_grid(pdf_path, debug_updates=None):
     doc = fitz.open(pdf_path)
     page_num = find_pl_page(doc)
     
     if page_num is None:
         doc.close()
-        if debug_updates is not None:
-            debug_updates.append("❌ P&L page not found")
         return {}
     
     page = doc[page_num]
     words = page.get_text("words")
     doc.close()
     
-    if debug_updates is not None:
-        debug_updates.append(f"📐 Page {page_num+1}, {len(words)} words")
+    if not words or len(words) < 50:
+        return {}
     
-    # Group words by y-position (rounded to nearest integer)
+    if debug_updates is not None:
+        debug_updates.append(f"📐 Grid: Page {page_num+1}, {len(words)} words")
+    
     rows = {}
     for w in words:
         x0, y0, x1, y1, text, block, line, word_no = w
@@ -131,31 +157,24 @@ def extract_from_pdf(pdf_path, debug_updates=None):
     
     data = {}
     
-    # Extract template accounts
     for y_pos, template_row in ACCOUNT_ROWS.items():
-        # Find the y-key closest to our target
         closest_y = None
         for y_key in rows.keys():
-            if abs(y_key - y_pos) <= 2:  # Within 2 points
+            if abs(y_key - y_pos) <= 2:
                 closest_y = y_key
                 break
         
         if closest_y is None:
-            if debug_updates is not None:
-                debug_updates.append(f"  ❌ y={y_pos}: NO WORDS -> Row {template_row}")
             data[template_row] = 0.0
             continue
         
-        # Get all words in Mois Courant x-range
         mois_courant_words = []
         for x_pos, texts in rows[closest_y].items():
             if MOIS_COURANT_X_MIN <= x_pos <= MOIS_COURANT_X_MAX:
                 mois_courant_words.extend(texts)
         
         if mois_courant_words:
-            # Combine words into a single number string
             combined = ' '.join(mois_courant_words)
-            # Check for negative
             is_neg = combined.startswith('-') or combined.startswith('(')
             amount = parse_amount(combined)
             if amount is not None:
@@ -166,15 +185,11 @@ def extract_from_pdf(pdf_path, debug_updates=None):
                     debug_updates.append(f"  ✅ y={y_pos}: ${amount:,.2f} -> Row {template_row}")
             else:
                 data[template_row] = 0.0
-                if debug_updates is not None:
-                    debug_updates.append(f"  ⚠️ y={y_pos}: parse fail '{combined}' -> Row {template_row}")
         else:
-            # No words in Mois Courant column = empty cell
             data[template_row] = 0.0
             if debug_updates is not None:
-                debug_updates.append(f"  ⚠️ y={y_pos}: $0.00 (empty) -> Row {template_row}")
+                debug_updates.append(f"  ⚠️ y={y_pos}: $0.00 -> Row {template_row}")
     
-    # Extract validation accounts
     for y_pos, validation_key in VALIDATION_ROWS.items():
         closest_y = None
         for y_key in rows.keys():
@@ -198,12 +213,98 @@ def extract_from_pdf(pdf_path, debug_updates=None):
                 if debug_updates is not None:
                     debug_updates.append(f"  📊 {validation_key} = ${amount:,.2f}")
     
-    if debug_updates is not None:
-        template_count = len([k for k in data if not str(k).startswith('_')])
-        validation_count = len([k for k in data if str(k).startswith('_')])
-        debug_updates.append(f"  📊 {template_count} template + {validation_count} validation")
-    
     return data
+
+# ============================================================================
+# OCR EXTRACTION (January)
+# ============================================================================
+
+def is_number_line(text):
+    text = text.strip()
+    if not text:
+        return False
+    return bool(re.match(r'^[\d\s,.\-()$]+$', text))
+
+def extract_by_ocr(pdf_path, debug_updates=None):
+    try:
+        import pytesseract
+        from PIL import Image
+    except ImportError:
+        if debug_updates is not None:
+            debug_updates.append("❌ Tesseract not installed")
+        return {}
+    
+    doc = fitz.open(pdf_path)
+    
+    for page_num in range(len(doc)):
+        page = doc[page_num]
+        pix = page.get_pixmap(dpi=300)
+        img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
+        
+        try:
+            text = pytesseract.image_to_string(img, lang='fra')
+        except:
+            try:
+                text = pytesseract.image_to_string(img, lang='eng')
+            except:
+                text = pytesseract.image_to_string(img)
+        
+        if "revenus" in text.lower() and len(text) > 200:
+            if debug_updates is not None:
+                debug_updates.append(f"📝 OCR: {len(text)} chars from page {page_num+1}")
+            
+            lines = text.split('\n')
+            clean_lines = [l.strip() for l in lines]
+            data = {}
+            
+            for search_term, template_row in OCR_SEARCH_TERMS.items():
+                if template_row in data:
+                    continue
+                
+                for i, line in enumerate(clean_lines):
+                    if search_term in line.lower():
+                        if i + 1 < len(clean_lines):
+                            next_line = clean_lines[i + 1]
+                            if next_line and is_number_line(next_line):
+                                amount = parse_amount(next_line)
+                                if amount is not None:
+                                    data[template_row] = amount
+                                    if debug_updates is not None:
+                                        debug_updates.append(f"  ✅ OCR {search_term}: ${amount:,.2f}")
+                        break
+                
+                if template_row not in data:
+                    data[template_row] = 0.0
+            
+            doc.close()
+            
+            if len([k for k in data if not str(k).startswith('_')]) >= 5:
+                return data
+    
+    doc.close()
+    return {}
+
+# ============================================================================
+# MAIN EXTRACTION
+# ============================================================================
+
+def extract_from_pdf(pdf_path, debug_updates=None):
+    data = extract_by_grid(pdf_path, debug_updates)
+    template_count = len([k for k in data if not str(k).startswith('_')])
+    
+    if template_count >= 10:
+        return data
+    
+    if debug_updates is not None:
+        debug_updates.append(f"🔍 Grid got {template_count}, trying OCR...")
+    
+    ocr_data = extract_by_ocr(pdf_path, debug_updates)
+    ocr_count = len([k for k in ocr_data if not str(k).startswith('_')])
+    
+    if ocr_count > template_count:
+        return ocr_data
+    
+    return data if template_count >= 5 else ocr_data
 
 # ============================================================================
 # TEMPLATE FILLING
@@ -234,10 +335,10 @@ def fill_template(wb, all_data):
             if str(key).startswith('_'):
                 continue
             ws.cell(row=key, column=col).value = amount
-            ws.cell(row=key, column=col).number_format = '#,##0.00'
+            ws.cell(row=key, column=col).number_format = '#,##0.00 $'
             month_cells += 1
             total += 1
-            updates.append(f"   ✅ {month_en} ({col_letter}{key}): ${amount:,.2f}")
+            updates.append(f"   ✅ {month_en} ({col_letter}{key}): {amount:,.2f} $")
         
         if month_cells > 0:
             updates.append(f"📊 {month_en}: {month_cells} cells")
@@ -275,11 +376,11 @@ def validate_results(wb, all_data):
             expected = pdf_rev - pdf_exp
             diff = abs(pdf_ben - expected)
             if diff > 0.01:
-                results.append(f"   ⚠️ PDF: ${pdf_ben:,.2f} | Expected: ${expected:,.2f} (diff: ${diff:,.2f})")
+                results.append(f"   ⚠️ PDF: {pdf_ben:,.2f} $ | Expected: {expected:,.2f} $ (diff: {diff:,.2f} $)")
             else:
-                results.append(f"   ✅ BÉNÉFICE NET = ${pdf_ben:,.2f}")
+                results.append(f"   ✅ BÉNÉFICE NET = {pdf_ben:,.2f} $")
         elif pdf_ben is not None:
-            results.append(f"   ⚠️ PDF Net: ${pdf_ben:,.2f}")
+            results.append(f"   ⚠️ PDF Net: {pdf_ben:,.2f} $")
         else:
             results.append(f"   ⚠️ Not found")
     
@@ -358,7 +459,7 @@ def fix_excel(excel_file, monthly_files_current=None, monthly_files_previous=Non
                     cnt = len([k for k in data if not str(k).startswith('_')])
                     all_data[month_en] = data
                     ben = data.get('_BENEFICE_NET_', 'N/A')
-                    updates.append(f"   ✅ {month_en}: {cnt} accounts | PDF Net: ${ben}")
+                    updates.append(f"   ✅ {month_en}: {cnt} accounts | PDF Net: {ben} $")
                 else:
                     updates.append(f"   ❌ {month_en}: No data")
             finally:
