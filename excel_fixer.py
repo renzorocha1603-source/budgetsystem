@@ -1,4 +1,4 @@
-# excel_fixer.py - TEXT SEARCH PRIMARY + PARKING CODE FROM FILENAME
+# excel_fixer.py - FINAL WITH EMPTY CELL DETECTION
 import io
 import re
 import pandas as pd
@@ -85,7 +85,7 @@ MONTH_COLUMN = {
 }
 
 # ============================================================================
-# TEXT SEARCH EXTRACTION (PROVEN TO WORK)
+# TEXT SEARCH EXTRACTION
 # ============================================================================
 
 def extract_from_pdf(pdf_path, debug_updates=None):
@@ -102,22 +102,35 @@ def extract_from_pdf(pdf_path, debug_updates=None):
     for search_term, template_row in SEARCH_TERMS.items():
         idx = full_text.lower().find(search_term)
         if idx == -1:
+            if debug_updates is not None:
+                debug_updates.append(f"  ❌ {search_term}: NOT FOUND")
             continue
         
         after_text = full_text[idx + len(search_term):]
         
-        # Find first Canadian French number after the account name
-        match = re.search(r'(\d[\d\s]*,\d{2})\s*\$?', after_text[:150])
+        # Look for a number within 30 characters (Mois Courant is closest)
+        match = re.search(r'(\d[\d\s]*,\d{2})\s*\$?', after_text[:30])
+        
         if match:
             before = after_text[:match.start()].strip()
             is_neg = before.endswith('-') or before.endswith('(')
             amount = parse_amount(match.group(1))
-            if amount is not None and amount != 0:
+            if amount is not None:
                 if is_neg:
                     amount = -abs(amount)
                 data[template_row] = amount
                 if debug_updates is not None:
-                    debug_updates.append(f"🔍 {search_term}: ${amount:,.2f} -> Row {template_row}")
+                    debug_updates.append(f"  ✅ {search_term}: ${amount:,.2f} -> Row {template_row}")
+            else:
+                # Number found but couldn't parse - cell might be empty
+                data[template_row] = 0.0
+                if debug_updates is not None:
+                    debug_updates.append(f"  ⚠️ {search_term}: $0.00 (empty cell) -> Row {template_row}")
+        else:
+            # No number nearby = empty cell = $0.00
+            data[template_row] = 0.0
+            if debug_updates is not None:
+                debug_updates.append(f"  ⚠️ {search_term}: $0.00 (no number nearby) -> Row {template_row}")
     
     # Extract validation accounts
     for search_term, validation_key in VALIDATION_TERMS.items():
@@ -126,18 +139,18 @@ def extract_from_pdf(pdf_path, debug_updates=None):
             continue
         
         after_text = full_text[idx + len(search_term):]
-        match = re.search(r'(\d[\d\s]*,\d{2})\s*\$?', after_text[:150])
+        match = re.search(r'(\d[\d\s]*,\d{2})\s*\$?', after_text[:30])
         if match:
             amount = parse_amount(match.group(1))
             if amount is not None:
                 data[validation_key] = amount
                 if debug_updates is not None:
-                    debug_updates.append(f"🔍 {validation_key} = ${amount:,.2f}")
+                    debug_updates.append(f"  📊 {validation_key} = ${amount:,.2f}")
     
     if debug_updates is not None:
         template_count = len([k for k in data if not str(k).startswith('_')])
         validation_count = len([k for k in data if str(k).startswith('_')])
-        debug_updates.append(f"🔍 Total: {template_count} template + {validation_count} validation accounts")
+        debug_updates.append(f"  📊 Total: {template_count} template + {validation_count} validation accounts")
     
     return data
 
@@ -197,121 +210,51 @@ def validate_results(wb, all_data):
     if sheet_name is None:
         return ["⚠️ Cannot validate - sheet not found"]
     
-    ws = wb[sheet_name]
     results = []
-    
-    def safe_get(row, col):
-        val = ws.cell(row=row, column=col).value
-        try:
-            return float(val) if val is not None else 0.0
-        except (ValueError, TypeError):
-            return 0.0
     
     for month_en, month_data in all_data.items():
         col = MONTH_COLUMN.get(month_en)
         if col is None:
             continue
         
-        revenus_nets = safe_get(86, col)
-        total_revenus = safe_get(26, col)
-        total_depenses = safe_get(84, col)
-        
-        pdf_benefice = month_data.get('_BENEFICE_NET_', None)
-        pdf_total_revenus = month_data.get('_TOTAL_REVENUS_', None)
-        pdf_total_expenses = month_data.get('_TOTAL_EXPENSES_', None)
+        pdf_ben = month_data.get('_BENEFICE_NET_')
+        pdf_rev = month_data.get('_TOTAL_REVENUS_')
+        pdf_exp = month_data.get('_TOTAL_EXPENSES_')
         
         results.append(f"\n📊 {month_en}:")
         
-        if pdf_benefice is not None and revenus_nets != 0:
-            diff = abs(pdf_benefice - revenus_nets)
+        if pdf_ben is not None and pdf_rev is not None and pdf_exp is not None:
+            expected_net = pdf_rev - pdf_exp
+            diff = abs(pdf_ben - expected_net)
             if diff > 0.01:
-                results.append(f"   ⚠️ PDF BÉNÉFICE NET: ${pdf_benefice:,.2f}")
-                results.append(f"   ⚠️ Template REVENUS NETS: ${revenus_nets:,.2f}")
-                results.append(f"   ⚠️ DIFFERENCE: ${diff:,.2f}")
-                if pdf_total_revenus is not None:
-                    results.append(f"   📈 PDF Total Revenue: ${pdf_total_revenus:,.2f}")
-                results.append(f"   📈 Template Total Revenue: ${total_revenus:,.2f}")
-                if pdf_total_expenses is not None:
-                    results.append(f"   📉 PDF Total Expenses: ${pdf_total_expenses:,.2f}")
-                results.append(f"   📉 Template Total Expenses: ${total_depenses:,.2f}")
+                results.append(f"   ⚠️ PDF BÉNÉFICE NET: ${pdf_ben:,.2f}")
+                results.append(f"   📈 PDF Revenue: ${pdf_rev:,.2f} - PDF Expenses: ${pdf_exp:,.2f}")
+                results.append(f"   📊 Expected Net: ${expected_net:,.2f} (diff: ${diff:,.2f})")
             else:
-                results.append(f"   ✅ BÉNÉFICE NET = REVENUS NETS = ${pdf_benefice:,.2f}")
-        elif pdf_benefice is not None:
-            results.append(f"   ⚠️ PDF BÉNÉFICE NET: ${pdf_benefice:,.2f} | Template Net: ${revenus_nets:,.2f}")
+                results.append(f"   ✅ BÉNÉFICE NET = ${pdf_ben:,.2f}")
+                results.append(f"   📈 Revenue: ${pdf_rev:,.2f} | Expenses: ${pdf_exp:,.2f} | Net: ${pdf_ben:,.2f}")
+        elif pdf_ben is not None:
+            results.append(f"   ⚠️ PDF BÉNÉFICE NET: ${pdf_ben:,.2f} (missing totals)")
         else:
-            results.append(f"   ⚠️ PDF BÉNÉFICE NET not found in PDF text")
-            results.append(f"   📊 Template: Rev=${total_revenus:,.2f} Exp=${total_depenses:,.2f} Net=${revenus_nets:,.2f}")
+            results.append(f"   ⚠️ BÉNÉFICE NET not found in PDF")
     
     return results
 
 # ============================================================================
-# PARKING CODE DETECTION (from filename)
-# ============================================================================
-
-def extract_parking_code(filename):
-    """Extract parking code from filename or let user choose."""
-    if not filename:
-        return None
-    
-    # Try CMO pattern
-    match = re.search(r'(CMO\d+)', filename, re.IGNORECASE)
-    if match:
-        return match.group(1).upper()
-    
-    # Try other patterns
-    name = filename.rsplit('.', 1)[0].upper()
-    for code in ['LUNA', 'MCGILL', '1981']:
-        if code in name:
-            return code
-    
-    return None
-
-# ============================================================================
-# FUNCTIONS CALLED BY app.py
+# APP.PY INTERFACE
 # ============================================================================
 
 def get_parking_codes_from_pnl(file_obj):
-    """
-    Extract parking codes from all available sources.
-    Priority: filename > PDF content
-    """
     codes = []
-    
     if hasattr(file_obj, 'name'):
-        # From filename
-        code = extract_parking_code(file_obj.name)
-        if code:
-            codes.append(code)
-        
-        # From PDF content
-        file_obj.seek(0)
-        if file_obj.name.lower().endswith('.pdf'):
-            try:
-                file_bytes = file_obj.read()
-                doc = fitz.open(stream=file_bytes, filetype="pdf")
-                for page in doc:
-                    text = page.get_text()
-                    found = re.findall(r'(CMO\d+)', text, re.IGNORECASE)
-                    codes.extend(found)
-                    if '1981 McGill' in text:
-                        codes.append('1981MCGILL')
-                doc.close()
-            except:
-                pass
-    
+        matches = re.findall(r'(CMO\d+)', file_obj.name, re.IGNORECASE)
+        codes.extend(matches)
     file_obj.seek(0)
     return list(set([c.upper() for c in codes]))
 
 def fix_excel(excel_file, monthly_files_current=None, monthly_files_previous=None,
               budget_initial_file=None, fiche_stationnement_file=None,
               parking_code=None, word_data=None):
-    """
-    MAIN FUNCTION
-    1. Extract data from PDFs by text search
-    2. Write to YELLOW cells in template
-    3. Formulas auto-calculate
-    4. Validate BÉNÉFICE NET vs REVENUS NETS
-    """
     updates = []
     all_data = {}
     debug_updates = []
@@ -321,24 +264,14 @@ def fix_excel(excel_file, monthly_files_current=None, monthly_files_previous=Non
         updates.append("🏗️ BUDGET SYSTEM - WORKFLOW")
         updates.append("=" * 60)
         
-        # Load template
         if isinstance(excel_file, bytes):
             wb = load_workbook(io.BytesIO(excel_file))
         else:
             excel_file.seek(0)
             wb = load_workbook(io.BytesIO(excel_file.read()))
         
-        # Determine parking code
-        if not parking_code:
-            if hasattr(excel_file, 'name'):
-                parking_code = extract_parking_code(excel_file.name)
-            if not parking_code and monthly_files_current and len(monthly_files_current) > 0:
-                if hasattr(monthly_files_current[0], 'name'):
-                    parking_code = extract_parking_code(monthly_files_current[0].name)
-        
         updates.append(f"✅ Template loaded: {parking_code or 'Unknown'}")
         
-        # Collect all files
         all_files = []
         if monthly_files_current:
             all_files.extend(monthly_files_current)
@@ -355,7 +288,6 @@ def fix_excel(excel_file, monthly_files_current=None, monthly_files_previous=Non
         updates.append(f"\n📁 Processing {len(all_files)} files...")
         
         for file_obj in all_files:
-            # Get month from filename
             month_en = None
             if hasattr(file_obj, 'name'):
                 name_lower = file_obj.name.lower()
@@ -368,7 +300,6 @@ def fix_excel(excel_file, monthly_files_current=None, monthly_files_previous=Non
                 updates.append(f"⚠️ Could not determine month for {getattr(file_obj, 'name', 'unknown')}")
                 continue
             
-            # Save to temp file
             file_obj.seek(0)
             file_bytes = file_obj.read()
             with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf') as tmp:
@@ -379,37 +310,33 @@ def fix_excel(excel_file, monthly_files_current=None, monthly_files_previous=Non
                 debug_updates.append(f"--- {month_en} ---")
                 data = extract_from_pdf(tmp_path, debug_updates)
                 
-                if data and len(data) >= 3:
+                if data:
                     display_count = len([k for k in data if not str(k).startswith('_')])
                     all_data[month_en] = data
                     pdf_benefice = data.get('_BENEFICE_NET_', 'N/A')
                     updates.append(f"   ✅ {month_en}: {display_count} accounts | PDF BÉNÉFICE NET: ${pdf_benefice}")
                 else:
-                    updates.append(f"   ❌ {month_en}: No data (got {len(data)} accounts)")
+                    updates.append(f"   ❌ {month_en}: No data extracted")
             finally:
                 if os.path.exists(tmp_path):
                     os.unlink(tmp_path)
         
-        # Show debug info
         if debug_updates:
             updates.append("\n🔍 DEBUG:")
             updates.extend(debug_updates)
         
-        # Fill template
         if all_data:
             updates.append(f"\n📝 Filling YELLOW cells for {len(all_data)} months...")
-            updates.append("   (Formula rows 18,26,33,44,47,65,82,84,86 auto-calculate)")
+            updates.append("   (Formula rows auto-calculate)")
             fill_updates = fill_template(wb, all_data)
             updates.extend(fill_updates)
             
-            # Validate
-            updates.append(f"\n🔍 Validation (PDF BÉNÉFICE NET vs Template REVENUS NETS):")
+            updates.append(f"\n🔍 Validation (PDF BÉNÉFICE NET vs Expected):")
             validations = validate_results(wb, all_data)
             updates.extend(validations)
         else:
             updates.append("\n⚠️ No data extracted from any file!")
         
-        # Save
         output = io.BytesIO()
         wb.save(output)
         output.seek(0)
