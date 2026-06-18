@@ -1,4 +1,4 @@
-# excel_fixer.py - CORRECTED P&L MAPPING
+# excel_fixer.py - WITH READ DEBUG
 import io
 import re
 import pandas as pd
@@ -17,10 +17,9 @@ MISTRAL_URL = "https://api.mistral.ai/v1/chat/completions"
 MISTRAL_MODEL = "mistral-small-latest"
 
 # ============================================================================
-# CORRECTED P&L MAPPING (from actual Excel structure)
+# CORRECTED P&L MAPPING
 # ============================================================================
 PANDL_TO_TEMPLATE = {
-    # PARKING REVENUE (Rows 17-29)
     23: 12,   # Transient Revenue
     17: 13,   # Monthly Revenues
     26: 14,   # Car-Wash Revenue
@@ -29,8 +28,6 @@ PANDL_TO_TEMPLATE = {
     28: 17,   # Miscellaneous
     33: 20,   # Discount-Gratuities - Transient
     34: 22,   # Discount-Gratuities - Monthly
-    
-    # OPERATING EXPENSES (Rows 38-75)
     38: 29,   # Parking wages
     40: 30,   # Other wages
     41: 31,   # Training & Recr.
@@ -126,6 +123,15 @@ def extract_from_pnl_excel(file_bytes, parking_code, debug_updates=None):
         
         if debug_updates is not None:
             debug_updates.append(f"📐 P&L: {len(df)} rows x {len(df.columns)} cols")
+            
+            # DEBUG: Show what we're actually reading
+            debug_updates.append("🔍 READ DEBUG - What values are we getting:")
+            for pnl_row in [17, 23, 24, 26, 28, 31, 33, 34, 36, 38, 40, 42, 45, 46, 50, 51, 53, 62, 64, 68, 75, 77, 92]:
+                if pnl_row <= len(df):
+                    col_a = str(df.iloc[pnl_row-1, 0])[:50] if len(df.columns) > 0 else 'N/A'
+                    col_c = df.iloc[pnl_row-1, 2] if len(df.columns) > 2 else 'N/A'
+                    col_d = df.iloc[pnl_row-1, 3] if len(df.columns) > 3 else 'N/A'
+                    debug_updates.append(f"  P&L Row {pnl_row}: A='{col_a}' | Jan={col_c} | Feb={col_d}")
         
         data = {}
         
@@ -165,6 +171,13 @@ def extract_from_pnl_excel(file_bytes, parking_code, debug_updates=None):
         
         if debug_updates is not None:
             debug_updates.append(f"✅ Extracted {len(data)} months from P&L")
+            
+            # DEBUG: Show final data
+            for month_name in ['January', 'February']:
+                if month_name in data:
+                    debug_updates.append(f"  Final {month_name} data (first 10):")
+                    for k, v in list(data[month_name].items())[:10]:
+                        debug_updates.append(f"    Row {k}: {v}")
         
         return data
         
