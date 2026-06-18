@@ -1,4 +1,4 @@
-# excel_fixer.py - HARDCODED CONVERTER ROW MAPPING
+# excel_fixer.py - FIXED CONVERTER EXTRACTION
 import io
 import re
 import pandas as pd
@@ -138,7 +138,7 @@ def convert_page10_to_excel(file_bytes, debug_updates=None):
         wb.save(output)
         output.seek(0)
         if debug_updates is not None:
-            debug_updates.append(f"🔍 Converter: {excel_row - 2} data rows")
+            debug_updates.append(f"🔍 Converter: {excel_row - 2} data rows created")
         return output
     except Exception as e:
         if debug_updates is not None:
@@ -173,8 +173,6 @@ def parse_amount(text):
 
 # ============================================================================
 # HARDCODED CONVERTER ROW MAPPING
-# Converter always outputs the same 28-row table structure
-# Row index (0-based, after header) -> Template Row (YELLOW CELLS ONLY)
 # ============================================================================
 
 CONVERTER_ROW_TO_TEMPLATE = {
@@ -197,11 +195,10 @@ CONVERTER_ROW_TO_TEMPLATE = {
     25: 63,  # Honoraires de gestion
 }
 
-# Validation rows (also capture these for comparison)
 CONVERTER_VALIDATION_ROWS = {
-    7: "_TOTAL_REVENUS_",       # TOTAL REVENUS
-    22: "_TOTAL_EXPENSES_",     # Total des frais d'exploitation
-    27: "_BENEFICE_NET_",       # BÉNÉFICE NET
+    7: "_TOTAL_REVENUS_",
+    22: "_TOTAL_EXPENSES_",
+    27: "_BENEFICE_NET_",
 }
 
 # ============================================================================
@@ -223,7 +220,7 @@ MONTH_COLUMN = {
 }
 
 # ============================================================================
-# EXTRACTION FROM CONVERTER EXCEL (HARDCODED ROWS)
+# EXTRACTION FROM CONVERTER EXCEL (FIXED - no pd.notna filter)
 # ============================================================================
 
 def extract_from_converter_excel(excel_bytes, debug_updates=None):
@@ -237,28 +234,50 @@ def extract_from_converter_excel(excel_bytes, debug_updates=None):
     data = {}
     
     if debug_updates is not None:
-        debug_updates.append(f"🔍 Converter has {len(df)} rows")
+        debug_updates.append(f"🔍 Converter: {len(df)} rows, cols={list(df.columns)[:3]}")
+        # Show first 3 rows for debugging
+        for i in range(min(3, len(df))):
+            try:
+                col0 = str(df.iloc[i, 0])[:50]
+                col1 = str(df.iloc[i, 1])[:30]
+                debug_updates.append(f"🔍 Sample Row {i}: col0='{col0}' col1='{col1}'")
+            except:
+                pass
     
     # Extract template values by hardcoded row positions
     for converter_row, template_row in CONVERTER_ROW_TO_TEMPLATE.items():
-        if converter_row < len(df):
+        if converter_row >= len(df):
+            continue
+        try:
             raw = df.iloc[converter_row, 1]  # Column 1 = Mois Courant
-            amount = parse_amount(str(raw)) if pd.notna(raw) else None
+            amount = parse_amount(str(raw))
             if amount is not None:
                 data[template_row] = amount
                 if debug_updates is not None:
-                    acc = str(df.iloc[converter_row, 0])[:40]
-                    debug_updates.append(f"🔍 Row {converter_row} ({acc}): ${amount:,.2f} -> Template Row {template_row}")
+                    debug_updates.append(f"🔍 Row {converter_row}: ${amount:,.2f} -> Template Row {template_row}")
+        except Exception as e:
+            if debug_updates is not None:
+                debug_updates.append(f"🔍 Row {converter_row} error: {e}")
     
     # Extract validation values
     for converter_row, validation_key in CONVERTER_VALIDATION_ROWS.items():
-        if converter_row < len(df):
+        if converter_row >= len(df):
+            continue
+        try:
             raw = df.iloc[converter_row, 1]
-            amount = parse_amount(str(raw)) if pd.notna(raw) else None
+            amount = parse_amount(str(raw))
             if amount is not None:
                 data[validation_key] = amount
                 if debug_updates is not None:
                     debug_updates.append(f"🔍 VALIDATION Row {converter_row}: {validation_key} = ${amount:,.2f}")
+        except:
+            pass
+    
+    template_count = len([k for k in data if not str(k).startswith('_')])
+    validation_count = len([k for k in data if str(k).startswith('_')])
+    
+    if debug_updates is not None:
+        debug_updates.append(f"🔍 Total extracted: {template_count} template + {validation_count} validation")
     
     return data
 
@@ -274,13 +293,14 @@ def extract_from_pdf(pdf_path, file_bytes=None, debug_updates=None):
     excel_output = convert_page10_to_excel(file_bytes, debug_updates)
     if excel_output:
         data = extract_from_converter_excel(excel_output, debug_updates)
-        if len(data) >= 3:
+        template_count = len([k for k in data if not str(k).startswith('_')])
+        if template_count >= 3:
             return data
     
-    # Fallback text search
     if debug_updates is not None:
-        debug_updates.append("🔍 Converter failed, text fallback...")
+        debug_updates.append("🔍 Falling back to text search...")
     
+    # Text search fallback
     doc = fitz.open(pdf_path)
     full_text = ""
     for page_num in range(len(doc)):
@@ -397,9 +417,9 @@ def validate_results(wb, all_data):
             else:
                 results.append(f"   ✅ BÉNÉFICE NET = REVENUS NETS = ${pdf_benefice:,.2f}")
         elif pdf_benefice is not None:
-            results.append(f"   ⚠️ PDF BÉNÉFICE NET: ${pdf_benefice:,.2f} | Template: ${revenus_nets:,.2f}")
+            results.append(f"   ⚠️ PDF BÉNÉFICE NET: ${pdf_benefice:,.2f} | Template Net: ${revenus_nets:,.2f}")
         else:
-            results.append(f"   ⚠️ PDF BÉNÉFICE NET not captured from converter!")
+            results.append(f"   ⚠️ PDF BÉNÉFICE NET not captured from converter")
             results.append(f"   📊 Template: Rev=${total_revenus:,.2f} Exp=${total_depenses:,.2f} Net=${revenus_nets:,.2f}")
     return results
 
@@ -483,7 +503,7 @@ def fix_excel(excel_file, monthly_files_current=None, monthly_files_previous=Non
             updates.append("   (Formula rows auto-calculate)")
             fill_updates = fill_template(wb, all_data)
             updates.extend(fill_updates)
-            updates.append(f"\n🔍 Validation (PDF BÉNÉFICE NET vs Template REVENUS NETS):")
+            updates.append(f"\n🔍 Validation:")
             validations = validate_results(wb, all_data)
             updates.extend(validations)
         else:
