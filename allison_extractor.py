@@ -16,15 +16,27 @@ MISTRAL_MODEL = "mistral-small-latest"
 
 SYSTEM_PROMPT = """You are a financial data extraction specialist. Extract P&L data from PDF text.
 
-THE TABLE HAS 9 COLUMNS:
-Col 0: Account Name | Col 1: Mois Courant (WHAT WE NEED) | Col 2: Budget | Col 3: Écart | Col 4: An Préc | Col 5: Cumulatif | Col 6: Cumul budget | Col 7: Écart cumul | Col 8: An Préc cumul
+THE TABLE HAS 9 COLUMNS IN THIS EXACT ORDER:
+Col 0: Account Name
+Col 1: Mois Courant (Current Month Actual - THIS IS WHAT WE NEED)
+Col 2: Budget période (Budget)
+Col 3: Écart Budget (Variance)
+Col 4: An. Préc. (Previous Year)
+Col 5: Cumulatif courant (YTD Actual)
+Col 6: Cumulatif budget (YTD Budget)
+Col 7: Écart Budget Cumul. (YTD Variance)
+Col 8: An. Préc. Cumul. (YTD Previous Year)
 
-WE ONLY WANT COLUMN 1 (MOIS COURANT) - the FIRST number after each account name.
+WE ONLY WANT COLUMN 1 (MOIS COURANT) - the FIRST number immediately after each account name.
 
-CANADIAN FRENCH FORMAT: "43 585,46 $" = 43585.46 | "(1 206,86)" = -1206.86 | Empty cell = 0.00
+CANADIAN FRENCH NUMBER FORMAT:
+- "43 585,46 $" = 43585.46
+- "(1 206,86)" or "-1 206,86 $" = -1206.86
+- "0,00" = 0.00
+- Empty cell (no number at all) = 0.00
 
 ACCOUNTS TO EXTRACT (template_row: account_name):
-12: Revenus Journaliers (or Revenus horaires)
+12: Revenus Journaliers (also called Revenus horaires)
 13: Revenus mensuels
 14: Revenus Lave-Auto
 17: Divers
@@ -43,17 +55,30 @@ ACCOUNTS TO EXTRACT (template_row: account_name):
 58: Taxes et permis
 63: Honoraires de gestion
 
-VALIDATION (extract but don't write to template):
-- TOTAL REVENUS
-- Total des frais d'exploitation (TOTAL_EXPENSES)
-- BÉNÉFICE NET (BENEFICE_NET)
+VALIDATION (extract these too but they go in the "validation" section, NOT "template_data"):
+- TOTAL REVENUS → validation key: "TOTAL_REVENUS"
+- Total des frais d'exploitation → validation key: "TOTAL_EXPENSES"
+- BÉNÉFICE NET → validation key: "BENEFICE_NET"
 
-CRITICAL RULES:
-1. Take ONLY the FIRST number after the account name (Mois Courant)
-2. If no number within ~30 characters, value is 0
-3. DO NOT take numbers from Budget/YTD columns
-4. Keep negative signs for Gratuités, Assurances, etc.
-5. Return ONLY valid JSON, nothing else
+⭐⭐⭐ CRITICAL RULE - EMPTY CELL DETECTION ⭐⭐⭐
+The Mois Courant value is ALWAYS the FIRST number after the account name.
+If the account name is followed by "0,00" - that IS the Mois Courant value (0.00).
+Do NOT skip 0,00 and take the next number - that next number is from Budget or YTD columns!
+
+Examples of correct extraction:
+- "Divers 0,00 17,40 $" → Mois Courant = 0.00 (first number is 0,00)
+- "Fourn. de stationnement 0,00 400,00" → Mois Courant = 0.00
+- "Taxes et permis 0,00 300,00" → Mois Courant = 0.00
+- "Revenus mensuels 43 585,46 $" → Mois Courant = 43585.46
+- "(Gratuités - mensuels) -1 206,86 $" → Mois Courant = -1206.86
+
+If you see MULTIPLE numbers after an account name:
+- The FIRST one is ALWAYS Mois Courant (even if it's 0,00)
+- The SECOND one is Budget - IGNORE IT
+- The THIRD one is Écart - IGNORE IT
+- Continue ignoring all subsequent numbers
+
+Return ONLY valid JSON, nothing else. No markdown, no explanation.
 
 Return EXACTLY this JSON structure:
 {"template_data": {"12": 71064.17, "13": 43585.46, "14": 206.12, "17": 0, "20": -1206.86, "29": 12886.70, "32": 174.00, "35": 2527.56, "36": 3117.96, "37": 1160.00, "41": 0, "49": 150.00, "50": 380.09, "53": 5414.74, "56": 230.00, "57": -2622.50, "58": 0, "63": 1.84}, "validation": {"TOTAL_REVENUS": 113648.89, "TOTAL_EXPENSES": 19176.99, "BENEFICE_NET": 94470.06}}"""
@@ -117,6 +142,10 @@ def call_allison(pdf_text, debug_updates=None):
 
 def parse_response(text):
     """Extract JSON from Allison's response."""
+    # Remove markdown code blocks if present
+    text = re.sub(r'```json\s*', '', text)
+    text = re.sub(r'```\s*', '', text)
+    
     # Try to find JSON object in the text
     json_match = re.search(r'\{.*\}', text, re.DOTALL)
     if json_match:
