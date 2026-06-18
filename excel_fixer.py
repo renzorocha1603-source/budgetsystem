@@ -1,4 +1,4 @@
-# excel_fixer.py - FINAL
+# excel_fixer.py
 import fitz
 import os
 import re
@@ -9,11 +9,11 @@ from openpyxl.utils import get_column_letter
 
 NUM_ROWS = 28
 AMOUNT_COL = 1
-TABLE_TOP = 0.07
+TABLE_TOP = 0.06
 TABLE_BOTTOM = 0.95
 TABLE_LEFT = 0.03
 TABLE_RIGHT = 0.97
-COLUMN_WIDTHS = [0.30, 0.08, 0.08, 0.08, 0.08, 0.08, 0.08, 0.08, 0.08]
+COLUMN_WIDTHS = [0.22, 0.12, 0.08, 0.08, 0.08, 0.08, 0.08, 0.08, 0.08]
 
 PAGE_MARKERS = ["1981 McGill College", "Revenus mensuels", "BÉNÉFICE NET", "Mois Courant"]
 
