@@ -1,4 +1,4 @@
-# excel_fixer.py - EXCEL P&L EXTRACTION + ALLISON VALIDATION
+# excel_fixer.py - EXCEL P&L + ALLISON + DEBUG
 import io
 import re
 import pandas as pd
@@ -10,14 +10,14 @@ import tempfile
 import os
 
 # ============================================================================
-# MISTRAL CONFIGURATION (Allison - Validation Agent)
+# MISTRAL CONFIGURATION
 # ============================================================================
 MISTRAL_API_KEY = "em5oqjSdA1Nus9iUpa1MNAJtQA4YfCtK"
 MISTRAL_URL = "https://api.mistral.ai/v1/chat/completions"
 MISTRAL_MODEL = "mistral-small-latest"
 
 # ============================================================================
-# EXCEL P&L MAPPING (Row -> Template Row)
+# EXCEL P&L MAPPING (P&L Row -> Template Row)
 # ============================================================================
 PANDL_TO_TEMPLATE = {
     23: 12,   # Transient Revenue
@@ -31,7 +31,7 @@ PANDL_TO_TEMPLATE = {
     38: 29,   # Parking wages
     40: 30,   # Other wages
     41: 31,   # Training & Recr.
-    42: 32,   # Uniforms
+    42: 32,   # Uniformes
     45: 35,   # R&M - Cleaning
     50: 36,   # R&M - General
     46: 37,   # R&M - Equipment
@@ -64,7 +64,6 @@ PANDL_TO_TEMPLATE = {
     66: 72,   # Computer services
 }
 
-# Validation rows in P&L
 PANDL_VALIDATION = {
     36: "_TOTAL_REVENUS_",
     75: "_TOTAL_EXPENSES_",
@@ -72,7 +71,6 @@ PANDL_VALIDATION = {
     90: "_BENEFICE_NET_",
 }
 
-# Month columns in P&L (Column C=3, D=4, E=5, F=6)
 PANDL_MONTH_COLUMNS = {
     'January': 3,
     'February': 4,
@@ -102,20 +100,11 @@ MONTH_COLUMN = {
 # EXCEL P&L EXTRACTION
 # ============================================================================
 
-def find_parking_tab(excel_file, parking_code):
-    """Find the tab matching the parking code."""
-    xl = pd.ExcelFile(excel_file)
-    for sheet_name in xl.sheet_names:
-        if parking_code.upper() in sheet_name.upper():
-            return sheet_name
-    return None
-
 def extract_from_pnl_excel(file_bytes, parking_code, debug_updates=None):
     """Extract data from P&L Excel file for a specific parking code."""
     try:
         xl = pd.ExcelFile(io.BytesIO(file_bytes))
         
-        # Find the right tab
         tab_name = None
         for sn in xl.sheet_names:
             if parking_code.upper() in sn.upper():
@@ -134,6 +123,14 @@ def extract_from_pnl_excel(file_bytes, parking_code, debug_updates=None):
         
         if debug_updates is not None:
             debug_updates.append(f"📐 P&L has {len(df)} rows x {len(df.columns)} cols")
+            
+            # DEBUG: Show what's in key P&L rows
+            debug_updates.append("🔍 DEBUG - P&L Row Contents (Column C = January):")
+            for r in [12, 13, 14, 15, 17, 23, 24, 26, 28, 31, 33, 34, 36, 38, 40, 41, 42, 43, 44, 45, 46, 47, 48, 50, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 72, 75, 77, 80, 81, 84, 85, 90]:
+                if r <= len(df):
+                    col_a = str(df.iloc[r-1, 0])[:60] if len(df.columns) > 0 else 'N/A'
+                    col_c = df.iloc[r-1, 2] if len(df.columns) > 2 else 'N/A'
+                    debug_updates.append(f"  P&L Row {r}: A='{col_a}' | C={col_c}")
         
         data = {}
         
@@ -142,10 +139,9 @@ def extract_from_pnl_excel(file_bytes, parking_code, debug_updates=None):
             if pnl_row > len(df):
                 continue
             
-            # Get values for all months
             for month_name, col_idx in PANDL_MONTH_COLUMNS.items():
                 if col_idx < len(df.columns):
-                    val = df.iloc[pnl_row - 1, col_idx - 1]  # 0-based
+                    val = df.iloc[pnl_row - 1, col_idx - 1]
                     try:
                         amount = float(val) if pd.notna(val) else 0.0
                     except (ValueError, TypeError):
@@ -191,7 +187,6 @@ def validate_with_allison(all_data, debug_updates=None):
     if debug_updates is not None:
         debug_updates.append("🤖 Asking Allison to validate...")
     
-    # Build summary for Allison
     summary = "Extracted data:\n"
     for month_name, month_data in all_data.items():
         ben = month_data.get('_BENEFICE_NET_', 'N/A')
@@ -199,9 +194,9 @@ def validate_with_allison(all_data, debug_updates=None):
         exp = month_data.get('_TOTAL_EXPENSES_', 'N/A')
         summary += f"\n{month_name}: Net Income={ben}, Revenue={rev}, Expenses={exp}\n"
         
-        for row, amount in sorted(month_data.items()):
-            if not str(row).startswith('_'):
-                summary += f"  Row {row}: {amount:,.2f}\n"
+        for key, amount in month_data.items():
+            if not str(key).startswith('_'):
+                summary += f"  Row {key}: {amount:,.2f}\n"
     
     prompt = f"""Validate this financial data extraction:
 
@@ -225,55 +220,32 @@ Reply with ONLY: "VALID" if everything checks out, or list specific issues found
         if resp.status_code == 200:
             response = resp.json()["choices"][0]["message"]["content"]
             if debug_updates is not None:
-                debug_updates.append(f"📝 Allison: {response[:200]}")
+                debug_updates.append(f"📝 Allison: {response[:300]}")
             return response
     except Exception as e:
         if debug_updates is not None:
-            debug_updates.append(f"⚠️ Allison validation error: {e}")
+            debug_updates.append(f"⚠️ Allison error: {e}")
     
     return None
-
-# ============================================================================
-# PDF FALLBACK (unchanged from before)
-# ============================================================================
-
-def extract_from_pdf(pdf_path, debug_updates=None):
-    """Keep existing PDF extraction as fallback."""
-    # ... existing PDF extraction code ...
-    return {}
 
 # ============================================================================
 # MAIN EXTRACTION
 # ============================================================================
 
 def extract_monthly_data(file_obj, parking_code, debug_updates=None):
-    """Extract data from either Excel or PDF."""
     file_obj.seek(0)
     file_bytes = file_obj.read()
     
-    # Check if it's an Excel file
     if hasattr(file_obj, 'name') and file_obj.name.lower().endswith(('.xlsx', '.xls')):
         if debug_updates is not None:
             debug_updates.append("📊 Excel file detected")
-        
-        # If it's the big P&L file with multiple tabs
         data = extract_from_pnl_excel(file_bytes, parking_code, debug_updates)
         if data:
             return data
     
-    # Fall back to PDF extraction
     if debug_updates is not None:
-        debug_updates.append("📄 Trying PDF extraction...")
-    
-    with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf') as tmp:
-        tmp.write(file_bytes)
-        tmp_path = tmp.name
-    
-    try:
-        return extract_from_pdf(tmp_path, debug_updates)
-    finally:
-        if os.path.exists(tmp_path):
-            os.unlink(tmp_path)
+        debug_updates.append("📄 Not an Excel file or extraction failed")
+    return {}
 
 # ============================================================================
 # TEMPLATE FILLING
@@ -360,7 +332,6 @@ def validate_results(wb, all_data):
 # ============================================================================
 
 def get_parking_codes_from_pnl(file_obj):
-    """Extract all parking codes from a P&L Excel file."""
     codes = []
     if hasattr(file_obj, 'name'):
         file_obj.seek(0)
@@ -417,31 +388,16 @@ def fix_excel(excel_file, monthly_files_current=None, monthly_files_previous=Non
         for file_obj in all_files:
             file_obj.seek(0)
             
-            # Determine months from filename (if individual files) or from P&L (if combined)
-            month_en = None
-            if hasattr(file_obj, 'name'):
-                for fr, en in MONTH_MAP.items():
-                    if fr in file_obj.name.lower():
-                        month_en = en
-                        break
-            
             try:
                 debug.append(f"--- Processing {getattr(file_obj, 'name', 'unknown')} ---")
                 data = extract_monthly_data(file_obj, parking_code, debug)
                 
                 if data:
-                    if month_en and month_en in data:
-                        # Single month file
-                        all_data[month_en] = data[month_en]
-                        cnt = len([k for k in data[month_en] if not str(k).startswith('_')])
-                        updates.append(f"   ✅ {month_en}: {cnt} accounts")
-                    else:
-                        # Combined P&L file with multiple months
-                        for mn, md in data.items():
-                            all_data[mn] = md
-                            cnt = len([k for k in md if not str(k).startswith('_')])
-                            ben = md.get('_BENEFICE_NET_', 'N/A')
-                            updates.append(f"   ✅ {mn}: {cnt} accounts | P&L Net: {ben} $")
+                    for mn, md in data.items():
+                        all_data[mn] = md
+                        cnt = len([k for k in md if not str(k).startswith('_')])
+                        ben = md.get('_BENEFICE_NET_', 'N/A')
+                        updates.append(f"   ✅ {mn}: {cnt} accounts | P&L Net: {ben} $")
                 else:
                     updates.append(f"   ❌ No data extracted")
             finally:
@@ -455,7 +411,6 @@ def fix_excel(excel_file, monthly_files_current=None, monthly_files_previous=Non
             updates.append(f"\n📝 Filling {len(all_data)} months...")
             updates.extend(fill_template(wb, all_data))
             
-            # Allison validation
             updates.append(f"\n🤖 Allison Validation:")
             allison_response = validate_with_allison(all_data, debug)
             if allison_response:
