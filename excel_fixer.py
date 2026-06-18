@@ -1,4 +1,4 @@
-# excel_fixer.py - ALLISON AI + REGEX FALLBACK
+# excel_fixer.py - REGEX ONLY (Allison removed, regex fixed)
 import io
 import re
 import fitz
@@ -6,10 +6,9 @@ from openpyxl import load_workbook
 from openpyxl.utils import get_column_letter
 import tempfile
 import os
-from allison_extractor import call_allison
 
 # ============================================================================
-# CANADIAN FRENCH NUMBER PARSING (for regex fallback)
+# CANADIAN FRENCH NUMBER PARSING
 # ============================================================================
 
 def parse_amount(text):
@@ -35,7 +34,7 @@ def parse_amount(text):
         return None
 
 # ============================================================================
-# ACCOUNT SEARCH TERMS (for regex fallback)
+# ACCOUNT SEARCH TERMS
 # ============================================================================
 
 SEARCH_TERMS = {
@@ -84,55 +83,11 @@ MONTH_COLUMN = {
 }
 
 # ============================================================================
-# MAIN EXTRACTION - Allison first, regex fallback
+# TEXT SEARCH EXTRACTION (FIXED - 20 CHAR WINDOW)
 # ============================================================================
 
 def extract_from_pdf(pdf_path, debug_updates=None):
-    """Extract P&L data - Allison AI first, regex as fallback."""
-    
-    # Method 1: Allison AI Extraction
-    try:
-        doc = fitz.open(pdf_path)
-        pdf_text = ""
-        for page_num in range(len(doc)):
-            pdf_text += doc[page_num].get_text("text") + "\n"
-        doc.close()
-        
-        allison_result = call_allison(pdf_text, debug_updates)
-        
-        if allison_result and "template_data" in allison_result:
-            template_data = allison_result["template_data"]
-            validation_data = allison_result.get("validation", {})
-            
-            # Build data dict with template rows as keys
-            data = {}
-            for key_str, amount in template_data.items():
-                data[int(key_str)] = amount
-            
-            # Add validation keys
-            if "TOTAL_REVENUS" in validation_data:
-                data["_TOTAL_REVENUS_"] = validation_data["TOTAL_REVENUS"]
-            if "TOTAL_EXPENSES" in validation_data:
-                data["_TOTAL_EXPENSES_"] = validation_data["TOTAL_EXPENSES"]
-            if "BENEFICE_NET" in validation_data:
-                data["_BENEFICE_NET_"] = validation_data["BENEFICE_NET"]
-            
-            if len(data) >= 10:
-                return data
-            elif debug_updates is not None:
-                debug_updates.append(f"⚠️ Allison only got {len(data)} accounts, trying regex...")
-    except Exception as e:
-        if debug_updates is not None:
-            debug_updates.append(f"⚠️ Allison failed: {e}")
-    
-    # Method 2: Regex fallback
-    if debug_updates is not None:
-        debug_updates.append("🔍 Using regex extraction...")
-    
-    return extract_with_regex(pdf_path, debug_updates)
-
-def extract_with_regex(pdf_path, debug_updates=None):
-    """Regex extraction - the proven fallback method."""
+    """Extract P&L data by searching text. Empty cells = $0.00"""
     doc = fitz.open(pdf_path)
     full_text = ""
     for page_num in range(len(doc)):
@@ -141,6 +96,7 @@ def extract_with_regex(pdf_path, debug_updates=None):
     
     data = {}
     
+    # Extract template accounts
     for search_term, template_row in SEARCH_TERMS.items():
         idx = full_text.lower().find(search_term)
         if idx == -1:
@@ -149,7 +105,10 @@ def extract_with_regex(pdf_path, debug_updates=None):
             continue
         
         after_text = full_text[idx + len(search_term):]
-        match = re.search(r'(\d[\d\s]*,\d{2})\s*\$?', after_text[:30])
+        
+        # Look for a number within 20 characters (Mois Courant is closest)
+        # If cell is empty (no number nearby), this returns None → $0.00
+        match = re.search(r'(\d[\d\s]*,\d{2})\s*\$?', after_text[:20])
         
         if match:
             before = after_text[:match.start()].strip()
@@ -161,21 +120,35 @@ def extract_with_regex(pdf_path, debug_updates=None):
                 data[template_row] = amount
                 if debug_updates is not None:
                     debug_updates.append(f"  ✅ {search_term}: ${amount:,.2f} -> Row {template_row}")
+            else:
+                data[template_row] = 0.0
+                if debug_updates is not None:
+                    debug_updates.append(f"  ⚠️ {search_term}: $0.00 (parse failed) -> Row {template_row}")
         else:
+            # No number nearby = empty cell = $0.00
             data[template_row] = 0.0
             if debug_updates is not None:
-                debug_updates.append(f"  ⚠️ {search_term}: $0.00 (empty) -> Row {template_row}")
+                debug_updates.append(f"  ⚠️ {search_term}: $0.00 (empty cell) -> Row {template_row}")
     
+    # Extract validation accounts (use wider search since totals are bold/stand out)
     for search_term, validation_key in VALIDATION_TERMS.items():
         idx = full_text.lower().find(search_term)
         if idx == -1:
             continue
+        
         after_text = full_text[idx + len(search_term):]
         match = re.search(r'(\d[\d\s]*,\d{2})\s*\$?', after_text[:30])
         if match:
             amount = parse_amount(match.group(1))
             if amount is not None:
                 data[validation_key] = amount
+                if debug_updates is not None:
+                    debug_updates.append(f"  📊 {validation_key} = ${amount:,.2f}")
+    
+    if debug_updates is not None:
+        template_count = len([k for k in data if not str(k).startswith('_')])
+        validation_count = len([k for k in data if str(k).startswith('_')])
+        debug_updates.append(f"  📊 Total: {template_count} template + {validation_count} validation accounts")
     
     return data
 
@@ -208,6 +181,7 @@ def fill_template(wb, all_data):
         for key, amount in month_data.items():
             if str(key).startswith('_'):
                 continue
+            
             cell = ws.cell(row=key, column=col)
             cell.value = amount
             cell.number_format = '#,##0.00'
