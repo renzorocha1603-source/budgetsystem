@@ -1,4 +1,4 @@
-# excel_fixer.py - COUNT NUMBER LINES APPROACH (FINAL)
+# excel_fixer.py - THRESHOLD >= 5 (FINAL)
 import io
 import re
 import fitz
@@ -34,14 +34,12 @@ def parse_amount(text):
         return None
 
 def is_number_line(line):
-    """Check if a line contains ONLY a Canadian French number."""
     line = line.strip()
     if not line:
         return False
     return bool(re.match(r'^[\d\s,.\-()$]+$', line))
 
 def is_account_line(line):
-    """Check if a line looks like an account name (contains letters)."""
     return bool(re.search(r'[a-zA-Zà-üÀ-Ü]', line))
 
 # ============================================================================
@@ -107,19 +105,10 @@ MONTH_COLUMN = {
 }
 
 # ============================================================================
-# EXTRACTION WITH NUMBER LINE COUNTING
+# EXTRACTION - THRESHOLD >= 5
 # ============================================================================
 
 def extract_from_pdf(pdf_path, debug_updates=None):
-    """
-    Extract P&L data by counting number lines after each account.
-    
-    Logic:
-    - Accounts WITH Mois Courant have 8 number lines after them.
-    - Accounts WITHOUT Mois Courant have fewer than 8 number lines.
-    - When fewer than 8 numbers, the missing ones are from the FRONT (empty columns 1-4).
-    - Mois Courant = +1 only if there are 8 numbers.
-    """
     doc = fitz.open(pdf_path)
     full_text = ""
     for page_num in range(len(doc)):
@@ -143,9 +132,8 @@ def extract_from_pdf(pdf_path, debug_updates=None):
         for i, line in enumerate(clean_lines):
             line_lower = line.lower()
             
-            # Check if this line is the account name
             if search_term in line_lower and is_account_line(line) and not is_number_line(line):
-                # Count how many consecutive number lines follow
+                # Count consecutive number lines after
                 num_count = 0
                 for k in range(1, 15):
                     if i + k < len(clean_lines):
@@ -157,28 +145,26 @@ def extract_from_pdf(pdf_path, debug_updates=None):
                     else:
                         break
                 
-                if debug_updates is not None:
-                    debug_updates.append(f"  🔍 {search_term}: {num_count} number lines after")
-                
-                # If 8 numbers, Mois Courant is +1
-                if num_count >= 8:
+                # Threshold: 5+ numbers = has Mois Courant, <5 = empty columns
+                if num_count >= 5:
                     next_line = clean_lines[i + 1]
-                    is_neg = next_line.startswith('-') or next_line.startswith('(')
-                    amount = parse_amount(next_line)
-                    if amount is not None:
-                        if is_neg:
-                            amount = -abs(amount)
-                        data[template_row] = amount
-                        if debug_updates is not None:
-                            debug_updates.append(f"  ✅ {search_term}: ${amount:,.2f} -> Row {template_row}")
+                    if next_line and is_number_line(next_line):
+                        is_neg = next_line.startswith('-') or next_line.startswith('(')
+                        amount = parse_amount(next_line)
+                        if amount is not None:
+                            if is_neg:
+                                amount = -abs(amount)
+                            data[template_row] = amount
+                            if debug_updates is not None:
+                                debug_updates.append(f"  ✅ {search_term}: ${amount:,.2f} ({num_count} nums) -> Row {template_row}")
+                        else:
+                            data[template_row] = 0.0
                     else:
                         data[template_row] = 0.0
                 else:
-                    # Fewer than 8 numbers = some columns empty
-                    # Mois Courant is column 1. If num_count < 8, column 1 is empty
                     data[template_row] = 0.0
                     if debug_updates is not None:
-                        debug_updates.append(f"  ⚠️ {search_term}: $0.00 (only {num_count}/8 numbers) -> Row {template_row}")
+                        debug_updates.append(f"  ⚠️ {search_term}: $0.00 ({num_count} nums) -> Row {template_row}")
                 
                 found = True
                 break
