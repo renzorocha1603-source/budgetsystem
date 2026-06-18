@@ -1,4 +1,4 @@
-# excel_fixer.py - THRESHOLD >= 5 (FINAL)
+# excel_fixer.py - GRID-BASED EXTRACTION (FINAL FINAL)
 import io
 import re
 import fitz
@@ -6,6 +6,43 @@ from openpyxl import load_workbook
 from openpyxl.utils import get_column_letter
 import tempfile
 import os
+
+# ============================================================================
+# GRID CONFIGURATION (from February PDF analysis)
+# ============================================================================
+
+# Mois Courant column x-range (where the first number after account name appears)
+MOIS_COURANT_X_MIN = 165
+MOIS_COURANT_X_MAX = 195
+
+# Row y-positions for each account (from PDF word positions)
+ACCOUNT_ROWS = {
+    164: 13,   # Revenus mensuels
+    175: 12,   # Revenus Journaliers
+    185: 14,   # Revenus Lave-Auto
+    196: 17,   # Divers
+    238: 20,   # Gratuités - mensuels
+    302: 29,   # Salaires Stationnement
+    313: 32,   # Uniformes
+    323: 41,   # Fourn. de stationnement
+    334: 35,   # Nettoyage
+    345: 37,   # Equipement
+    355: 36,   # Général
+    366: 58,   # Taxes et permis
+    376: 57,   # Assurances Cautionnement
+    387: 56,   # Réclamations
+    398: 50,   # Télécommunication
+    408: 53,   # Frais de cartes de crédit
+    419: 49,   # Frais de bureau
+    482: 63,   # Honoraires de gestion
+}
+
+# Validation rows
+VALIDATION_ROWS = {
+    249: "_TOTAL_REVENUS_",
+    430: "_TOTAL_EXPENSES_",
+    514: "_BENEFICE_NET_",
+}
 
 # ============================================================================
 # CANADIAN FRENCH NUMBER PARSING
@@ -33,59 +70,6 @@ def parse_amount(text):
     except:
         return None
 
-def is_number_line(line):
-    line = line.strip()
-    if not line:
-        return False
-    return bool(re.match(r'^[\d\s,.\-()$]+$', line))
-
-def is_account_line(line):
-    return bool(re.search(r'[a-zA-Zà-üÀ-Ü]', line))
-
-# ============================================================================
-# ACCOUNT SEARCH TERMS
-# ============================================================================
-
-SEARCH_TERMS = {
-    "revenus mensuels": 13,
-    "revenus journaliers": 12,
-    "revenus horaires": 12,
-    "revenus lave-auto": 14,
-    "divers": 17,
-    "gratuités - mensuels": 20,
-    "gratuités": 20,
-    "salaires stationnement": 29,
-    "salaire stationnement": 29,
-    "uniformes": 32,
-    "entretien réparation - nettoyage": 35,
-    "nettoyage": 35,
-    "entretien réparation - général": 36,
-    "entretien réparation - general": 36,
-    "entretien stationnement": 36,
-    "entretien réparation - equipement": 37,
-    "entretien réparation - équipement": 37,
-    "fourn. de stationnement": 41,
-    "fournitures stationnement": 41,
-    "frais de bureau": 49,
-    "télécommunication": 50,
-    "telecommunication": 50,
-    "frais de cartes de crédit": 53,
-    "frais de cartes de credit": 53,
-    "réclamations": 56,
-    "reclamations": 56,
-    "assurances cautionnement": 57,
-    "assurances": 57,
-    "taxes et permis": 58,
-    "honoraires de gestion": 63,
-}
-
-VALIDATION_TERMS = {
-    "bénéfice net": "_BENEFICE_NET_",
-    "benefice net": "_BENEFICE_NET_",
-    "total revenus": "_TOTAL_REVENUS_",
-    "total des frais d'exploitation": "_TOTAL_EXPENSES_",
-}
-
 # ============================================================================
 # MONTH DETECTION
 # ============================================================================
@@ -105,91 +89,114 @@ MONTH_COLUMN = {
 }
 
 # ============================================================================
-# EXTRACTION - THRESHOLD >= 5
+# GRID-BASED EXTRACTION
 # ============================================================================
 
-def extract_from_pdf(pdf_path, debug_updates=None):
-    doc = fitz.open(pdf_path)
-    full_text = ""
+def find_pl_page(doc):
+    """Find the P&L page."""
     for page_num in range(len(doc)):
-        full_text += doc[page_num].get_text("text") + "\n"
+        text = doc[page_num].get_text()
+        if "revenus mensuels" in text.lower() and "bénéfice net" in text.lower():
+            return page_num
+    return None
+
+def extract_from_pdf(pdf_path, debug_updates=None):
+    """Extract P&L data using fixed grid coordinates."""
+    doc = fitz.open(pdf_path)
+    page_num = find_pl_page(doc)
+    
+    if page_num is None:
+        doc.close()
+        if debug_updates is not None:
+            debug_updates.append("❌ P&L page not found")
+        return {}
+    
+    page = doc[page_num]
+    words = page.get_text("words")
     doc.close()
     
-    lines = full_text.split('\n')
-    clean_lines = [line.strip() for line in lines]
-    
     if debug_updates is not None:
-        debug_updates.append(f"  📄 {len(clean_lines)} lines")
+        debug_updates.append(f"📐 Page {page_num+1}, {len(words)} words")
+    
+    # Group words by y-position (rounded to nearest integer)
+    rows = {}
+    for w in words:
+        x0, y0, x1, y1, text, block, line, word_no = w
+        y_key = int(y0)
+        if y_key not in rows:
+            rows[y_key] = {}
+        if x0 not in rows[y_key]:
+            rows[y_key][x0] = []
+        rows[y_key][x0].append(text)
     
     data = {}
     
-    for search_term, template_row in SEARCH_TERMS.items():
-        if template_row in data:
-            continue
-        
-        found = False
-        
-        for i, line in enumerate(clean_lines):
-            line_lower = line.lower()
-            
-            if search_term in line_lower and is_account_line(line) and not is_number_line(line):
-                # Count consecutive number lines after
-                num_count = 0
-                for k in range(1, 15):
-                    if i + k < len(clean_lines):
-                        next_line = clean_lines[i + k]
-                        if next_line and is_number_line(next_line):
-                            num_count += 1
-                        else:
-                            break
-                    else:
-                        break
-                
-                # Threshold: 5+ numbers = has Mois Courant, <5 = empty columns
-                if num_count >= 5:
-                    next_line = clean_lines[i + 1]
-                    if next_line and is_number_line(next_line):
-                        is_neg = next_line.startswith('-') or next_line.startswith('(')
-                        amount = parse_amount(next_line)
-                        if amount is not None:
-                            if is_neg:
-                                amount = -abs(amount)
-                            data[template_row] = amount
-                            if debug_updates is not None:
-                                debug_updates.append(f"  ✅ {search_term}: ${amount:,.2f} ({num_count} nums) -> Row {template_row}")
-                        else:
-                            data[template_row] = 0.0
-                    else:
-                        data[template_row] = 0.0
-                else:
-                    data[template_row] = 0.0
-                    if debug_updates is not None:
-                        debug_updates.append(f"  ⚠️ {search_term}: $0.00 ({num_count} nums) -> Row {template_row}")
-                
-                found = True
+    # Extract template accounts
+    for y_pos, template_row in ACCOUNT_ROWS.items():
+        # Find the y-key closest to our target
+        closest_y = None
+        for y_key in rows.keys():
+            if abs(y_key - y_pos) <= 2:  # Within 2 points
+                closest_y = y_key
                 break
         
-        if not found:
+        if closest_y is None:
             if debug_updates is not None:
-                debug_updates.append(f"  ❌ {search_term}: NOT FOUND")
+                debug_updates.append(f"  ❌ y={y_pos}: NO WORDS -> Row {template_row}")
             data[template_row] = 0.0
+            continue
+        
+        # Get all words in Mois Courant x-range
+        mois_courant_words = []
+        for x_pos, texts in rows[closest_y].items():
+            if MOIS_COURANT_X_MIN <= x_pos <= MOIS_COURANT_X_MAX:
+                mois_courant_words.extend(texts)
+        
+        if mois_courant_words:
+            # Combine words into a single number string
+            combined = ' '.join(mois_courant_words)
+            # Check for negative
+            is_neg = combined.startswith('-') or combined.startswith('(')
+            amount = parse_amount(combined)
+            if amount is not None:
+                if is_neg:
+                    amount = -abs(amount)
+                data[template_row] = amount
+                if debug_updates is not None:
+                    debug_updates.append(f"  ✅ y={y_pos}: ${amount:,.2f} -> Row {template_row}")
+            else:
+                data[template_row] = 0.0
+                if debug_updates is not None:
+                    debug_updates.append(f"  ⚠️ y={y_pos}: parse fail '{combined}' -> Row {template_row}")
+        else:
+            # No words in Mois Courant column = empty cell
+            data[template_row] = 0.0
+            if debug_updates is not None:
+                debug_updates.append(f"  ⚠️ y={y_pos}: $0.00 (empty) -> Row {template_row}")
     
     # Extract validation accounts
-    for search_term, validation_key in VALIDATION_TERMS.items():
-        if validation_key in data:
+    for y_pos, validation_key in VALIDATION_ROWS.items():
+        closest_y = None
+        for y_key in rows.keys():
+            if abs(y_key - y_pos) <= 2:
+                closest_y = y_key
+                break
+        
+        if closest_y is None:
             continue
         
-        for i, line in enumerate(clean_lines):
-            if search_term in line.lower() and is_account_line(line):
-                if i + 1 < len(clean_lines):
-                    next_line = clean_lines[i + 1]
-                    if next_line and is_number_line(next_line):
-                        amount = parse_amount(next_line)
-                        if amount is not None:
-                            data[validation_key] = amount
-                            if debug_updates is not None:
-                                debug_updates.append(f"  📊 {validation_key} = ${amount:,.2f}")
-                break
+        mois_courant_words = []
+        for x_pos, texts in rows[closest_y].items():
+            if MOIS_COURANT_X_MIN <= x_pos <= MOIS_COURANT_X_MAX:
+                mois_courant_words.extend(texts)
+        
+        if mois_courant_words:
+            combined = ' '.join(mois_courant_words)
+            amount = parse_amount(combined)
+            if amount is not None:
+                data[validation_key] = amount
+                if debug_updates is not None:
+                    debug_updates.append(f"  📊 {validation_key} = ${amount:,.2f}")
     
     if debug_updates is not None:
         template_count = len([k for k in data if not str(k).startswith('_')])
@@ -209,16 +216,15 @@ def fill_template(wb, all_data):
             sheet_name = sn
             break
     if sheet_name is None:
-        return ["❌ Sheet '2-Données historiques' not found"]
+        return ["❌ Sheet not found"]
     
     ws = wb[sheet_name]
     updates = []
-    total_cells = 0
+    total = 0
     
     for month_en, month_data in all_data.items():
         col = MONTH_COLUMN.get(month_en)
         if col is None:
-            updates.append(f"⚠️ Unknown month: {month_en}")
             continue
         
         col_letter = get_column_letter(col)
@@ -227,17 +233,16 @@ def fill_template(wb, all_data):
         for key, amount in month_data.items():
             if str(key).startswith('_'):
                 continue
-            cell = ws.cell(row=key, column=col)
-            cell.value = amount
-            cell.number_format = '#,##0.00'
+            ws.cell(row=key, column=col).value = amount
+            ws.cell(row=key, column=col).number_format = '#,##0.00'
             month_cells += 1
-            total_cells += 1
+            total += 1
             updates.append(f"   ✅ {month_en} ({col_letter}{key}): ${amount:,.2f}")
         
         if month_cells > 0:
-            updates.append(f"📊 {month_en}: {month_cells} cells filled")
+            updates.append(f"📊 {month_en}: {month_cells} cells")
     
-    updates.append(f"\n📊 TOTAL: {total_cells} yellow cells filled (formulas auto-calculate)")
+    updates.append(f"\n📊 TOTAL: {total} yellow cells (formulas auto-calculate)")
     return updates
 
 # ============================================================================
@@ -251,7 +256,7 @@ def validate_results(wb, all_data):
             sheet_name = sn
             break
     if sheet_name is None:
-        return ["⚠️ Cannot validate - sheet not found"]
+        return ["⚠️ Cannot validate"]
     
     results = []
     
@@ -267,19 +272,16 @@ def validate_results(wb, all_data):
         results.append(f"\n📊 {month_en}:")
         
         if pdf_ben is not None and pdf_rev is not None and pdf_exp is not None:
-            expected_net = pdf_rev - pdf_exp
-            diff = abs(pdf_ben - expected_net)
+            expected = pdf_rev - pdf_exp
+            diff = abs(pdf_ben - expected)
             if diff > 0.01:
-                results.append(f"   ⚠️ PDF BÉNÉFICE NET: ${pdf_ben:,.2f}")
-                results.append(f"   📈 PDF Revenue: ${pdf_rev:,.2f} - PDF Expenses: ${pdf_exp:,.2f}")
-                results.append(f"   📊 Expected Net: ${expected_net:,.2f} (diff: ${diff:,.2f})")
+                results.append(f"   ⚠️ PDF: ${pdf_ben:,.2f} | Expected: ${expected:,.2f} (diff: ${diff:,.2f})")
             else:
                 results.append(f"   ✅ BÉNÉFICE NET = ${pdf_ben:,.2f}")
-                results.append(f"   📈 Revenue: ${pdf_rev:,.2f} | Expenses: ${pdf_exp:,.2f} | Net: ${pdf_ben:,.2f}")
         elif pdf_ben is not None:
-            results.append(f"   ⚠️ PDF BÉNÉFICE NET: ${pdf_ben:,.2f} (missing totals)")
+            results.append(f"   ⚠️ PDF Net: ${pdf_ben:,.2f}")
         else:
-            results.append(f"   ⚠️ BÉNÉFICE NET not found in PDF")
+            results.append(f"   ⚠️ Not found")
     
     return results
 
@@ -300,7 +302,7 @@ def fix_excel(excel_file, monthly_files_current=None, monthly_files_previous=Non
               parking_code=None, word_data=None):
     updates = []
     all_data = {}
-    debug_updates = []
+    debug = []
     
     try:
         updates.append("=" * 60)
@@ -313,7 +315,7 @@ def fix_excel(excel_file, monthly_files_current=None, monthly_files_previous=Non
             excel_file.seek(0)
             wb = load_workbook(io.BytesIO(excel_file.read()))
         
-        updates.append(f"✅ Template loaded: {parking_code or 'Unknown'}")
+        updates.append(f"✅ Template: {parking_code or 'Unknown'}")
         
         all_files = []
         if monthly_files_current:
@@ -328,19 +330,18 @@ def fix_excel(excel_file, monthly_files_current=None, monthly_files_previous=Non
             output.seek(0)
             return output.getvalue(), updates
         
-        updates.append(f"\n📁 Processing {len(all_files)} files...")
+        updates.append(f"\n📁 {len(all_files)} files...")
         
         for file_obj in all_files:
             month_en = None
             if hasattr(file_obj, 'name'):
-                name_lower = file_obj.name.lower()
                 for fr, en in MONTH_MAP.items():
-                    if fr in name_lower:
+                    if fr in file_obj.name.lower():
                         month_en = en
                         break
             
             if month_en is None:
-                updates.append(f"⚠️ Could not determine month for {getattr(file_obj, 'name', 'unknown')}")
+                updates.append(f"⚠️ Unknown month")
                 continue
             
             file_obj.seek(0)
@@ -350,45 +351,40 @@ def fix_excel(excel_file, monthly_files_current=None, monthly_files_previous=Non
                 tmp_path = tmp.name
             
             try:
-                debug_updates.append(f"--- {month_en} ---")
-                data = extract_from_pdf(tmp_path, debug_updates)
+                debug.append(f"--- {month_en} ---")
+                data = extract_from_pdf(tmp_path, debug)
                 
                 if data:
-                    display_count = len([k for k in data if not str(k).startswith('_')])
+                    cnt = len([k for k in data if not str(k).startswith('_')])
                     all_data[month_en] = data
-                    pdf_benefice = data.get('_BENEFICE_NET_', 'N/A')
-                    updates.append(f"   ✅ {month_en}: {display_count} accounts | PDF BÉNÉFICE NET: ${pdf_benefice}")
+                    ben = data.get('_BENEFICE_NET_', 'N/A')
+                    updates.append(f"   ✅ {month_en}: {cnt} accounts | PDF Net: ${ben}")
                 else:
-                    updates.append(f"   ❌ {month_en}: No data extracted")
+                    updates.append(f"   ❌ {month_en}: No data")
             finally:
                 if os.path.exists(tmp_path):
                     os.unlink(tmp_path)
         
-        if debug_updates:
-            updates.append("\n🔍 DEBUG:")
-            updates.extend(debug_updates)
+        if debug:
+            updates.append("\n🔍 Debug:")
+            updates.extend(debug)
         
         if all_data:
-            updates.append(f"\n📝 Filling YELLOW cells for {len(all_data)} months...")
-            updates.append("   (Formula rows auto-calculate)")
-            fill_updates = fill_template(wb, all_data)
-            updates.extend(fill_updates)
-            
-            updates.append(f"\n🔍 Validation (PDF BÉNÉFICE NET vs Expected):")
-            validations = validate_results(wb, all_data)
-            updates.extend(validations)
+            updates.append(f"\n📝 Filling {len(all_data)} months...")
+            updates.extend(fill_template(wb, all_data))
+            updates.append(f"\n🔍 Validation:")
+            updates.extend(validate_results(wb, all_data))
         else:
-            updates.append("\n⚠️ No data extracted from any file!")
+            updates.append("\n⚠️ No data!")
         
         output = io.BytesIO()
         wb.save(output)
         output.seek(0)
-        
-        updates.append("\n✅ WORKFLOW COMPLETE")
+        updates.append("\n✅ DONE")
         return output.getvalue(), updates
         
     except Exception as e:
-        updates.append(f"\n❌ ERROR: {str(e)}")
+        updates.append(f"\n❌ {e}")
         import traceback
         updates.append(traceback.format_exc())
         return None, updates
