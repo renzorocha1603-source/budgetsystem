@@ -1,4 +1,4 @@
-# excel_fixer.py - WITH DEBUGGER
+# excel_fixer.py - FINAL VERSION WITH STREAMLIT DEBUG
 import io
 import re
 import pandas as pd
@@ -10,15 +10,6 @@ from openpyxl.utils import get_column_letter
 from datetime import datetime
 import tempfile
 import os
-
-# ============================================================================
-# DEBUG MODE
-# ============================================================================
-DEBUG = True  # Set to False to disable debug output
-
-def debug_print(msg):
-    if DEBUG:
-        print(f"🔍 DEBUG: {msg}")
 
 # ============================================================================
 # PDF TO EXCEL CONVERTER
@@ -77,17 +68,17 @@ def find_page10_in_pdf(doc):
             continue
         if 'BÉNÉFICE NET' not in combined_text and 'BENEFICE NET' not in combined_text:
             continue
-        debug_print(f"Found P&L on page {page_num + 1}")
         return page_num
     return None
 
-def convert_page10_to_excel(file_bytes):
+def convert_page10_to_excel(file_bytes, debug_updates=None):
     try:
         doc = fitz.open(stream=file_bytes, filetype="pdf")
         page10_num = find_page10_in_pdf(doc)
         if page10_num is None:
             doc.close()
-            debug_print("P&L page not found in PDF")
+            if debug_updates is not None:
+                debug_updates.append("🔍 P&L page not found in PDF")
             return None
         page = doc[page10_num]
         words = page.get_text("words")
@@ -147,10 +138,12 @@ def convert_page10_to_excel(file_bytes):
         output = io.BytesIO()
         wb.save(output)
         output.seek(0)
-        debug_print(f"Converter created {excel_row - 2} data rows")
+        if debug_updates is not None:
+            debug_updates.append(f"🔍 Converter: {excel_row - 2} data rows extracted")
         return output
     except Exception as e:
-        debug_print(f"Converter error: {e}")
+        if debug_updates is not None:
+            debug_updates.append(f"🔍 Converter error: {e}")
         return None
 
 # ============================================================================
@@ -184,7 +177,6 @@ def parse_amount(text):
 # ============================================================================
 
 def normalize_text(text):
-    """Remove accents and lowercase for matching"""
     text = str(text).lower().strip()
     text = unicodedata.normalize('NFKD', text).encode('ASCII', 'ignore').decode('ASCII')
     return text
@@ -255,17 +247,18 @@ MONTH_COLUMN = {
 # EXTRACTION FROM CONVERTER EXCEL
 # ============================================================================
 
-def extract_from_converter_excel(excel_bytes):
+def extract_from_converter_excel(excel_bytes, debug_updates=None):
     try:
         df = pd.read_excel(excel_bytes, sheet_name="Page10", engine='openpyxl')
     except Exception as e:
-        debug_print(f"Failed to read converter Excel: {e}")
+        if debug_updates is not None:
+            debug_updates.append(f"🔍 Failed to read converter Excel: {e}")
         return {}
     
     data = {}
     
-    debug_print(f"Converter Excel has {len(df)} rows and {len(df.columns)} columns")
-    debug_print(f"Column headers: {list(df.columns)}")
+    if debug_updates is not None:
+        debug_updates.append(f"🔍 Converter: {len(df)} rows, columns={list(df.columns)[:5]}...")
     
     for row_idx in range(len(df)):
         account_raw = str(df.iloc[row_idx, 0]).strip() if pd.notna(df.iloc[row_idx, 0]) else ""
@@ -274,21 +267,20 @@ def extract_from_converter_excel(excel_bytes):
         if not account_normalized or account_normalized in ['nan', 'none', '']:
             continue
         
-        # Get amount from Column 1 (Mois Courant)
+        # Column 1 = Mois Courant (0-indexed)
         raw_amount = df.iloc[row_idx, 1] if len(df.columns) > 1 else None
         amount = parse_amount(str(raw_amount)) if pd.notna(raw_amount) else None
-        
-        debug_print(f"Row {row_idx}: account='{account_raw[:60]}' normalized='{account_normalized[:60]}' amount={amount}")
         
         if amount is None:
             continue
         
-        # Check for validation accounts first
+        # Check validation accounts first
         found = False
         for search_term, validation_key in VALIDATION_ACCOUNTS.items():
             if search_term in account_normalized:
                 data[validation_key] = amount
-                debug_print(f"  -> VALIDATION: {validation_key} = {amount}")
+                if debug_updates is not None:
+                    debug_updates.append(f"🔍 VALIDATION: {validation_key} = {amount}")
                 found = True
                 break
         
@@ -299,33 +291,47 @@ def extract_from_converter_excel(excel_bytes):
         for search_term, template_row in PDF_TO_TEMPLATE.items():
             if search_term in account_normalized:
                 data[template_row] = amount
-                debug_print(f"  -> TEMPLATE Row {template_row} = {amount}")
                 found = True
                 break
         
-        if not found and amount != 0:
-            debug_print(f"  -> UNMATCHED: '{account_normalized}' = {amount}")
+        if not found and amount != 0 and debug_updates is not None:
+            debug_updates.append(f"🔍 UNMATCHED: '{account_normalized[:50]}' = {amount}")
     
-    debug_print(f"Extracted {len(data)} values: {list(data.keys())}")
+    if debug_updates is not None:
+        validation_keys = [k for k in data if str(k).startswith('_')]
+        template_keys = [k for k in data if not str(k).startswith('_')]
+        debug_updates.append(f"🔍 Extracted: {len(template_keys)} template + {len(validation_keys)} validation accounts")
+        if validation_keys:
+            debug_updates.append(f"🔍 Validation keys: {validation_keys}")
+    
     return data
 
 # ============================================================================
-# TEXT SEARCH FALLBACK
+# MAIN EXTRACTION
 # ============================================================================
 
-def extract_from_text_search(pdf_path):
+def extract_from_pdf(pdf_path, file_bytes=None, debug_updates=None):
+    if file_bytes is None:
+        with open(pdf_path, 'rb') as f:
+            file_bytes = f.read()
+    
+    excel_output = convert_page10_to_excel(file_bytes, debug_updates)
+    if excel_output:
+        data = extract_from_converter_excel(excel_output, debug_updates)
+        if len(data) >= 3:
+            return data
+    
+    if debug_updates is not None:
+        debug_updates.append("🔍 Converter failed, trying text fallback...")
+    
+    # Simple text fallback
     doc = fitz.open(pdf_path)
     full_text = ""
     for page_num in range(len(doc)):
         full_text += doc[page_num].get_text("text") + "\n"
     doc.close()
     
-    if "revenus mensuels" not in full_text.lower() and "revenus journaliers" not in full_text.lower():
-        debug_print("Text search: P&L content not found")
-        return {}
-    
     data = {}
-    
     for search_term, template_row in PDF_TO_TEMPLATE.items():
         idx = full_text.lower().find(search_term)
         if idx == -1:
@@ -333,47 +339,11 @@ def extract_from_text_search(pdf_path):
         after_text = full_text[idx + len(search_term):]
         match = re.search(r'(\d[\d\s]*,\d{2})\s*\$?', after_text[:150])
         if match:
-            before = after_text[:match.start()].strip()
-            is_neg = before.endswith('-') or before.endswith('(')
             amount = parse_amount(match.group(1))
             if amount is not None and amount != 0:
-                if is_neg:
-                    amount = -abs(amount)
                 data[template_row] = amount
     
-    for search_term, validation_key in VALIDATION_ACCOUNTS.items():
-        idx = full_text.lower().find(search_term)
-        if idx == -1:
-            continue
-        after_text = full_text[idx + len(search_term):]
-        match = re.search(r'(\d[\d\s]*,\d{2})\s*\$?', after_text[:150])
-        if match:
-            amount = parse_amount(match.group(1))
-            if amount is not None:
-                data[validation_key] = amount
-    
-    debug_print(f"Text search extracted {len(data)} values")
     return data
-
-# ============================================================================
-# MAIN EXTRACTION
-# ============================================================================
-
-def extract_from_pdf(pdf_path, file_bytes=None):
-    if file_bytes is None:
-        with open(pdf_path, 'rb') as f:
-            file_bytes = f.read()
-    
-    debug_print("Trying coordinate converter...")
-    excel_output = convert_page10_to_excel(file_bytes)
-    if excel_output:
-        data = extract_from_converter_excel(excel_output)
-        if len(data) >= 3:
-            debug_print(f"Converter succeeded with {len(data)} values")
-            return data
-    
-    debug_print("Falling back to text search...")
-    return extract_from_text_search(pdf_path)
 
 # ============================================================================
 # TEMPLATE FILLING
@@ -446,14 +416,6 @@ def validate_results(wb, all_data):
         pdf_total_revenus = month_data.get('_TOTAL_REVENUS_', None)
         pdf_total_expenses = month_data.get('_TOTAL_EXPENSES_', None)
         
-        debug_print(f"Validation for {month_en}:")
-        debug_print(f"  PDF benefice: {pdf_benefice}")
-        debug_print(f"  PDF total revenus: {pdf_total_revenus}")
-        debug_print(f"  PDF total expenses: {pdf_total_expenses}")
-        debug_print(f"  Template revenus nets: {revenus_nets}")
-        debug_print(f"  Template total revenus: {total_revenus}")
-        debug_print(f"  Template total depenses: {total_depenses}")
-        
         results.append(f"\n📊 {month_en}:")
         
         if pdf_benefice is not None and revenus_nets != 0:
@@ -468,21 +430,13 @@ def validate_results(wb, all_data):
                 if pdf_total_expenses is not None:
                     results.append(f"   📉 PDF Total Expenses: ${pdf_total_expenses:,.2f}")
                 results.append(f"   📉 Template Total Expenses: ${total_depenses:,.2f}")
-                revenue_gap = (pdf_total_revenus or 0) - total_revenus
-                expense_gap = (pdf_total_expenses or 0) - total_depenses
-                if abs(revenue_gap) > 0.01:
-                    results.append(f"   🔍 Revenue gap: ${revenue_gap:,.2f} (missing revenue accounts?)")
-                if abs(expense_gap) > 0.01:
-                    results.append(f"   🔍 Expense gap: ${expense_gap:,.2f} (missing expense accounts?)")
             else:
                 results.append(f"   ✅ BÉNÉFICE NET = REVENUS NETS = ${pdf_benefice:,.2f}")
         elif pdf_benefice is not None:
-            results.append(f"   ⚠️ PDF BÉNÉFICE NET: ${pdf_benefice:,.2f}")
-            results.append(f"   ⚠️ Template REVENUS NETS: Formula not calculated yet")
+            results.append(f"   ⚠️ PDF BÉNÉFICE NET: ${pdf_benefice:,.2f} | Template: ${revenus_nets:,.2f}")
         else:
-            results.append(f"   ⚠️ PDF BÉNÉFICE NET not extracted from PDF!")
-            results.append(f"   📊 Template REVENUS NETS: ${revenus_nets:,.2f}")
-            results.append(f"   📊 Revenue: ${total_revenus:,.2f} - Expenses: ${total_depenses:,.2f}")
+            results.append(f"   ⚠️ PDF BÉNÉFICE NET not extracted!")
+            results.append(f"   📊 Template: Rev=${total_revenus:,.2f} Exp=${total_depenses:,.2f} Net=${revenus_nets:,.2f}")
     return results
 
 # ============================================================================
@@ -502,6 +456,8 @@ def fix_excel(excel_file, monthly_files_current=None, monthly_files_previous=Non
               parking_code=None, word_data=None):
     updates = []
     all_data = {}
+    debug_updates = []  # Collect debug messages here
+    
     try:
         updates.append("=" * 60)
         updates.append("🏗️ BUDGET SYSTEM - WORKFLOW")
@@ -541,23 +497,27 @@ def fix_excel(excel_file, monthly_files_current=None, monthly_files_previous=Non
                 tmp.write(file_bytes)
                 tmp_path = tmp.name
             try:
-                debug_print(f"\n{'='*60}")
-                debug_print(f"Processing: {month_en}")
-                debug_print(f"{'='*60}")
-                data = extract_from_pdf(tmp_path, file_bytes)
+                debug_updates.append(f"--- Processing {month_en} ---")
+                data = extract_from_pdf(tmp_path, file_bytes, debug_updates)
                 if data and len(data) >= 3:
                     display_count = len([k for k in data if not str(k).startswith('_')])
                     all_data[month_en] = data
                     pdf_benefice = data.get('_BENEFICE_NET_', 'N/A')
-                    updates.append(f"   ✅ {month_en}: {display_count} accounts extracted | PDF BÉNÉFICE NET: ${pdf_benefice}")
+                    updates.append(f"   ✅ {month_en}: {display_count} accounts | PDF BÉNÉFICE NET: ${pdf_benefice}")
                 else:
-                    updates.append(f"   ❌ {month_en}: No data extracted (got {len(data)} accounts)")
+                    updates.append(f"   ❌ {month_en}: No data (got {len(data)} accounts)")
             finally:
                 if os.path.exists(tmp_path):
                     os.unlink(tmp_path)
+        
+        # Add debug info to updates
+        if debug_updates:
+            updates.append("\n🔍 DEBUG INFO:")
+            updates.extend(debug_updates)
+        
         if all_data:
             updates.append(f"\n📝 Filling YELLOW cells for {len(all_data)} months...")
-            updates.append("   (Formula rows 18, 26, 33, 44, 47, 65, 82, 84, 86 auto-calculate)")
+            updates.append("   (Formula rows auto-calculate)")
             fill_updates = fill_template(wb, all_data)
             updates.extend(fill_updates)
             updates.append(f"\n🔍 Validation (PDF BÉNÉFICE NET vs Template REVENUS NETS):")
