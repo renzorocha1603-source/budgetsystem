@@ -1,4 +1,4 @@
-# excel_fixer.py - EXACT MATCH LINE-BY-LINE (FINAL)
+# excel_fixer.py - COUNT NUMBER LINES APPROACH (FINAL)
 import io
 import re
 import fitz
@@ -40,8 +40,12 @@ def is_number_line(line):
         return False
     return bool(re.match(r'^[\d\s,.\-()$]+$', line))
 
+def is_account_line(line):
+    """Check if a line looks like an account name (contains letters)."""
+    return bool(re.search(r'[a-zA-Zà-üÀ-Ü]', line))
+
 # ============================================================================
-# ACCOUNT SEARCH TERMS - exact line matches
+# ACCOUNT SEARCH TERMS
 # ============================================================================
 
 SEARCH_TERMS = {
@@ -51,12 +55,17 @@ SEARCH_TERMS = {
     "revenus lave-auto": 14,
     "divers": 17,
     "gratuités - mensuels": 20,
+    "gratuités": 20,
     "salaires stationnement": 29,
     "salaire stationnement": 29,
     "uniformes": 32,
     "entretien réparation - nettoyage": 35,
+    "nettoyage": 35,
     "entretien réparation - général": 36,
+    "entretien réparation - general": 36,
+    "entretien stationnement": 36,
     "entretien réparation - equipement": 37,
+    "entretien réparation - équipement": 37,
     "fourn. de stationnement": 41,
     "fournitures stationnement": 41,
     "frais de bureau": 49,
@@ -67,6 +76,7 @@ SEARCH_TERMS = {
     "réclamations": 56,
     "reclamations": 56,
     "assurances cautionnement": 57,
+    "assurances": 57,
     "taxes et permis": 58,
     "honoraires de gestion": 63,
 }
@@ -97,11 +107,19 @@ MONTH_COLUMN = {
 }
 
 # ============================================================================
-# LINE-BY-LINE EXTRACTION WITH EXACT MATCHING
+# EXTRACTION WITH NUMBER LINE COUNTING
 # ============================================================================
 
 def extract_from_pdf(pdf_path, debug_updates=None):
-    """Extract P&L data. Mois Courant = line immediately after account name."""
+    """
+    Extract P&L data by counting number lines after each account.
+    
+    Logic:
+    - Accounts WITH Mois Courant have 8 number lines after them.
+    - Accounts WITHOUT Mois Courant have fewer than 8 number lines.
+    - When fewer than 8 numbers, the missing ones are from the FRONT (empty columns 1-4).
+    - Mois Courant = +1 only if there are 8 numbers.
+    """
     doc = fitz.open(pdf_path)
     full_text = ""
     for page_num in range(len(doc)):
@@ -116,27 +134,35 @@ def extract_from_pdf(pdf_path, debug_updates=None):
     
     data = {}
     
-    # First pass: find EXACT line matches
-    line_map = {}  # search_term -> line_index
-    for i, line in enumerate(clean_lines):
-        line_lower = line.lower()
-        for search_term in SEARCH_TERMS:
-            if search_term not in line_map and line_lower == search_term:
-                line_map[search_term] = i
-                break
-    
-    # Second pass: extract Mois Courant from next line
     for search_term, template_row in SEARCH_TERMS.items():
         if template_row in data:
             continue
         
-        if search_term in line_map:
-            i = line_map[search_term]
+        found = False
+        
+        for i, line in enumerate(clean_lines):
+            line_lower = line.lower()
             
-            if i + 1 < len(clean_lines):
-                next_line = clean_lines[i + 1]
+            # Check if this line is the account name
+            if search_term in line_lower and is_account_line(line) and not is_number_line(line):
+                # Count how many consecutive number lines follow
+                num_count = 0
+                for k in range(1, 15):
+                    if i + k < len(clean_lines):
+                        next_line = clean_lines[i + k]
+                        if next_line and is_number_line(next_line):
+                            num_count += 1
+                        else:
+                            break
+                    else:
+                        break
                 
-                if next_line and is_number_line(next_line):
+                if debug_updates is not None:
+                    debug_updates.append(f"  🔍 {search_term}: {num_count} number lines after")
+                
+                # If 8 numbers, Mois Courant is +1
+                if num_count >= 8:
+                    next_line = clean_lines[i + 1]
                     is_neg = next_line.startswith('-') or next_line.startswith('(')
                     amount = parse_amount(next_line)
                     if amount is not None:
@@ -147,15 +173,17 @@ def extract_from_pdf(pdf_path, debug_updates=None):
                             debug_updates.append(f"  ✅ {search_term}: ${amount:,.2f} -> Row {template_row}")
                     else:
                         data[template_row] = 0.0
-                        if debug_updates is not None:
-                            debug_updates.append(f"  ⚠️ {search_term}: $0.00 (parse fail) -> Row {template_row}")
                 else:
+                    # Fewer than 8 numbers = some columns empty
+                    # Mois Courant is column 1. If num_count < 8, column 1 is empty
                     data[template_row] = 0.0
                     if debug_updates is not None:
-                        debug_updates.append(f"  ⚠️ {search_term}: $0.00 (next: '{next_line[:40]}') -> Row {template_row}")
-            else:
-                data[template_row] = 0.0
-        else:
+                        debug_updates.append(f"  ⚠️ {search_term}: $0.00 (only {num_count}/8 numbers) -> Row {template_row}")
+                
+                found = True
+                break
+        
+        if not found:
             if debug_updates is not None:
                 debug_updates.append(f"  ❌ {search_term}: NOT FOUND")
             data[template_row] = 0.0
@@ -166,7 +194,7 @@ def extract_from_pdf(pdf_path, debug_updates=None):
             continue
         
         for i, line in enumerate(clean_lines):
-            if line.lower() == search_term:
+            if search_term in line.lower() and is_account_line(line):
                 if i + 1 < len(clean_lines):
                     next_line = clean_lines[i + 1]
                     if next_line and is_number_line(next_line):
