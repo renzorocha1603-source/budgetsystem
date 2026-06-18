@@ -1,4 +1,4 @@
-# excel_fixer.py - FINAL WITH ZERO DETECTION
+# excel_fixer.py - LINE-BY-LINE EXTRACTION (FINAL)
 import io
 import re
 import fitz
@@ -83,76 +83,102 @@ MONTH_COLUMN = {
 }
 
 # ============================================================================
-# TEXT SEARCH EXTRACTION
+# LINE-BY-LINE EXTRACTION
 # ============================================================================
 
+def is_number_line(line):
+    """Check if a line contains a Canadian French number"""
+    line = line.strip()
+    if not line:
+        return False
+    # Check if line looks like a number: digits, spaces, comma, optional $ or ()
+    return bool(re.match(r'^[\d\s,.\-()$]+$', line))
+
 def extract_from_pdf(pdf_path, debug_updates=None):
-    """Extract P&L data by searching text. Empty cells = $0.00"""
+    """Extract P&L data line by line. Mois Courant = first number line after account name."""
     doc = fitz.open(pdf_path)
     full_text = ""
     for page_num in range(len(doc)):
         full_text += doc[page_num].get_text("text") + "\n"
     doc.close()
     
+    lines = full_text.split('\n')
     data = {}
+    
+    # Clean lines
+    clean_lines = []
+    for line in lines:
+        line = line.strip()
+        if line:
+            clean_lines.append(line)
+    
+    if debug_updates is not None:
+        debug_updates.append(f"  📄 Total lines: {len(clean_lines)}")
     
     # Extract template accounts
     for search_term, template_row in SEARCH_TERMS.items():
-        idx = full_text.lower().find(search_term)
-        if idx == -1:
+        found = False
+        
+        for i, line in enumerate(clean_lines):
+            line_lower = line.lower()
+            
+            # Check if this line contains the account name
+            if search_term in line_lower:
+                # Look at the NEXT line for Mois Courant
+                if i + 1 < len(clean_lines):
+                    next_line = clean_lines[i + 1].strip()
+                    
+                    # If next line is a number, it's Mois Courant
+                    if is_number_line(next_line):
+                        # Check for negative
+                        is_neg = next_line.startswith('-') or next_line.startswith('(')
+                        amount = parse_amount(next_line)
+                        if amount is not None:
+                            if is_neg:
+                                amount = -abs(amount)
+                            data[template_row] = amount
+                            if debug_updates is not None:
+                                debug_updates.append(f"  ✅ {search_term}: ${amount:,.2f} -> Row {template_row}")
+                            found = True
+                            break
+                        else:
+                            data[template_row] = 0.0
+                            if debug_updates is not None:
+                                debug_updates.append(f"  ⚠️ {search_term}: $0.00 (parse failed) -> Row {template_row}")
+                            found = True
+                            break
+                    else:
+                        # Next line is text (another account name or empty) = Mois Courant is empty
+                        data[template_row] = 0.0
+                        if debug_updates is not None:
+                            debug_updates.append(f"  ⚠️ {search_term}: $0.00 (next line is text: '{next_line[:30]}') -> Row {template_row}")
+                        found = True
+                        break
+                else:
+                    # End of text
+                    data[template_row] = 0.0
+                    found = True
+                    break
+        
+        if not found:
             if debug_updates is not None:
                 debug_updates.append(f"  ❌ {search_term}: NOT FOUND")
             data[template_row] = 0.0
-            continue
-        
-        after_text = full_text[idx + len(search_term):]
-        
-        # First check: is there a 0,00 within 20 characters? (explicit zero)
-        zero_match = re.search(r'(?:^|\s)0,00(?:\s|\$|$)', after_text[:20])
-        
-        if zero_match:
-            data[template_row] = 0.0
-            if debug_updates is not None:
-                debug_updates.append(f"  ⚠️ {search_term}: $0.00 (found 0,00) -> Row {template_row}")
-            continue
-        
-        # Second check: is there any number within 20 characters?
-        match = re.search(r'(\d[\d\s]*,\d{2})\s*\$?', after_text[:20])
-        
-        if match:
-            before = after_text[:match.start()].strip()
-            is_neg = before.endswith('-') or before.endswith('(')
-            amount = parse_amount(match.group(1))
-            if amount is not None and amount != 0:
-                if is_neg:
-                    amount = -abs(amount)
-                data[template_row] = amount
-                if debug_updates is not None:
-                    debug_updates.append(f"  ✅ {search_term}: ${amount:,.2f} -> Row {template_row}")
-            else:
-                data[template_row] = 0.0
-                if debug_updates is not None:
-                    debug_updates.append(f"  ⚠️ {search_term}: $0.00 (zero/parse failed) -> Row {template_row}")
-        else:
-            # No number nearby = empty cell = $0.00
-            data[template_row] = 0.0
-            if debug_updates is not None:
-                debug_updates.append(f"  ⚠️ {search_term}: $0.00 (empty cell) -> Row {template_row}")
     
-    # Extract validation accounts (use wider search since totals are bold/stand out)
+    # Extract validation accounts (totals are bold - look wider)
     for search_term, validation_key in VALIDATION_TERMS.items():
-        idx = full_text.lower().find(search_term)
-        if idx == -1:
-            continue
-        
-        after_text = full_text[idx + len(search_term):]
-        match = re.search(r'(\d[\d\s]*,\d{2})\s*\$?', after_text[:30])
-        if match:
-            amount = parse_amount(match.group(1))
-            if amount is not None:
-                data[validation_key] = amount
-                if debug_updates is not None:
-                    debug_updates.append(f"  📊 {validation_key} = ${amount:,.2f}")
+        for i, line in enumerate(clean_lines):
+            line_lower = line.lower()
+            if search_term in line_lower:
+                if i + 1 < len(clean_lines):
+                    next_line = clean_lines[i + 1].strip()
+                    if is_number_line(next_line):
+                        amount = parse_amount(next_line)
+                        if amount is not None:
+                            data[validation_key] = amount
+                            if debug_updates is not None:
+                                debug_updates.append(f"  📊 {validation_key} = ${amount:,.2f}")
+                break
     
     if debug_updates is not None:
         template_count = len([k for k in data if not str(k).startswith('_')])
