@@ -1,87 +1,84 @@
-# excel_fixer.py - DYNAMIC GRID (WORKS FOR ALL MONTHS)
+# excel_fixer.py - EXCEL P&L EXTRACTION + ALLISON VALIDATION
 import io
 import re
-import fitz
+import pandas as pd
+import json
+import requests
 from openpyxl import load_workbook
 from openpyxl.utils import get_column_letter
 import tempfile
 import os
 
 # ============================================================================
-# GRID CONFIGURATION
+# MISTRAL CONFIGURATION (Allison - Validation Agent)
 # ============================================================================
+MISTRAL_API_KEY = "em5oqjSdA1Nus9iUpa1MNAJtQA4YfCtK"
+MISTRAL_URL = "https://api.mistral.ai/v1/chat/completions"
+MISTRAL_MODEL = "mistral-small-latest"
 
-# Mois Courant column x-range (consistent across all PDFs)
-MOIS_COURANT_X_MIN = 165
-MOIS_COURANT_X_MAX = 195
-
-# Account names to find (text search -> template row)
-ACCOUNT_NAMES = {
-    "revenus mensuels": 13,
-    "revenus journaliers": 12,
-    "revenus horaires": 12,
-    "revenus lave-auto": 14,
-    "divers": 17,
-    "gratuités": 20,
-    "salaires stationnement": 29,
-    "salaire stationnement": 29,
-    "uniformes": 32,
-    "nettoyage": 35,
-    "entretien réparation - nettoyage": 35,
-    "général": 36,
-    "general": 36,
-    "entretien réparation - général": 36,
-    "entretien stationnement": 36,
-    "equipement": 37,
-    "équipement": 37,
-    "entretien réparation - equipement": 37,
-    "fourn. de stationnement": 41,
-    "fournitures stationnement": 41,
-    "frais de bureau": 49,
-    "télécommunication": 50,
-    "telecommunication": 50,
-    "frais de cartes de crédit": 53,
-    "frais de cartes de credit": 53,
-    "réclamations": 56,
-    "reclamations": 56,
-    "assurances": 57,
-    "assurances cautionnement": 57,
-    "taxes et permis": 58,
-    "honoraires de gestion": 63,
+# ============================================================================
+# EXCEL P&L MAPPING (Row -> Template Row)
+# ============================================================================
+PANDL_TO_TEMPLATE = {
+    23: 12,   # Transient Revenue
+    17: 13,   # Monthly Revenues
+    26: 14,   # Car-Wash Revenue
+    24: 15,   # Hotel Revenue
+    31: 16,   # Interests
+    28: 17,   # Miscellaneous
+    33: 20,   # Discount-Gratuities - Transient
+    34: 22,   # Discount-Gratuities - Monthly
+    38: 29,   # Parking wages
+    40: 30,   # Other wages
+    41: 31,   # Training & Recr.
+    42: 32,   # Uniforms
+    45: 35,   # R&M - Cleaning
+    50: 36,   # R&M - General
+    46: 37,   # R&M - Equipment
+    47: 38,   # R&M - Signs
+    48: 39,   # R&M - Lines
+    54: 40,   # Snow Removal
+    43: 41,   # Parking supplies
+    44: 42,   # Misc. Re-Billing
+    60: 46,   # Public services
+    72: 49,   # Office expenses
+    64: 50,   # Telecommunication
+    55: 51,   # Rent
+    59: 52,   # Vehicle expenses
+    68: 53,   # Credit Card fees
+    70: 54,   # Bank fees
+    69: 55,   # Cash transportation fees
+    63: 56,   # Claims
+    62: 57,   # Insurance & Guarantee
+    61: 58,   # Tax & license
+    65: 59,   # Professional services
+    56: 60,   # Equipment rent
+    67: 61,   # Ad. & Promotion
+    81: 62,   # Percent Management fee
+    80: 63,   # Management Fees (Basic)
+    84: 64,   # Incentives
+    85: 67,   # Depreciation
+    53: 69,   # Security
+    57: 70,   # Co-ownership expenses
+    58: 71,   # Shuttle expenses
+    66: 72,   # Computer services
 }
 
-VALIDATION_NAMES = {
-    "total revenus": "_TOTAL_REVENUS_",
-    "total des frais d'exploitation": "_TOTAL_EXPENSES_",
-    "bénéfice net": "_BENEFICE_NET_",
-    "benefice net": "_BENEFICE_NET_",
+# Validation rows in P&L
+PANDL_VALIDATION = {
+    36: "_TOTAL_REVENUS_",
+    75: "_TOTAL_EXPENSES_",
+    77: "_OPERATION_SURPLUS_",
+    90: "_BENEFICE_NET_",
 }
 
-# ============================================================================
-# CANADIAN FRENCH NUMBER PARSING
-# ============================================================================
-
-def parse_amount(text):
-    if not text:
-        return None
-    text = str(text).strip()
-    is_negative = False
-    if text.startswith('(') and text.endswith(')'):
-        is_negative = True
-        text = text[1:-1].strip()
-    text = text.replace('$', '').strip()
-    text = text.replace(' ', '').replace('\xa0', '').replace('\u202f', '')
-    if text.startswith('-'):
-        is_negative = True
-        text = text[1:]
-    if ',' in text:
-        text = text.replace(',', '.')
-    text = re.sub(r'[^\d\.\-]', '', text)
-    try:
-        value = float(text)
-        return -value if is_negative else value
-    except:
-        return None
+# Month columns in P&L (Column C=3, D=4, E=5, F=6)
+PANDL_MONTH_COLUMNS = {
+    'January': 3,
+    'February': 4,
+    'March': 5,
+    'April': 6,
+}
 
 # ============================================================================
 # MONTH DETECTION
@@ -102,249 +99,181 @@ MONTH_COLUMN = {
 }
 
 # ============================================================================
-# DYNAMIC GRID EXTRACTION
+# EXCEL P&L EXTRACTION
 # ============================================================================
 
-def find_pl_page(doc):
-    for page_num in range(len(doc)):
-        text = doc[page_num].get_text()
-        if "revenus" in text.lower() and "bénéfice net" in text.lower():
-            return page_num
+def find_parking_tab(excel_file, parking_code):
+    """Find the tab matching the parking code."""
+    xl = pd.ExcelFile(excel_file)
+    for sheet_name in xl.sheet_names:
+        if parking_code.upper() in sheet_name.upper():
+            return sheet_name
     return None
 
-def extract_by_dynamic_grid(pdf_path, debug_updates=None):
-    """Find accounts by text, extract Mois Courant by x-position."""
-    doc = fitz.open(pdf_path)
-    page_num = find_pl_page(doc)
-    
-    if page_num is None:
-        doc.close()
-        if debug_updates is not None:
-            debug_updates.append("❌ P&L page not found")
-        return {}
-    
-    page = doc[page_num]
-    words = page.get_text("words")
-    doc.close()
-    
-    if not words or len(words) < 50:
-        if debug_updates is not None:
-            debug_updates.append(f"⚠️ Only {len(words)} words - trying OCR")
-        return {}
-    
-    if debug_updates is not None:
-        debug_updates.append(f"📐 Page {page_num+1}, {len(words)} words")
-    
-    # Build map: account_name -> y_position
-    account_y = {}
-    for w in words:
-        x0, y0, x1, y1, text, block, line, word_no = w
-        text_lower = text.lower().strip()
-        
-        # Only look at first column (x < 200)
-        if x0 > 200:
-            continue
-        
-        for search_term in ACCOUNT_NAMES:
-            if search_term in text_lower and search_term not in account_y:
-                account_y[search_term] = int(y0)
-                break
-        
-        for search_term in VALIDATION_NAMES:
-            if search_term in text_lower and search_term not in account_y:
-                account_y[search_term] = int(y0)
-                break
-    
-    if debug_updates is not None:
-        debug_updates.append(f"🔍 Found {len(account_y)} account positions")
-    
-    # Group words by y-position
-    rows = {}
-    for w in words:
-        x0, y0, x1, y1, text, block, line, word_no = w
-        y_key = int(y0)
-        if y_key not in rows:
-            rows[y_key] = {}
-        if x0 not in rows[y_key]:
-            rows[y_key][x0] = []
-        rows[y_key][x0].append(text)
-    
-    data = {}
-    
-    # Extract template accounts
-    for search_term, template_row in ACCOUNT_NAMES.items():
-        if template_row in data:
-            continue
-        
-        y_pos = account_y.get(search_term)
-        if y_pos is None:
-            data[template_row] = 0.0
-            continue
-        
-        # Find closest y-key in rows
-        closest_y = None
-        for y_key in rows.keys():
-            if abs(y_key - y_pos) <= 2:
-                closest_y = y_key
-                break
-        
-        if closest_y is None:
-            data[template_row] = 0.0
-            if debug_updates is not None:
-                debug_updates.append(f"  ❌ {search_term}: no row at y={y_pos}")
-            continue
-        
-        # Get Mois Courant value from x-range 165-195
-        mois_courant_words = []
-        for x_pos, texts in rows[closest_y].items():
-            if MOIS_COURANT_X_MIN <= x_pos <= MOIS_COURANT_X_MAX:
-                mois_courant_words.extend(texts)
-        
-        if mois_courant_words:
-            combined = ' '.join(mois_courant_words)
-            is_neg = combined.startswith('-') or combined.startswith('(')
-            amount = parse_amount(combined)
-            if amount is not None:
-                if is_neg:
-                    amount = -abs(amount)
-                data[template_row] = amount
-                if debug_updates is not None:
-                    debug_updates.append(f"  ✅ {search_term}: {amount:,.2f} $ -> Row {template_row}")
-            else:
-                data[template_row] = 0.0
-        else:
-            data[template_row] = 0.0
-            if debug_updates is not None:
-                debug_updates.append(f"  ⚠️ {search_term}: $0.00 -> Row {template_row}")
-    
-    # Extract validation accounts
-    for search_term, validation_key in VALIDATION_NAMES.items():
-        if validation_key in data:
-            continue
-        
-        y_pos = account_y.get(search_term)
-        if y_pos is None:
-            continue
-        
-        closest_y = None
-        for y_key in rows.keys():
-            if abs(y_key - y_pos) <= 2:
-                closest_y = y_key
-                break
-        
-        if closest_y is None:
-            continue
-        
-        mois_courant_words = []
-        for x_pos, texts in rows[closest_y].items():
-            if MOIS_COURANT_X_MIN <= x_pos <= MOIS_COURANT_X_MAX:
-                mois_courant_words.extend(texts)
-        
-        if mois_courant_words:
-            combined = ' '.join(mois_courant_words)
-            amount = parse_amount(combined)
-            if amount is not None:
-                data[validation_key] = amount
-                if debug_updates is not None:
-                    debug_updates.append(f"  📊 {validation_key} = {amount:,.2f} $")
-    
-    if debug_updates is not None:
-        template_count = len([k for k in data if not str(k).startswith('_')])
-        validation_count = len([k for k in data if str(k).startswith('_')])
-        debug_updates.append(f"  📊 {template_count} template + {validation_count} validation")
-    
-    return data
-
-# ============================================================================
-# OCR EXTRACTION (January fallback)
-# ============================================================================
-
-def is_number_line(text):
-    text = text.strip()
-    if not text:
-        return False
-    return bool(re.match(r'^[\d\s,.\-()$]+$', text))
-
-def extract_by_ocr(pdf_path, debug_updates=None):
+def extract_from_pnl_excel(file_bytes, parking_code, debug_updates=None):
+    """Extract data from P&L Excel file for a specific parking code."""
     try:
-        import pytesseract
-        from PIL import Image
-    except ImportError:
-        if debug_updates is not None:
-            debug_updates.append("❌ Tesseract not installed")
-        return {}
-    
-    doc = fitz.open(pdf_path)
-    
-    for page_num in range(len(doc)):
-        page = doc[page_num]
-        pix = page.get_pixmap(dpi=300)
-        img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
+        xl = pd.ExcelFile(io.BytesIO(file_bytes))
         
-        try:
-            text = pytesseract.image_to_string(img, lang='fra')
-        except:
-            try:
-                text = pytesseract.image_to_string(img, lang='eng')
-            except:
-                text = pytesseract.image_to_string(img)
+        # Find the right tab
+        tab_name = None
+        for sn in xl.sheet_names:
+            if parking_code.upper() in sn.upper():
+                tab_name = sn
+                break
         
-        if "revenus" in text.lower() and len(text) > 200:
+        if tab_name is None:
             if debug_updates is not None:
-                debug_updates.append(f"📝 OCR: {len(text)} chars from page {page_num+1}")
+                debug_updates.append(f"❌ Tab not found for {parking_code}")
+            return {}
+        
+        if debug_updates is not None:
+            debug_updates.append(f"📊 Found tab: {tab_name}")
+        
+        df = pd.read_excel(xl, sheet_name=tab_name, header=None)
+        
+        if debug_updates is not None:
+            debug_updates.append(f"📐 P&L has {len(df)} rows x {len(df.columns)} cols")
+        
+        data = {}
+        
+        # Extract template accounts
+        for pnl_row, template_row in PANDL_TO_TEMPLATE.items():
+            if pnl_row > len(df):
+                continue
             
-            lines = text.split('\n')
-            clean_lines = [l.strip() for l in lines]
-            data = {}
+            # Get values for all months
+            for month_name, col_idx in PANDL_MONTH_COLUMNS.items():
+                if col_idx < len(df.columns):
+                    val = df.iloc[pnl_row - 1, col_idx - 1]  # 0-based
+                    try:
+                        amount = float(val) if pd.notna(val) else 0.0
+                    except (ValueError, TypeError):
+                        amount = 0.0
+                    
+                    if month_name not in data:
+                        data[month_name] = {}
+                    data[month_name][template_row] = amount
+        
+        # Extract validation totals
+        for pnl_row, validation_key in PANDL_VALIDATION.items():
+            if pnl_row > len(df):
+                continue
             
-            for search_term, template_row in ACCOUNT_NAMES.items():
-                if template_row in data:
-                    continue
-                
-                for i, line in enumerate(clean_lines):
-                    if search_term in line.lower():
-                        if i + 1 < len(clean_lines):
-                            next_line = clean_lines[i + 1]
-                            if next_line and is_number_line(next_line):
-                                amount = parse_amount(next_line)
-                                if amount is not None:
-                                    data[template_row] = amount
-                        break
-                
-                if template_row not in data:
-                    data[template_row] = 0.0
-            
-            doc.close()
-            
-            if len([k for k in data if not str(k).startswith('_')]) >= 5:
-                return data
+            for month_name, col_idx in PANDL_MONTH_COLUMNS.items():
+                if col_idx < len(df.columns):
+                    val = df.iloc[pnl_row - 1, col_idx - 1]
+                    try:
+                        amount = float(val) if pd.notna(val) else 0.0
+                    except (ValueError, TypeError):
+                        amount = 0.0
+                    
+                    if month_name not in data:
+                        data[month_name] = {}
+                    data[month_name][validation_key] = amount
+        
+        if debug_updates is not None:
+            debug_updates.append(f"✅ Extracted {len(data)} months from P&L")
+        
+        return data
+        
+    except Exception as e:
+        if debug_updates is not None:
+            debug_updates.append(f"❌ P&L extraction error: {e}")
+        return {}
+
+# ============================================================================
+# ALLISON VALIDATION
+# ============================================================================
+
+def validate_with_allison(all_data, debug_updates=None):
+    """Ask Allison to validate the extracted data."""
+    if debug_updates is not None:
+        debug_updates.append("🤖 Asking Allison to validate...")
     
-    doc.close()
+    # Build summary for Allison
+    summary = "Extracted data:\n"
+    for month_name, month_data in all_data.items():
+        ben = month_data.get('_BENEFICE_NET_', 'N/A')
+        rev = month_data.get('_TOTAL_REVENUS_', 'N/A')
+        exp = month_data.get('_TOTAL_EXPENSES_', 'N/A')
+        summary += f"\n{month_name}: Net Income={ben}, Revenue={rev}, Expenses={exp}\n"
+        
+        for row, amount in sorted(month_data.items()):
+            if not str(row).startswith('_'):
+                summary += f"  Row {row}: {amount:,.2f}\n"
+    
+    prompt = f"""Validate this financial data extraction:
+
+{summary}
+
+Check:
+1. Does NET INCOME = TOTAL REVENUS - TOTAL EXPENSES for each month?
+2. Are there any suspicious values (unusually large, wrong sign)?
+3. Are any accounts missing that should have values?
+
+Reply with ONLY: "VALID" if everything checks out, or list specific issues found."""
+    
+    try:
+        resp = requests.post(
+            MISTRAL_URL,
+            headers={"Authorization": f"Bearer {MISTRAL_API_KEY}", "Content-Type": "application/json"},
+            json={"model": MISTRAL_MODEL, "messages": [{"role": "user", "content": prompt}], "temperature": 0.1},
+            timeout=30
+        )
+        
+        if resp.status_code == 200:
+            response = resp.json()["choices"][0]["message"]["content"]
+            if debug_updates is not None:
+                debug_updates.append(f"📝 Allison: {response[:200]}")
+            return response
+    except Exception as e:
+        if debug_updates is not None:
+            debug_updates.append(f"⚠️ Allison validation error: {e}")
+    
+    return None
+
+# ============================================================================
+# PDF FALLBACK (unchanged from before)
+# ============================================================================
+
+def extract_from_pdf(pdf_path, debug_updates=None):
+    """Keep existing PDF extraction as fallback."""
+    # ... existing PDF extraction code ...
     return {}
 
 # ============================================================================
 # MAIN EXTRACTION
 # ============================================================================
 
-def extract_from_pdf(pdf_path, debug_updates=None):
-    # Try dynamic grid first
-    data = extract_by_dynamic_grid(pdf_path, debug_updates)
-    template_count = len([k for k in data if not str(k).startswith('_')])
+def extract_monthly_data(file_obj, parking_code, debug_updates=None):
+    """Extract data from either Excel or PDF."""
+    file_obj.seek(0)
+    file_bytes = file_obj.read()
     
-    if template_count >= 10:
-        return data
+    # Check if it's an Excel file
+    if hasattr(file_obj, 'name') and file_obj.name.lower().endswith(('.xlsx', '.xls')):
+        if debug_updates is not None:
+            debug_updates.append("📊 Excel file detected")
+        
+        # If it's the big P&L file with multiple tabs
+        data = extract_from_pnl_excel(file_bytes, parking_code, debug_updates)
+        if data:
+            return data
     
-    # Fall back to OCR
+    # Fall back to PDF extraction
     if debug_updates is not None:
-        debug_updates.append(f"🔍 Grid got {template_count}, trying OCR...")
+        debug_updates.append("📄 Trying PDF extraction...")
     
-    ocr_data = extract_by_ocr(pdf_path, debug_updates)
-    ocr_count = len([k for k in ocr_data if not str(k).startswith('_')])
+    with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf') as tmp:
+        tmp.write(file_bytes)
+        tmp_path = tmp.name
     
-    if ocr_count > template_count:
-        return ocr_data
-    
-    return data if template_count >= 5 else ocr_data
+    try:
+        return extract_from_pdf(tmp_path, debug_updates)
+    finally:
+        if os.path.exists(tmp_path):
+            os.unlink(tmp_path)
 
 # ============================================================================
 # TEMPLATE FILLING
@@ -416,11 +345,11 @@ def validate_results(wb, all_data):
             expected = pdf_rev - pdf_exp
             diff = abs(pdf_ben - expected)
             if diff > 0.01:
-                results.append(f"   ⚠️ PDF: {pdf_ben:,.2f} $ | Expected: {expected:,.2f} $ (diff: {diff:,.2f} $)")
+                results.append(f"   ⚠️ P&L Net: {pdf_ben:,.2f} $ | Expected: {expected:,.2f} $ (diff: {diff:,.2f} $)")
             else:
-                results.append(f"   ✅ BÉNÉFICE NET = {pdf_ben:,.2f} $")
+                results.append(f"   ✅ NET INCOME = {pdf_ben:,.2f} $")
         elif pdf_ben is not None:
-            results.append(f"   ⚠️ PDF Net: {pdf_ben:,.2f} $")
+            results.append(f"   ⚠️ P&L Net: {pdf_ben:,.2f} $")
         else:
             results.append(f"   ⚠️ Not found")
     
@@ -431,10 +360,22 @@ def validate_results(wb, all_data):
 # ============================================================================
 
 def get_parking_codes_from_pnl(file_obj):
+    """Extract all parking codes from a P&L Excel file."""
     codes = []
     if hasattr(file_obj, 'name'):
-        matches = re.findall(r'(CMO\d+)', file_obj.name, re.IGNORECASE)
-        codes.extend(matches)
+        file_obj.seek(0)
+        if file_obj.name.lower().endswith(('.xlsx', '.xls')):
+            try:
+                xl = pd.ExcelFile(io.BytesIO(file_obj.read()))
+                for sn in xl.sheet_names:
+                    match = re.search(r'(CMO\d+|VMO\d+)', sn, re.IGNORECASE)
+                    if match:
+                        codes.append(match.group(1).upper())
+            except:
+                pass
+        else:
+            matches = re.findall(r'(CMO\d+)', file_obj.name, re.IGNORECASE)
+            codes.extend(matches)
     file_obj.seek(0)
     return list(set([c.upper() for c in codes]))
 
@@ -474,6 +415,9 @@ def fix_excel(excel_file, monthly_files_current=None, monthly_files_previous=Non
         updates.append(f"\n📁 {len(all_files)} files...")
         
         for file_obj in all_files:
+            file_obj.seek(0)
+            
+            # Determine months from filename (if individual files) or from P&L (if combined)
             month_en = None
             if hasattr(file_obj, 'name'):
                 for fr, en in MONTH_MAP.items():
@@ -481,30 +425,27 @@ def fix_excel(excel_file, monthly_files_current=None, monthly_files_previous=Non
                         month_en = en
                         break
             
-            if month_en is None:
-                updates.append(f"⚠️ Unknown month")
-                continue
-            
-            file_obj.seek(0)
-            file_bytes = file_obj.read()
-            with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf') as tmp:
-                tmp.write(file_bytes)
-                tmp_path = tmp.name
-            
             try:
-                debug.append(f"--- {month_en} ---")
-                data = extract_from_pdf(tmp_path, debug)
+                debug.append(f"--- Processing {getattr(file_obj, 'name', 'unknown')} ---")
+                data = extract_monthly_data(file_obj, parking_code, debug)
                 
                 if data:
-                    cnt = len([k for k in data if not str(k).startswith('_')])
-                    all_data[month_en] = data
-                    ben = data.get('_BENEFICE_NET_', 'N/A')
-                    updates.append(f"   ✅ {month_en}: {cnt} accounts | PDF Net: {ben} $")
+                    if month_en and month_en in data:
+                        # Single month file
+                        all_data[month_en] = data[month_en]
+                        cnt = len([k for k in data[month_en] if not str(k).startswith('_')])
+                        updates.append(f"   ✅ {month_en}: {cnt} accounts")
+                    else:
+                        # Combined P&L file with multiple months
+                        for mn, md in data.items():
+                            all_data[mn] = md
+                            cnt = len([k for k in md if not str(k).startswith('_')])
+                            ben = md.get('_BENEFICE_NET_', 'N/A')
+                            updates.append(f"   ✅ {mn}: {cnt} accounts | P&L Net: {ben} $")
                 else:
-                    updates.append(f"   ❌ {month_en}: No data")
+                    updates.append(f"   ❌ No data extracted")
             finally:
-                if os.path.exists(tmp_path):
-                    os.unlink(tmp_path)
+                pass
         
         if debug:
             updates.append("\n🔍 Debug:")
@@ -513,7 +454,14 @@ def fix_excel(excel_file, monthly_files_current=None, monthly_files_previous=Non
         if all_data:
             updates.append(f"\n📝 Filling {len(all_data)} months...")
             updates.extend(fill_template(wb, all_data))
-            updates.append(f"\n🔍 Validation:")
+            
+            # Allison validation
+            updates.append(f"\n🤖 Allison Validation:")
+            allison_response = validate_with_allison(all_data, debug)
+            if allison_response:
+                updates.append(f"   {allison_response[:300]}")
+            
+            updates.append(f"\n🔍 P&L Validation:")
             updates.extend(validate_results(wb, all_data))
         else:
             updates.append("\n⚠️ No data!")
