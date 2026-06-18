@@ -1,11 +1,22 @@
-# excel_fixer.py - LINE-BY-LINE EXTRACTION (FINAL)
+# excel_fixer.py - COORDINATE-BASED + ALLISON FALLBACK (FINAL)
 import io
 import re
+import json
+import requests
+import pandas as pd
 import fitz
-from openpyxl import load_workbook
+from openpyxl import load_workbook, Workbook
+from openpyxl.styles import Font
 from openpyxl.utils import get_column_letter
 import tempfile
 import os
+
+# ============================================================================
+# MISTRAL CONFIGURATION (for Allison fallback)
+# ============================================================================
+MISTRAL_API_KEY = "em5oqjSdA1Nus9iUpa1MNAJtQA4YfCtK"
+MISTRAL_URL = "https://api.mistral.ai/v1/chat/completions"
+MISTRAL_MODEL = "mistral-small-latest"
 
 # ============================================================================
 # CANADIAN FRENCH NUMBER PARSING
@@ -34,34 +45,50 @@ def parse_amount(text):
         return None
 
 # ============================================================================
-# ACCOUNT SEARCH TERMS
+# ACCOUNT MAPPING
 # ============================================================================
 
-SEARCH_TERMS = {
+# Maps French account names found in PDF to template rows
+ACCOUNT_MAP = {
     "revenus mensuels": 13,
     "revenus journaliers": 12,
+    "revenus horaires": 12,
     "revenus lave-auto": 14,
     "divers": 17,
     "gratuités - mensuels": 20,
+    "gratuités": 20,
     "salaires stationnement": 29,
+    "salaire stationnement": 29,
     "uniformes": 32,
+    "nettoyage": 35,
     "entretien réparation - nettoyage": 35,
     "entretien réparation - général": 36,
+    "entretien réparation - general": 36,
+    "entretien stationnement": 36,
     "entretien réparation - equipement": 37,
+    "entretien réparation - équipement": 37,
     "fourn. de stationnement": 41,
+    "fournitures stationnement": 41,
     "frais de bureau": 49,
     "télécommunication": 50,
+    "telecommunication": 50,
     "frais de cartes de crédit": 53,
+    "frais de cartes de credit": 53,
     "réclamations": 56,
+    "reclamations": 56,
     "assurances cautionnement": 57,
+    "assurances": 57,
     "taxes et permis": 58,
     "honoraires de gestion": 63,
 }
 
-VALIDATION_TERMS = {
-    "bénéfice net": "_BENEFICE_NET_",
+# Validation accounts to capture for comparison
+VALIDATION_ACCOUNTS = {
     "total revenus": "_TOTAL_REVENUS_",
+    "total des revenus": "_TOTAL_REVENUS_",
     "total des frais d'exploitation": "_TOTAL_EXPENSES_",
+    "bénéfice net": "_BENEFICE_NET_",
+    "benefice net": "_BENEFICE_NET_",
 }
 
 # ============================================================================
@@ -83,109 +110,214 @@ MONTH_COLUMN = {
 }
 
 # ============================================================================
-# LINE-BY-LINE EXTRACTION
+# COORDINATE-BASED EXTRACTION (PRIMARY METHOD)
 # ============================================================================
 
-def is_number_line(line):
-    """Check if a line contains a Canadian French number"""
-    line = line.strip()
-    if not line:
-        return False
-    # Check if line looks like a number: digits, spaces, comma, optional $ or ()
-    return bool(re.match(r'^[\d\s,.\-()$]+$', line))
-
-def extract_from_pdf(pdf_path, debug_updates=None):
-    """Extract P&L data line by line. Mois Courant = first number line after account name."""
-    doc = fitz.open(pdf_path)
-    full_text = ""
+def find_pl_page(doc):
+    """Find the P&L page by content markers."""
     for page_num in range(len(doc)):
-        full_text += doc[page_num].get_text("text") + "\n"
-    doc.close()
+        text = doc[page_num].get_text()
+        if "revenus mensuels" in text.lower() and "bénéfice net" in text.lower():
+            return page_num
+    return None
+
+def extract_by_coordinates(pdf_path, debug_updates=None):
+    """Extract P&L data using x-positions to identify Mois Courant column."""
+    doc = fitz.open(pdf_path)
+    page_num = find_pl_page(doc)
     
-    lines = full_text.split('\n')
-    data = {}
+    if page_num is None:
+        doc.close()
+        if debug_updates is not None:
+            debug_updates.append("❌ P&L page not found")
+        return None
     
-    # Clean lines
-    clean_lines = []
-    for line in lines:
-        line = line.strip()
-        if line:
-            clean_lines.append(line)
+    page = doc[page_num]
+    words = page.get_text("words")
+    
+    if not words:
+        doc.close()
+        return None
+    
+    # Calculate column boundaries from x-positions
+    all_x = [w[0] for w in words]
+    min_x = min(all_x)
+    max_x = max(all_x)
+    col_width = (max_x - min_x) / 9
     
     if debug_updates is not None:
-        debug_updates.append(f"  📄 Total lines: {len(clean_lines)}")
+        debug_updates.append(f"📐 X range: {min_x:.0f}-{max_x:.0f}, col width: {col_width:.0f}")
     
-    # Extract template accounts
-    for search_term, template_row in SEARCH_TERMS.items():
-        found = False
-        
-        for i, line in enumerate(clean_lines):
-            line_lower = line.lower()
-            
-            # Check if this line contains the account name
-            if search_term in line_lower:
-                # Look at the NEXT line for Mois Courant
-                if i + 1 < len(clean_lines):
-                    next_line = clean_lines[i + 1].strip()
-                    
-                    # If next line is a number, it's Mois Courant
-                    if is_number_line(next_line):
-                        # Check for negative
-                        is_neg = next_line.startswith('-') or next_line.startswith('(')
-                        amount = parse_amount(next_line)
-                        if amount is not None:
-                            if is_neg:
-                                amount = -abs(amount)
-                            data[template_row] = amount
-                            if debug_updates is not None:
-                                debug_updates.append(f"  ✅ {search_term}: ${amount:,.2f} -> Row {template_row}")
-                            found = True
-                            break
-                        else:
-                            data[template_row] = 0.0
-                            if debug_updates is not None:
-                                debug_updates.append(f"  ⚠️ {search_term}: $0.00 (parse failed) -> Row {template_row}")
-                            found = True
-                            break
-                    else:
-                        # Next line is text (another account name or empty) = Mois Courant is empty
-                        data[template_row] = 0.0
-                        if debug_updates is not None:
-                            debug_updates.append(f"  ⚠️ {search_term}: $0.00 (next line is text: '{next_line[:30]}') -> Row {template_row}")
-                        found = True
-                        break
-                else:
-                    # End of text
-                    data[template_row] = 0.0
-                    found = True
-                    break
-        
-        if not found:
-            if debug_updates is not None:
-                debug_updates.append(f"  ❌ {search_term}: NOT FOUND")
-            data[template_row] = 0.0
+    # Group words by row (y-position rounded to nearest 10)
+    rows = {}
+    for w in words:
+        x0, y0, x1, y1, text, block, line, word_no = w
+        y_key = round(y0 / 10) * 10
+        if y_key not in rows:
+            rows[y_key] = []
+        rows[y_key].append((x0, text))
     
-    # Extract validation accounts (totals are bold - look wider)
-    for search_term, validation_key in VALIDATION_TERMS.items():
-        for i, line in enumerate(clean_lines):
-            line_lower = line.lower()
-            if search_term in line_lower:
-                if i + 1 < len(clean_lines):
-                    next_line = clean_lines[i + 1].strip()
-                    if is_number_line(next_line):
-                        amount = parse_amount(next_line)
-                        if amount is not None:
-                            data[validation_key] = amount
-                            if debug_updates is not None:
-                                debug_updates.append(f"  📊 {validation_key} = ${amount:,.2f}")
+    data = {}
+    
+    for y_key in sorted(rows.keys()):
+        row_words = sorted(rows[y_key], key=lambda item: item[0])
+        
+        # Get account name from column 0
+        account_text = ""
+        for x, text in row_words:
+            col_idx = int((x - min_x) / col_width)
+            if col_idx == 0:
+                account_text += " " + text
+        
+        account_text = account_text.strip().lower()
+        if not account_text:
+            continue
+        
+        # Find matching template row
+        template_row = None
+        for search_term, row_num in ACCOUNT_MAP.items():
+            if search_term in account_text:
+                template_row = row_num
                 break
+        
+        # Check for validation accounts
+        validation_key = None
+        for search_term, vk in VALIDATION_ACCOUNTS.items():
+            if search_term in account_text:
+                validation_key = vk
+                break
+        
+        if template_row is None and validation_key is None:
+            continue
+        
+        # Get Mois Courant value from column 1
+        mois_courant_value = None
+        for x, text in row_words:
+            col_idx = int((x - min_x) / col_width)
+            if col_idx == 1:  # Mois Courant column
+                mois_courant_value = parse_amount(text)
+                break
+        
+        # If no word in column 1, cell is empty → $0.00
+        if mois_courant_value is None:
+            mois_courant_value = 0.0
+        
+        if template_row is not None:
+            data[template_row] = mois_courant_value
+            if debug_updates is not None:
+                debug_updates.append(f"  ✅ {account_text[:40]}: ${mois_courant_value:,.2f} -> Row {template_row}")
+        
+        if validation_key is not None:
+            data[validation_key] = mois_courant_value
+            if debug_updates is not None:
+                debug_updates.append(f"  📊 {validation_key} = ${mois_courant_value:,.2f}")
+    
+    doc.close()
     
     if debug_updates is not None:
         template_count = len([k for k in data if not str(k).startswith('_')])
         validation_count = len([k for k in data if str(k).startswith('_')])
-        debug_updates.append(f"  📊 Total: {template_count} template + {validation_count} validation accounts")
+        debug_updates.append(f"  📊 Total: {template_count} template + {validation_count} validation")
     
-    return data
+    return data if len(data) >= 10 else None
+
+# ============================================================================
+# ALLISON AI FALLBACK
+# ============================================================================
+
+def extract_with_allison(pdf_path, debug_updates=None):
+    """Use Allison (Mistral) to extract P&L data as fallback."""
+    if debug_updates is not None:
+        debug_updates.append("🤖 Trying Allison AI extraction...")
+    
+    try:
+        doc = fitz.open(pdf_path)
+        pdf_text = ""
+        for page_num in range(len(doc)):
+            pdf_text += doc[page_num].get_text("text") + "\n"
+        doc.close()
+        
+        prompt = f"""Extract P&L data from this PDF text. Return ONLY valid JSON.
+
+The table has 9 columns: Account | Mois Courant | Budget | Écart | An Préc | Cumulatif | Cumul budget | Écart cumul | An Préc cumul
+
+We ONLY want Mois Courant (Column 1). The PDF text has numbers on separate lines after each account name. The FIRST number after the account name is Mois Courant. If there's no number on the next line, Mois Courant = 0.
+
+Account mapping (template_row: account_name):
+12: Revenus Journaliers/Horaires
+13: Revenus mensuels
+14: Revenus Lave-Auto
+17: Divers
+20: Gratuités - mensuels
+29: Salaires Stationnement
+32: Uniformes
+35: Nettoyage
+36: Général/Entretien stationnement
+37: Equipement
+41: Fourn. de stationnement
+49: Frais de bureau
+50: Télécommunication
+53: Frais de cartes de crédit
+56: Réclamations
+57: Assurances Cautionnement
+58: Taxes et permis
+63: Honoraires de gestion
+
+Return: {{"12": 71064.17, "13": 43585.46, ...}}
+
+PDF TEXT:
+{pdf_text[:8000]}"""
+        
+        resp = requests.post(
+            MISTRAL_URL,
+            headers={"Authorization": f"Bearer {MISTRAL_API_KEY}", "Content-Type": "application/json"},
+            json={"model": MISTRAL_MODEL, "messages": [{"role": "user", "content": prompt}], "temperature": 0.1},
+            timeout=45
+        )
+        
+        if resp.status_code == 200:
+            response_text = resp.json()["choices"][0]["message"]["content"]
+            # Parse JSON
+            json_match = re.search(r'\{.*\}', response_text, re.DOTALL)
+            if json_match:
+                allison_data = json.loads(json_match.group())
+                data = {}
+                for key_str, amount in allison_data.items():
+                    data[int(key_str)] = float(amount)
+                if debug_updates is not None:
+                    debug_updates.append(f"✅ Allison extracted {len(data)} accounts")
+                return data if len(data) >= 10 else None
+    except Exception as e:
+        if debug_updates is not None:
+            debug_updates.append(f"❌ Allison error: {e}")
+    
+    return None
+
+# ============================================================================
+# MAIN EXTRACTION
+# ============================================================================
+
+def extract_from_pdf(pdf_path, debug_updates=None):
+    """Extract P&L data: coordinates first, Allison fallback."""
+    
+    # Method 1: Coordinate-based extraction
+    if debug_updates is not None:
+        debug_updates.append("🔍 Using coordinate-based extraction...")
+    
+    data = extract_by_coordinates(pdf_path, debug_updates)
+    if data and len(data) >= 10:
+        return data
+    
+    # Method 2: Allison AI
+    data = extract_with_allison(pdf_path, debug_updates)
+    if data and len(data) >= 10:
+        return data
+    
+    # Method 3: Return empty
+    if debug_updates is not None:
+        debug_updates.append("❌ All extraction methods failed")
+    
+    return {}
 
 # ============================================================================
 # TEMPLATE FILLING
@@ -216,7 +348,6 @@ def fill_template(wb, all_data):
         for key, amount in month_data.items():
             if str(key).startswith('_'):
                 continue
-            
             cell = ws.cell(row=key, column=col)
             cell.value = amount
             cell.number_format = '#,##0.00'
