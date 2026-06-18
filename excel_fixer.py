@@ -1,4 +1,4 @@
-# excel_fixer.py - LINE-BY-LINE WITH EMPTY LINE DETECTION (FINAL)
+# excel_fixer.py - EXACT MATCH LINE-BY-LINE (FINAL)
 import io
 import re
 import fitz
@@ -34,15 +34,14 @@ def parse_amount(text):
         return None
 
 def is_number_line(line):
-    """Check if a line contains a Canadian French number (and nothing else)."""
+    """Check if a line contains ONLY a Canadian French number."""
     line = line.strip()
     if not line:
         return False
-    # Pattern: digits, spaces, comma, dot, minus, parentheses, dollar sign
     return bool(re.match(r'^[\d\s,.\-()$]+$', line))
 
 # ============================================================================
-# ACCOUNT SEARCH TERMS
+# ACCOUNT SEARCH TERMS - exact line matches
 # ============================================================================
 
 SEARCH_TERMS = {
@@ -52,17 +51,12 @@ SEARCH_TERMS = {
     "revenus lave-auto": 14,
     "divers": 17,
     "gratuités - mensuels": 20,
-    "gratuités": 20,
     "salaires stationnement": 29,
     "salaire stationnement": 29,
     "uniformes": 32,
     "entretien réparation - nettoyage": 35,
-    "nettoyage": 35,
     "entretien réparation - général": 36,
-    "entretien réparation - general": 36,
-    "entretien stationnement": 36,
     "entretien réparation - equipement": 37,
-    "entretien réparation - équipement": 37,
     "fourn. de stationnement": 41,
     "fournitures stationnement": 41,
     "frais de bureau": 49,
@@ -73,7 +67,6 @@ SEARCH_TERMS = {
     "réclamations": 56,
     "reclamations": 56,
     "assurances cautionnement": 57,
-    "assurances": 57,
     "taxes et permis": 58,
     "honoraires de gestion": 63,
 }
@@ -82,7 +75,6 @@ VALIDATION_TERMS = {
     "bénéfice net": "_BENEFICE_NET_",
     "benefice net": "_BENEFICE_NET_",
     "total revenus": "_TOTAL_REVENUS_",
-    "total des revenus": "_TOTAL_REVENUS_",
     "total des frais d'exploitation": "_TOTAL_EXPENSES_",
 }
 
@@ -105,11 +97,11 @@ MONTH_COLUMN = {
 }
 
 # ============================================================================
-# LINE-BY-LINE EXTRACTION (KEEPS EMPTY LINES)
+# LINE-BY-LINE EXTRACTION WITH EXACT MATCHING
 # ============================================================================
 
 def extract_from_pdf(pdf_path, debug_updates=None):
-    """Extract P&L data line by line. Mois Courant = line immediately after account name."""
+    """Extract P&L data. Mois Courant = line immediately after account name."""
     doc = fitz.open(pdf_path)
     full_text = ""
     for page_num in range(len(doc)):
@@ -117,76 +109,64 @@ def extract_from_pdf(pdf_path, debug_updates=None):
     doc.close()
     
     lines = full_text.split('\n')
-    
-    # Keep ALL lines including empty ones (empty lines = empty cells)
     clean_lines = [line.strip() for line in lines]
     
     if debug_updates is not None:
-        debug_updates.append(f"  📄 Total lines: {len(clean_lines)}")
+        debug_updates.append(f"  📄 {len(clean_lines)} lines")
     
     data = {}
     
-    # Extract template accounts
+    # First pass: find EXACT line matches
+    line_map = {}  # search_term -> line_index
+    for i, line in enumerate(clean_lines):
+        line_lower = line.lower()
+        for search_term in SEARCH_TERMS:
+            if search_term not in line_map and line_lower == search_term:
+                line_map[search_term] = i
+                break
+    
+    # Second pass: extract Mois Courant from next line
     for search_term, template_row in SEARCH_TERMS.items():
         if template_row in data:
-            continue  # Already found
+            continue
         
-        found = False
-        
-        for i, line in enumerate(clean_lines):
-            line_lower = line.lower()
+        if search_term in line_map:
+            i = line_map[search_term]
             
-            # Check if this line CONTAINS the account name (exact match on the line)
-            if search_term == line_lower or search_term in line_lower:
-                # Look at the VERY NEXT line (line +1)
-                if i + 1 < len(clean_lines):
-                    next_line = clean_lines[i + 1]
-                    
-                    # If next line is a number → it's Mois Courant
-                    if next_line and is_number_line(next_line):
-                        is_neg = next_line.startswith('-') or next_line.startswith('(')
-                        amount = parse_amount(next_line)
-                        if amount is not None:
-                            if is_neg:
-                                amount = -abs(amount)
-                            data[template_row] = amount
-                            if debug_updates is not None:
-                                debug_updates.append(f"  ✅ {search_term}: ${amount:,.2f} -> Row {template_row}")
-                        else:
-                            data[template_row] = 0.0
-                            if debug_updates is not None:
-                                debug_updates.append(f"  ⚠️ {search_term}: $0.00 (parse failed: '{next_line}') -> Row {template_row}")
+            if i + 1 < len(clean_lines):
+                next_line = clean_lines[i + 1]
+                
+                if next_line and is_number_line(next_line):
+                    is_neg = next_line.startswith('-') or next_line.startswith('(')
+                    amount = parse_amount(next_line)
+                    if amount is not None:
+                        if is_neg:
+                            amount = -abs(amount)
+                        data[template_row] = amount
+                        if debug_updates is not None:
+                            debug_updates.append(f"  ✅ {search_term}: ${amount:,.2f} -> Row {template_row}")
                     else:
-                        # Next line is empty or text → Mois Courant = $0.00
                         data[template_row] = 0.0
                         if debug_updates is not None:
-                            if next_line:
-                                debug_updates.append(f"  ⚠️ {search_term}: $0.00 (next line is text: '{next_line[:40]}') -> Row {template_row}")
-                            else:
-                                debug_updates.append(f"  ⚠️ {search_term}: $0.00 (next line empty) -> Row {template_row}")
-                    
-                    found = True
-                    break
+                            debug_updates.append(f"  ⚠️ {search_term}: $0.00 (parse fail) -> Row {template_row}")
                 else:
-                    # End of file
                     data[template_row] = 0.0
-                    found = True
-                    break
-        
-        if not found:
+                    if debug_updates is not None:
+                        debug_updates.append(f"  ⚠️ {search_term}: $0.00 (next: '{next_line[:40]}') -> Row {template_row}")
+            else:
+                data[template_row] = 0.0
+        else:
             if debug_updates is not None:
-                debug_updates.append(f"  ❌ {search_term}: NOT FOUND in text")
+                debug_updates.append(f"  ❌ {search_term}: NOT FOUND")
             data[template_row] = 0.0
     
-    # Extract validation accounts (totals)
+    # Extract validation accounts
     for search_term, validation_key in VALIDATION_TERMS.items():
         if validation_key in data:
             continue
         
         for i, line in enumerate(clean_lines):
-            line_lower = line.lower()
-            
-            if search_term in line_lower:
+            if line.lower() == search_term:
                 if i + 1 < len(clean_lines):
                     next_line = clean_lines[i + 1]
                     if next_line and is_number_line(next_line):
@@ -200,7 +180,7 @@ def extract_from_pdf(pdf_path, debug_updates=None):
     if debug_updates is not None:
         template_count = len([k for k in data if not str(k).startswith('_')])
         validation_count = len([k for k in data if str(k).startswith('_')])
-        debug_updates.append(f"  📊 Total: {template_count} template + {validation_count} validation accounts")
+        debug_updates.append(f"  📊 {template_count} template + {validation_count} validation")
     
     return data
 
@@ -233,7 +213,6 @@ def fill_template(wb, all_data):
         for key, amount in month_data.items():
             if str(key).startswith('_'):
                 continue
-            
             cell = ws.cell(row=key, column=col)
             cell.value = amount
             cell.number_format = '#,##0.00'
