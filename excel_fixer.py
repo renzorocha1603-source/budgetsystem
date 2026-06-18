@@ -1,74 +1,63 @@
-# excel_fixer.py - WITH DIAGNOSTIC MODE
-"""
-Extracts P&L data from PDFs and fills CMO111.xlsx template
-Set DIAGNOSTIC_MODE = True to debug extraction
-"""
+# excel_fixer.py - FINAL COMPLETE VERSION
 import fitz
-import pandas as pd
 import os
 import re
 from io import BytesIO
 import tempfile
-from pathlib import Path
 from openpyxl import load_workbook
 from openpyxl.utils import get_column_letter
+import pytesseract
+from PIL import Image
 
 # ============================================
-# CONFIGURATION
+# PDF P&L PAGE - FIXED 28-ROW LAYOUT (SAME FOR ALL MONTHS)
 # ============================================
-DIAGNOSTIC_MODE = True  # Set to True to see detailed extraction debug
-
-# PDF P&L PAGE - SPATIAL MAPPING
-COLUMN_WIDTHS = [0.22, 0.10, 0.10, 0.10, 0.10, 0.10, 0.10, 0.10, 0.10]
+NUM_ROWS = 28
 AMOUNT_COL = 1
-NUM_ROWS = 27
-TABLE_TOP = 0.08
+TABLE_TOP = 0.06
 TABLE_BOTTOM = 0.95
 TABLE_LEFT = 0.03
 TABLE_RIGHT = 0.97
+COLUMN_WIDTHS = [0.25, 0.10, 0.10, 0.10, 0.10, 0.10, 0.10, 0.10, 0.10]
 
-PAGE_MARKERS = [
-    "1981 McGill College",
-    "Revenus mensuels",
-    "BÉNÉFICE NET",
-    "Mois Courant"
-]
+PAGE_MARKERS = ["1981 McGill College", "Revenus mensuels", "BÉNÉFICE NET", "Mois Courant"]
 
-# PDF Row -> French Account Name
+# PDF Row -> Account Name (IDENTICAL for ALL months)
 PDF_ROW_MAP = {
-    1: 'Revenus mensuels',
-    2: 'Revenus Journaliers',
-    3: 'Revenus Lave-Auto',
-    4: 'Divers',
-    5: 'Revenus de stationnement',
-    6: 'Gratuités - mensuels',
-    7: 'TOTAL REVENUS',
-    10: 'Salaires Stationnement',
-    11: 'Uniformes',
-    12: 'Fourn. de stationnement',
-    13: 'Entretien réparation - Nettoyage',
-    14: 'Entretien réparation - Equipement',
-    15: 'Entretien réparation - Général',
-    16: 'Taxes et permis',
-    17: 'Assurances Cautionnement',
-    18: 'Réclamations',
-    19: 'Télécommunication',
-    20: 'Frais de cartes de crédit',
-    21: 'Frais de bureau',
-    22: "Total des frais d'exploitation",
-    23: "RÉSULTAT D'EXPLOITATION",
-    25: 'Honoraires de gestion',
-    26: 'Total des autres frais',
-    27: 'BÉNÉFICE NET'
+    2: 'Revenus mensuels',
+    3: 'Revenus Journaliers', 
+    4: 'Revenus Lave-Auto',
+    5: 'Divers',
+    7: 'Gratuités - mensuels',
+    8: 'TOTAL REVENUS',
+    11: 'Salaires Stationnement',
+    12: 'Uniformes',
+    13: 'Fourn. de stationnement',
+    14: 'Entretien réparation - Nettoyage',
+    15: 'Entretien réparation - Equipement',
+    16: 'Entretien réparation - Général',
+    17: 'Taxes et permis',
+    18: 'Assurances Cautionnement',
+    19: 'Réclamations',
+    20: 'Télécommunication',
+    21: 'Frais de cartes de crédit',
+    22: 'Frais de bureau',
+    23: "Total des frais d'exploitation",
+    24: "RÉSULTAT D'EXPLOITATION",
+    26: 'Honoraires de gestion',
+    28: 'BÉNÉFICE NET'
 }
 
-# TEMPLATE MAPPING
+# ============================================
+# TEMPLATE "2-Données historiques" MAPPING
+# ============================================
 MONTH_COLUMN = {
     'Janvier': 2, 'Février': 3, 'Mars': 4, 'Avril': 5,
     'Mai': 6, 'Juin': 7, 'Juillet': 8, 'Août': 9,
     'Septembre': 10, 'Octobre': 11, 'Novembre': 12, 'Décembre': 13
 }
 
+# EXACT mapping: PDF account -> Template row
 PDF_TO_TEMPLATE = {
     'Revenus mensuels': 13,
     'Revenus Journaliers': 12,
@@ -124,87 +113,23 @@ def extract_month_from_filename(file_obj):
             return value
     return None
 
-def find_pl_page(pdf_path):
-    """Find P&L page by content markers"""
+# ============================================
+# DIGITAL PDF EXTRACTION (Feb-Dec)
+# ============================================
+
+def find_pl_page_digital(pdf_path):
+    """Find P&L page in digital PDF by content markers"""
     doc = fitz.open(pdf_path)
     for i in range(len(doc)):
         text = doc[i].get_text()
-        matches = sum(1 for m in PAGE_MARKERS if m.lower() in text.lower())
-        if matches >= 3:
-            if DIAGNOSTIC_MODE:
-                print(f"   📄 P&L found on page {i+1} ({matches}/4 markers)")
+        if all(m.lower() in text.lower() for m in PAGE_MARKERS):
             return doc, i
-    
-    if DIAGNOSTIC_MODE:
-        print(f"   ❌ P&L NOT FOUND - checking all pages...")
-        for i in range(len(doc)):
-            text = doc[i].get_text()
-            if "Revenus" in text or "DÉPENSES" in text:
-                print(f"   Page {i+1} has financial content but missing markers")
-                print(f"   First 300 chars: {text[:300]}")
-    
     doc.close()
     return None, None
 
-def extract_table_from_page(page, pdf_name=""):
-    """Extract 27 rows x 9 columns from P&L page"""
+def extract_table_digital(page):
+    """Extract 28 rows x 9 columns from digital P&L page"""
     w, h = page.rect.width, page.rect.height
-    
-    if DIAGNOSTIC_MODE:
-        print(f"\n   {'='*50}")
-        print(f"   DIAGNOSTIC: {pdf_name}")
-        print(f"   Page size: {w:.0f} x {h:.0f}")
-        print(f"   Table Y: {h*TABLE_TOP:.0f} to {h*TABLE_BOTTOM:.0f}")
-        print(f"   Row height: {(h*TABLE_BOTTOM - h*TABLE_TOP)/27:.1f}")
-        print(f"   {'='*50}")
-        
-        # Show full page text
-        full_text = page.get_text()
-        print(f"\n   FULL PAGE TEXT (first 2000 chars):")
-        print(f"   {full_text[:2000]}")
-        print(f"\n   {'='*50}")
-        
-        # Test multiple Y offsets
-        for y_off in [0.05, 0.06, 0.07, 0.08, 0.09, 0.10, 0.12]:
-            top = h * y_off
-            row_h = (h * TABLE_BOTTOM - top) / NUM_ROWS
-            left = w * TABLE_LEFT
-            right = w * TABLE_RIGHT
-            tw = right - left
-            cw = [0.22, 0.10, 0.10, 0.10, 0.10, 0.10, 0.10, 0.10, 0.10]
-            
-            print(f"\n   --- Testing Y offset: {y_off} (top={top:.0f}, row_h={row_h:.1f}) ---")
-            
-            for row_idx in range(NUM_ROWS):
-                y = top + row_idx * row_h
-                x = left
-                
-                w0 = cw[0] * tw
-                acc = page.get_text("text", clip=fitz.Rect(x, y, x+w0, y+row_h)).strip()
-                acc = ' '.join(acc.split())
-                
-                x += w0
-                w1 = cw[1] * tw
-                amt = page.get_text("text", clip=fitz.Rect(x, y, x+w1, y+row_h)).strip()
-                amt = ' '.join(amt.split())
-                
-                if acc:  # Only show rows with content
-                    marker = ""
-                    if "TOTAL REVENUS" in acc.upper():
-                        marker = " ⭐ TOTAL REVENUS"
-                    elif "BÉNÉFICE NET" in acc.upper():
-                        marker = " ⭐ BÉNÉFICE NET"
-                    elif "Total des frais" in acc:
-                        marker = " ⭐ TOTAL EXPENSES"
-                    elif "RÉSULTAT" in acc.upper():
-                        marker = " ⭐ OPERATING SURPLUS"
-                    
-                    print(f"   Row {row_idx+1:2d}: [{acc[:45]:45s}] [${amt[:20]:20s}]{marker}")
-            
-            # Check if we found key accounts at this offset
-            print()
-    
-    # Use the default coordinates
     top = h * TABLE_TOP
     bottom = h * TABLE_BOTTOM
     left = w * TABLE_LEFT
@@ -224,42 +149,123 @@ def extract_table_from_page(page, pdf_name=""):
             row_data.append(' '.join(text.strip().split()))
             x += cell_w
         data.append(row_data)
+    return data
+
+def extract_from_digital_pdf(pdf_path):
+    """Extract data from digital PDF"""
+    doc, page_num = find_pl_page_digital(pdf_path)
+    if doc is None:
+        return None
     
-    if DIAGNOSTIC_MODE:
-        print(f"\n   {'='*50}")
-        print(f"   EXTRACTED DATA (using Y offset {TABLE_TOP}):")
-        print(f"   {'='*50}")
-        for row_idx, row in enumerate(data):
-            if row[0] or row[1]:
-                print(f"   Row {row_idx+1:2d}: [{row[0][:45]:45s}] [${row[1][:20]:20s}]")
+    page = doc[page_num]
+    table = extract_table_digital(page)
+    doc.close()
+    
+    return parse_table_data(table)
+
+# ============================================
+# IMAGE PDF EXTRACTION (January - OCR)
+# ============================================
+
+def find_pl_page_ocr(pdf_path):
+    """Find P&L page in image PDF using OCR"""
+    doc = fitz.open(pdf_path)
+    
+    for i in range(len(doc)):
+        page = doc[i]
+        pix = page.get_pixmap(dpi=300)
+        img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
+        
+        # OCR with French language
+        try:
+            text = pytesseract.image_to_string(img, lang='fra')
+        except:
+            text = pytesseract.image_to_string(img)
+        
+        # Check for key markers
+        matches = sum(1 for m in PAGE_MARKERS if m.lower() in text.lower())
+        if matches >= 3:
+            return doc, i, text
+    
+    doc.close()
+    return None, None, None
+
+def extract_table_ocr(ocr_text):
+    """Parse OCR text into 28-row table structure"""
+    lines = ocr_text.split('\n')
+    
+    # Find table start (look for "Revenus mensuels" or "REVENUS DE STATIONNEMENT")
+    table_start = 0
+    for i, line in enumerate(lines):
+        if any(term in line.lower() for term in ['revenus mensuels', 'revenus de stationnement']):
+            table_start = i
+            break
+    
+    # Extract 28 lines from table start
+    table_lines = lines[table_start:table_start + 30]  # Get extra lines to be safe
+    
+    data = []
+    for i in range(NUM_ROWS):
+        if i < len(table_lines):
+            # Split line into columns by whitespace
+            parts = table_lines[i].split()
+            
+            # First part is account name (may be multiple words)
+            # Last parts are numbers
+            account_parts = []
+            number_parts = []
+            
+            for part in parts:
+                # Check if part looks like a number
+                if re.match(r'^-?[\d\s,\.]+$', part.replace('(', '').replace(')', '')):
+                    number_parts.append(part)
+                else:
+                    account_parts.append(part)
+            
+            account = ' '.join(account_parts)
+            row_data = [account] + number_parts[:8]  # Account + 8 number columns
+            
+            # Pad to 9 columns
+            while len(row_data) < 9:
+                row_data.append('')
+        else:
+            row_data = [''] * 9
+        
+        data.append(row_data)
     
     return data
 
-def extract_from_pdf(pdf_path):
-    """Extract financial data from PDF"""
-    doc, page_num = find_pl_page(pdf_path)
+def extract_from_image_pdf(pdf_path):
+    """Extract data from image-based PDF (January) using OCR"""
+    doc, page_num, ocr_text = find_pl_page_ocr(pdf_path)
     if doc is None:
-        return {}
+        return None
     
-    page = doc[page_num]
-    pdf_name = os.path.basename(pdf_path)
-    table = extract_table_from_page(page, pdf_name)
+    table = extract_table_ocr(ocr_text)
     doc.close()
     
+    return parse_table_data(table)
+
+# ============================================
+# COMMON TABLE PARSING
+# ============================================
+
+def parse_table_data(table):
+    """Parse extracted table into {account: amount} dictionary"""
     data = {}
+    
     for row_num, account_name in PDF_ROW_MAP.items():
         if row_num <= len(table):
-            raw = table[row_num - 1][AMOUNT_COL]
+            raw = table[row_num - 1][AMOUNT_COL] if len(table[row_num - 1]) > AMOUNT_COL else ''
             amount = safe_float(raw)
             if amount is not None:
                 data[account_name] = amount
-                if DIAGNOSTIC_MODE:
-                    print(f"   ✅ Extracted: {account_name} = ${amount:,.2f}")
-            else:
-                if DIAGNOSTIC_MODE:
-                    print(f"   ❌ Failed: {account_name} - raw='{raw}'")
     
     return data
+
+# ============================================
+# TEMPLATE FILLING
+# ============================================
 
 def fill_template(wb, all_data):
     """Fill '2-Données historiques' sheet"""
@@ -268,11 +274,6 @@ def fill_template(wb, all_data):
         if 'données' in sn.lower() or 'historique' in sn.lower():
             sheet_name = sn
             break
-    if sheet_name is None:
-        for sn in wb.sheetnames:
-            if wb[sn].max_row >= 86:
-                sheet_name = sn
-                break
     if sheet_name is None:
         sheet_name = wb.sheetnames[0]
     
@@ -283,7 +284,6 @@ def fill_template(wb, all_data):
     for month_name, pdf_data in all_data.items():
         col = MONTH_COLUMN.get(month_name)
         if col is None:
-            updates.append(f"⚠️ Unknown month: {month_name}")
             continue
         
         month_cells = 0
@@ -309,7 +309,7 @@ def fill_template(wb, all_data):
     return updates
 
 def validate_template(wb, all_data):
-    """Validate BÉNÉFICE NET = REVENUS NETS"""
+    """Validate BÉNÉFICE NET = REVENUS NETS (Template Row 86)"""
     sheet_name = None
     for sn in wb.sheetnames:
         if 'données' in sn.lower() or 'historique' in sn.lower():
@@ -326,62 +326,49 @@ def validate_template(wb, all_data):
         if col is None:
             continue
         
-        benefice_net_pdf = pdf_data.get('BÉNÉFICE NET')
-        revenus_nets_template = ws.cell(row=86, column=col).value
+        benefice_net = pdf_data.get('BÉNÉFICE NET')
+        template_val = ws.cell(row=86, column=col).value
         
-        if benefice_net_pdf is not None and revenus_nets_template is not None:
-            diff = abs(benefice_net_pdf - revenus_nets_template)
+        if benefice_net is not None and template_val is not None:
+            diff = abs(benefice_net - template_val)
             if diff > 0.01:
-                results.append(
-                    f"⚠️ {month_name}: BÉNÉFICE NET (${benefice_net_pdf:,.2f}) ≠ "
-                    f"REVENUS NETS (${revenus_nets_template:,.2f}) - Diff: ${diff:,.2f}"
-                )
+                results.append(f"⚠️ {month_name}: BÉNÉFICE NET ${benefice_net:,.2f} ≠ REVENUS NETS ${template_val:,.2f}")
             else:
-                results.append(f"✅ {month_name}: BÉNÉFICE NET = REVENUS NETS = ${benefice_net_pdf:,.2f}")
-        elif benefice_net_pdf is None:
+                results.append(f"✅ {month_name}: BÉNÉFICE NET = REVENUS NETS = ${benefice_net:,.2f}")
+        elif benefice_net is None:
             results.append(f"⚠️ {month_name}: BÉNÉFICE NET not extracted from PDF")
-        elif revenus_nets_template is None:
-            results.append(f"⚠️ {month_name}: REVENUS NETS not found in template")
     
     return results
 
+# ============================================
+# MAIN FUNCTIONS
+# ============================================
+
 def get_parking_codes_from_pnl(file_obj):
-    """Extract parking codes"""
+    """Extract parking codes from uploaded file"""
     codes = []
     if hasattr(file_obj, 'name'):
         matches = re.findall(r'(CMO\d+)', file_obj.name, re.IGNORECASE)
         codes.extend(matches)
-        file_obj.seek(0)
-        if file_obj.name.lower().endswith('.pdf'):
-            try:
-                with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf') as tmp:
-                    tmp.write(file_obj.read())
-                    tmp_path = tmp.name
-                doc = fitz.open(tmp_path)
-                for page in doc:
-                    text = page.get_text()
-                    found = re.findall(r'(CMO\d+)', text, re.IGNORECASE)
-                    codes.extend(found)
-                doc.close()
-                os.unlink(tmp_path)
-            except:
-                pass
     file_obj.seek(0)
     return list(set([c.upper() for c in codes]))
 
 def fix_excel(excel_file, monthly_files_current=None, monthly_files_previous=None,
               budget_initial_file=None, fiche_stationnement_file=None,
               parking_code=None, word_data=None):
-    """MAIN FUNCTION"""
+    """
+    MAIN FUNCTION - Extract P&L data from PDFs and fill template.
+    Handles both digital PDFs (Feb-Dec) and image PDFs (January).
+    """
     updates = []
     all_data = {}
     
     try:
         updates.append("=" * 60)
         updates.append("🏗️ BUDGET SYSTEM - WORKFLOW")
-        updates.append(f"   Diagnostic Mode: {'ON' if DIAGNOSTIC_MODE else 'OFF'}")
         updates.append("=" * 60)
         
+        # Load template
         if isinstance(excel_file, bytes):
             wb = load_workbook(BytesIO(excel_file))
         else:
@@ -390,64 +377,58 @@ def fix_excel(excel_file, monthly_files_current=None, monthly_files_previous=Non
         
         updates.append(f"✅ Template loaded: {parking_code or 'Unknown'}")
         
+        # Process all monthly files
+        all_files = []
         if monthly_files_current:
-            updates.append(f"\n📁 Current year: {len(monthly_files_current)} files")
-            for file_obj in monthly_files_current:
-                month = extract_month_from_filename(file_obj)
-                file_obj.seek(0)
-                
-                with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf') as tmp:
-                    tmp.write(file_obj.read())
-                    tmp_path = tmp.name
-                
-                try:
-                    if DIAGNOSTIC_MODE:
-                        print(f"\n{'='*80}")
-                        print(f"PROCESSING: {month} - {file_obj.name}")
-                        print(f"{'='*80}")
-                    
-                    data = extract_from_pdf(tmp_path)
-                    if data:
-                        all_data[month] = data
-                        updates.append(f"   ✅ {month}: {len(data)} accounts")
-                        if 'TOTAL REVENUS' in data:
-                            updates.append(f"      Revenue: ${data['TOTAL REVENUS']:,.2f}")
-                        if 'BÉNÉFICE NET' in data:
-                            updates.append(f"      Net Income: ${data['BÉNÉFICE NET']:,.2f}")
-                    else:
-                        updates.append(f"   ❌ {month}: No data extracted")
-                finally:
-                    os.unlink(tmp_path)
-        
+            all_files.extend(monthly_files_current)
         if monthly_files_previous:
-            updates.append(f"\n📁 Previous year: {len(monthly_files_previous)} files")
-            for file_obj in monthly_files_previous:
+            all_files.extend(monthly_files_previous)
+        
+        if all_files:
+            updates.append(f"\n📁 Processing {len(all_files)} files...")
+            
+            for file_obj in all_files:
                 month = extract_month_from_filename(file_obj)
                 file_obj.seek(0)
                 
+                # Save to temp file
                 with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf') as tmp:
                     tmp.write(file_obj.read())
                     tmp_path = tmp.name
                 
                 try:
-                    data = extract_from_pdf(tmp_path)
-                    if data:
+                    # Try digital extraction first
+                    data = extract_from_digital_pdf(tmp_path)
+                    
+                    # If digital fails, try OCR (for January/image PDFs)
+                    if data is None or len(data) == 0:
+                        updates.append(f"   🔍 {month}: Digital extraction failed, trying OCR...")
+                        data = extract_from_image_pdf(tmp_path)
+                    
+                    if data and len(data) > 0:
                         all_data[month] = data
-                        updates.append(f"   ✅ {month}: {len(data)} accounts")
+                        rev = data.get('TOTAL REVENUS', 'N/A')
+                        net = data.get('BÉNÉFICE NET', 'N/A')
+                        updates.append(f"   ✅ {month}: {len(data)} accounts | Revenue: ${rev} | Net Income: ${net}")
+                    else:
+                        updates.append(f"   ❌ {month}: No data extracted (tried both digital and OCR)")
                 finally:
                     os.unlink(tmp_path)
         
+        # Fill template
         if all_data:
-            updates.append(f"\n📝 Filling template with {len(all_data)} months...")
+            updates.append(f"\n📝 Filling template with {len(all_data)} months of data...")
             fill_updates = fill_template(wb, all_data)
             updates.extend(fill_updates)
             
+            # Validate
             updates.append(f"\n🔍 Validation:")
             validations = validate_template(wb, all_data)
             updates.extend(validations)
         else:
             updates.append("\n⚠️ No data extracted from any file!")
         
+        # Save
         output = BytesIO()
         wb.save(output)
         output.seek(0)
