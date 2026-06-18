@@ -1,5 +1,4 @@
-# excel_fixer.py - FINAL WORKING VERSION
-# Uses Claude's coordinate converter + text search fallback
+# excel_fixer.py - FINAL WORKING VERSION WITH VALIDATION
 import io
 import re
 import pandas as pd
@@ -190,7 +189,6 @@ def parse_amount(text):
 # ACCOUNT NAME MATCHING (French PDF -> Template Row)
 # ============================================================================
 
-# Maps French account names (from PDF) to Template Yellow Rows
 PDF_TO_TEMPLATE = {
     "revenus mensuels": 13,
     "revenus journaliers": 12,
@@ -222,6 +220,15 @@ PDF_TO_TEMPLATE = {
     "assurances": 57,
     "taxes et permis": 58,
     "honoraires de gestion": 63,
+}
+
+# Also capture these for validation (not written to template)
+VALIDATION_ACCOUNTS = {
+    "bénéfice net": "_BENEFICE_NET_",
+    "benefice net": "_BENEFICE_NET_",
+    "total revenus": "_TOTAL_REVENUS_",
+    "total des revenus": "_TOTAL_REVENUS_",
+    "total des frais d'exploitation": "_TOTAL_EXPENSES_",
 }
 
 # ============================================================================
@@ -259,20 +266,32 @@ def extract_from_converter_excel(excel_bytes):
     data = {}
     
     for row_idx in range(len(df)):
-        # Get account name from Column 0
         account = str(df.iloc[row_idx, 0]).strip().lower() if pd.notna(df.iloc[row_idx, 0]) else ""
         if not account or account in ['nan', 'none', '']:
             continue
         
-        # Check if this account matches any of our mappings
+        # Get amount from Column 1 (Mois Courant)
+        raw_amount = df.iloc[row_idx, 1] if len(df.columns) > 1 else None
+        amount = parse_amount(str(raw_amount)) if pd.notna(raw_amount) else None
+        
+        if amount is None:
+            continue
+        
+        # Check for validation accounts first (BÉNÉFICE NET, TOTAL REVENUS, etc.)
+        found_validation = False
+        for search_term, validation_key in VALIDATION_ACCOUNTS.items():
+            if search_term in account:
+                data[validation_key] = amount
+                found_validation = True
+                break
+        
+        if found_validation:
+            continue
+        
+        # Check template mappings
         for search_term, template_row in PDF_TO_TEMPLATE.items():
             if search_term in account:
-                # Get amount from Column 1 (Mois Courant)
-                raw_amount = df.iloc[row_idx, 1] if len(df.columns) > 1 else None
-                amount = parse_amount(str(raw_amount)) if pd.notna(raw_amount) else None
-                
-                if amount is not None:
-                    data[template_row] = amount
+                data[template_row] = amount
                 break
     
     return data
@@ -301,10 +320,8 @@ def extract_from_text_search(pdf_path):
         
         after_text = full_text[idx + len(search_term):]
         
-        # Find the first Canadian French number
         match = re.search(r'(\d[\d\s]*,\d{2})\s*\$?', after_text[:150])
         if match:
-            # Check for negative
             before = after_text[:match.start()].strip()
             is_neg = before.endswith('-') or before.endswith('(')
             
@@ -313,6 +330,18 @@ def extract_from_text_search(pdf_path):
                 if is_neg:
                     amount = -abs(amount)
                 data[template_row] = amount
+    
+    # Also try to get validation accounts
+    for search_term, validation_key in VALIDATION_ACCOUNTS.items():
+        idx = full_text.lower().find(search_term)
+        if idx == -1:
+            continue
+        after_text = full_text[idx + len(search_term):]
+        match = re.search(r'(\d[\d\s]*,\d{2})\s*\$?', after_text[:150])
+        if match:
+            amount = parse_amount(match.group(1))
+            if amount is not None:
+                data[validation_key] = amount
     
     return data
 
@@ -326,11 +355,11 @@ def extract_from_pdf(pdf_path, file_bytes=None):
     1. Try Claude's coordinate converter (gets Column 1 = Mois Courant exactly)
     2. Fall back to text search if converter fails
     """
-    # Method 1: Coordinate converter (most accurate)
     if file_bytes is None:
         with open(pdf_path, 'rb') as f:
             file_bytes = f.read()
     
+    # Method 1: Coordinate converter (most accurate)
     excel_output = convert_page10_to_excel(file_bytes)
     if excel_output:
         data = extract_from_converter_excel(excel_output)
@@ -368,13 +397,19 @@ def fill_template(wb, all_data):
         col_letter = get_column_letter(col)
         month_cells = 0
         
-        for template_row, amount in month_data.items():
-            cell = ws.cell(row=template_row, column=col)
+        for key, amount in month_data.items():
+            # Skip validation keys (they start with _)
+            if key.startswith('_'):
+                continue
+            
+            # key is the template row number
+            cell = ws.cell(row=key, column=col)
             cell.value = amount
             cell.number_format = '#,##0.00'
             month_cells += 1
             total_cells += 1
-            updates.append(f"   ✅ {month_en} ({col_letter}{template_row}): ${amount:,.2f}")
+            
+            updates.append(f"   ✅ {month_en} ({col_letter}{key}): ${amount:,.2f}")
         
         if month_cells > 0:
             updates.append(f"📊 {month_en}: {month_cells} cells filled")
@@ -383,11 +418,14 @@ def fill_template(wb, all_data):
     return updates
 
 # ============================================================================
-# VALIDATION (BÉNÉFICE NET from PDF should = REVENUS NETS in template)
+# VALIDATION (BÉNÉFICE NET from PDF vs REVENUS NETS from Template)
 # ============================================================================
 
 def validate_results(wb, all_data):
-    """Check if REVENUS NETS (Row 86 formula) looks reasonable."""
+    """
+    Validate that PDF BÉNÉFICE NET matches Template REVENUS NETS (Row 86).
+    If they don't match, show the difference and what might be missing.
+    """
     sheet_name = None
     for sn in wb.sheetnames:
         if 'données' in sn.lower() or 'historique' in sn.lower():
@@ -395,26 +433,67 @@ def validate_results(wb, all_data):
             break
     
     if sheet_name is None:
-        return []
+        return ["⚠️ Cannot validate - sheet not found"]
     
     ws = wb[sheet_name]
     results = []
     
-    for month_en in all_data.keys():
+    for month_en, month_data in all_data.items():
         col = MONTH_COLUMN.get(month_en)
         if col is None:
             continue
         
-        revenus_nets = ws.cell(row=86, column=col).value
-        total_revenus = ws.cell(row=26, column=col).value
-        total_depenses = ws.cell(row=84, column=col).value
+        # Get values safely (convert from formula results)
+        def safe_get(row, col):
+            val = ws.cell(row=row, column=col).value
+            try:
+                return float(val) if val is not None else 0.0
+            except (ValueError, TypeError):
+                return 0.0
         
-        if revenus_nets is not None and total_revenus is not None and total_depenses is not None:
-            expected = total_revenus - total_depenses
-            if abs(revenus_nets - expected) < 0.01:
-                results.append(f"✅ {month_en}: REVENUS NETS = ${revenus_nets:,.2f}")
+        revenus_nets = safe_get(86, col)
+        total_revenus = safe_get(26, col)
+        total_depenses = safe_get(84, col)
+        
+        # Get PDF values (stored with special keys)
+        pdf_benefice = month_data.get('_BENEFICE_NET_', None)
+        pdf_total_revenus = month_data.get('_TOTAL_REVENUS_', None)
+        pdf_total_expenses = month_data.get('_TOTAL_EXPENSES_', None)
+        
+        results.append(f"\n📊 {month_en}:")
+        
+        if pdf_benefice is not None and revenus_nets != 0:
+            diff = abs(pdf_benefice - revenus_nets)
+            if diff > 0.01:
+                results.append(f"   ⚠️ PDF BÉNÉFICE NET: ${pdf_benefice:,.2f}")
+                results.append(f"   ⚠️ Template REVENUS NETS: ${revenus_nets:,.2f}")
+                results.append(f"   ⚠️ DIFFERENCE: ${diff:,.2f}")
+                
+                # Show breakdown
+                if pdf_total_revenus is not None:
+                    results.append(f"   📈 PDF Total Revenue: ${pdf_total_revenus:,.2f}")
+                results.append(f"   📈 Template Total Revenue: ${total_revenus:,.2f}")
+                
+                if pdf_total_expenses is not None:
+                    results.append(f"   📉 PDF Total Expenses: ${pdf_total_expenses:,.2f}")
+                results.append(f"   📉 Template Total Expenses: ${total_depenses:,.2f}")
+                
+                # Check if difference is from missing revenue or extra expenses
+                revenue_gap = (pdf_total_revenus or 0) - total_revenus
+                expense_gap = (pdf_total_expenses or 0) - total_depenses
+                
+                if abs(revenue_gap) > 0.01:
+                    results.append(f"   🔍 Revenue gap: ${revenue_gap:,.2f} (missing revenue accounts?)")
+                if abs(expense_gap) > 0.01:
+                    results.append(f"   🔍 Expense gap: ${expense_gap:,.2f} (missing expense accounts?)")
             else:
-                results.append(f"⚠️ {month_en}: REVENUS NETS=${revenus_nets:,.2f}, Expected=${expected:,.2f}")
+                results.append(f"   ✅ BÉNÉFICE NET = REVENUS NETS = ${pdf_benefice:,.2f}")
+        elif pdf_benefice is not None:
+            results.append(f"   ⚠️ PDF BÉNÉFICE NET: ${pdf_benefice:,.2f}")
+            results.append(f"   ⚠️ Template REVENUS NETS: Formula not calculated yet")
+        else:
+            results.append(f"   📊 Template REVENUS NETS: ${revenus_nets:,.2f}")
+            results.append(f"   📊 Revenue: ${total_revenus:,.2f} - Expenses: ${total_depenses:,.2f}")
     
     return results
 
@@ -440,6 +519,7 @@ def fix_excel(excel_file, monthly_files_current=None, monthly_files_previous=Non
     2. Extract Column 1 (Mois Courant) values
     3. Write to YELLOW cells in template
     4. Formulas auto-calculate
+    5. Validate BÉNÉFICE NET = REVENUS NETS
     """
     updates = []
     all_data = {}
@@ -501,8 +581,13 @@ def fix_excel(excel_file, monthly_files_current=None, monthly_files_previous=Non
                 data = extract_from_pdf(tmp_path, file_bytes)
                 
                 if data and len(data) >= 3:
+                    # Remove validation keys from count for display
+                    display_count = len([k for k in data if not k.startswith('_')])
                     all_data[month_en] = data
-                    updates.append(f"   ✅ {month_en}: {len(data)} accounts extracted")
+                    
+                    # Show PDF totals if available
+                    pdf_benefice = data.get('_BENEFICE_NET_', 'N/A')
+                    updates.append(f"   ✅ {month_en}: {display_count} accounts extracted | PDF BÉNÉFICE NET: ${pdf_benefice}")
                 else:
                     updates.append(f"   ❌ {month_en}: No data extracted (got {len(data)} accounts)")
             finally:
@@ -512,11 +597,12 @@ def fix_excel(excel_file, monthly_files_current=None, monthly_files_previous=Non
         # Fill template
         if all_data:
             updates.append(f"\n📝 Filling YELLOW cells for {len(all_data)} months...")
+            updates.append("   (Formula rows 18, 26, 33, 44, 47, 65, 82, 84, 86 auto-calculate)")
             fill_updates = fill_template(wb, all_data)
             updates.extend(fill_updates)
             
             # Validate
-            updates.append(f"\n🔍 Validation:")
+            updates.append(f"\n🔍 Validation (PDF BÉNÉFICE NET vs Template REVENUS NETS):")
             validations = validate_results(wb, all_data)
             updates.extend(validations)
         else:
