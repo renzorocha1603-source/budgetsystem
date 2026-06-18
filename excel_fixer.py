@@ -582,7 +582,7 @@ def fix_excel(excel_file, monthly_files_current=None, monthly_files_previous=Non
                 
                 if data and len(data) >= 3:
                     # Remove validation keys from count for display
-                    display_count = len([k for (k) in data if not k.startswith('_')])
+                    display_count = len([k for k in data if not (k).startswith('_')])
                     all_data[month_en] = data
                     
                     # Show PDF totals if available
