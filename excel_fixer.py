@@ -1,8 +1,8 @@
-# excel_fixer.py - FINAL COMPLETE VERSION
+# excel_fixer.py - FINAL VERSION (YELLOW CELLS ONLY)
 """
-Extracts P&L data from PDF monthly reports and fills CMO111.xlsx template
-Handles Canadian French number formats (113 648,89 $)
-Works with both digital PDFs and image-based PDFs (OCR for January)
+Extracts P&L data from PDF monthly reports and fills CMO111.xlsx template.
+ONLY writes to YELLOW (user input) cells - formulas calculate everything else.
+Validates BÉNÉFICE NET (PDF) = REVENUS NETS (Template Row 86 formula).
 """
 import fitz
 import os
@@ -20,12 +20,8 @@ TABLE_BOTTOM = 0.94
 
 PAGE_MARKERS = ["1981 McGill College", "Revenus mensuels", "BÉNÉFICE NET", "Mois Courant"]
 
-# Patterns to match account names (more specific first)
+# Patterns to match account names in PDF
 ACCOUNT_PATTERNS = [
-    ('TOTAL REVENUS', ['total revenus', 'total des revenus']),
-    ('BÉNÉFICE NET', ['bénéfice net', 'benefice net']),
-    ("Total des frais d'exploitation", ['total des frais d\'exploitation', 'total des frais d\'exploit']),
-    ("RÉSULTAT D'EXPLOITATION", ['résultat d\'exploitation', 'resultat d\'exploitation']),
     ('Revenus mensuels', ['revenus mensuels']),
     ('Revenus Journaliers', ['revenus journaliers', 'revenus horaires']),
     ('Revenus Lave-Auto', ['revenus lave-auto', 'lave-auto']),
@@ -44,10 +40,13 @@ ACCOUNT_PATTERNS = [
     ('Frais de cartes de crédit', ['cartes de crédit', 'credit card']),
     ('Frais de bureau', ['frais de bureau']),
     ('Honoraires de gestion', ['honoraires de gestion']),
+    # Keep these for validation only - NOT written to template
+    ('TOTAL REVENUS', ['total revenus']),
+    ('BÉNÉFICE NET', ['bénéfice net', 'benefice net']),
 ]
 
 # ============================================
-# TEMPLATE "2-Données historiques" MAPPING
+# TEMPLATE MAPPING - YELLOW CELLS ONLY
 # ============================================
 MONTH_COLUMN = {
     'Janvier': 2, 'Février': 3, 'Mars': 4, 'Avril': 5,
@@ -55,29 +54,39 @@ MONTH_COLUMN = {
     'Septembre': 10, 'Octobre': 11, 'Novembre': 12, 'Décembre': 13
 }
 
-# EXACT mapping: PDF account -> Template row
+# ONLY map to YELLOW (user input) cells - NO formula rows
 PDF_TO_TEMPLATE = {
-    'Revenus mensuels': 13,
-    'Revenus Journaliers': 12,
-    'Revenus Lave-Auto': 14,
-    'Divers': 17,
-    'Gratuités - mensuels': 20,
-    'TOTAL REVENUS': 26,
-    'Salaires Stationnement': 29,
-    'Uniformes': 32,
-    'Fourn. de stationnement': 41,
-    'Entretien réparation - Nettoyage': 35,
-    'Entretien réparation - Equipement': 37,
-    'Entretien réparation - Général': 36,
-    'Frais de cartes de crédit': 53,
-    'Frais de bureau': 49,
-    'Télécommunication': 50,
-    'Taxes et permis': 58,
-    'Assurances Cautionnement': 57,
-    'Réclamations': 56,
-    'Honoraires de gestion': 63,
-    "Total des frais d'exploitation": 84,
-    'BÉNÉFICE NET': 86,
+    # REVENUES - Yellow rows 12-17, 20, 22, 24
+    'Revenus Journaliers': 12,    # Revenus horaires
+    'Revenus mensuels': 13,       # Revenus mensuels
+    'Revenus Lave-Auto': 14,      # Revenus Lave-auto
+    'Divers': 17,                 # Autres revenus
+    'Gratuités - mensuels': 20,   # (Gratuités)
+    
+    # LABOUR - Yellow rows 29-32
+    'Salaires Stationnement': 29, # Salaire Stationnement
+    'Uniformes': 32,              # Uniformes
+    
+    # MAINTENANCE - Yellow rows 35-43
+    'Entretien réparation - Nettoyage': 35,   # Nettoyage stationnement
+    'Entretien réparation - Général': 36,     # Entretien stationnement
+    'Entretien réparation - Equipement': 37,  # Entretien équipement
+    'Fourn. de stationnement': 41,            # Fournitures stationnement
+    
+    # PUBLIC SERVICES - Yellow row 46
+    # (none mapped directly from PDF)
+    
+    # OVERHEAD - Yellow rows 49-64
+    'Frais de bureau': 49,                    # Fournitures de bureau
+    'Télécommunication': 50,                  # Télécommunications
+    'Frais de cartes de crédit': 53,          # Frais de cartes de crédit
+    'Réclamations': 56,                       # Réclamations
+    'Assurances Cautionnement': 57,           # Assurances et cautionnement
+    'Taxes et permis': 58,                    # Taxes et permis
+    'Honoraires de gestion': 63,              # Honoraires de gestion de base
+    
+    # OTHER EXPENSES - Yellow rows 67-80
+    # (none mapped directly from PDF)
 }
 
 # ============================================
@@ -88,7 +97,6 @@ def safe_float(value):
     """
     Handle Canadian French number formats:
     "113 648,89 $" -> 113648.89
-    "7 106 417,00" -> 7106417.00
     "(1 206,86) $" -> -1206.86
     "-1 206,86 $" -> -1206.86
     """
@@ -99,19 +107,19 @@ def safe_float(value):
     
     value = str(value).strip()
     
-    # Handle parentheses (negative numbers)
+    # Handle parentheses (negative)
     is_negative = False
     if value.startswith('(') and value.endswith(')'):
         is_negative = True
         value = value[1:-1].strip()
     
-    # Remove leading/trailing $ signs
+    # Remove $ signs
     value = value.replace('$', '').strip()
     
-    # Remove ALL spaces (thousand separators in French Canadian)
+    # Remove ALL spaces (thousand separators)
     value = value.replace(" ", "").replace("\xa0", "").replace("\u202f", "")
     
-    # Handle minus sign (before or after)
+    # Handle minus sign
     if value.startswith('-'):
         is_negative = True
         value = value[1:]
@@ -119,20 +127,16 @@ def safe_float(value):
         is_negative = True
         value = value[:-1]
     
-    # Handle comma as decimal separator (French)
+    # Handle comma as decimal
     if ',' in value and '.' not in value:
         value = value.replace(',', '.')
     elif ',' in value and '.' in value:
-        # Both present - comma is thousand, dot is decimal (or vice versa)
-        # If dot is last and only 2 digits after, it's decimal
         if value.rfind('.') > value.rfind(','):
-            # Dot is decimal, comma is thousand
             value = value.replace(',', '')
         else:
-            # Comma is decimal, dot is thousand
             value = value.replace('.', '').replace(',', '.')
     
-    # Remove any remaining non-numeric characters except minus and decimal
+    # Remove non-numeric except minus and decimal
     value = re.sub(r'[^\d\.\-]', '', value)
     
     try:
@@ -156,23 +160,24 @@ def extract_month_from_filename(file_obj):
     return None
 
 def match_account(text):
-    """Match extracted text to a standard account name"""
+    """Match extracted text to standard account name"""
     text_lower = text.lower().strip()
-    # Clean up common OCR artifacts
-    text_lower = text_lower.replace('|', '').replace('  ', ' ')
+    text_lower = re.sub(r'[|\[\]{}()]', '', text_lower)
+    text_lower = re.sub(r'\s+', ' ', text_lower)
     
     for standard_name, patterns in ACCOUNT_PATTERNS:
         for pattern in patterns:
-            if pattern in text_lower:
+            pattern_words = pattern.split()
+            if all(word in text_lower for word in pattern_words):
                 return standard_name
     return None
 
 # ============================================
-# DIGITAL PDF EXTRACTION (Feb-Dec)
+# PDF EXTRACTION
 # ============================================
 
-def find_pl_page_digital(pdf_path):
-    """Find P&L page in digital PDF"""
+def find_pl_page(pdf_path):
+    """Find P&L page in PDF"""
     doc = fitz.open(pdf_path)
     for i in range(len(doc)):
         text = doc[i].get_text()
@@ -183,101 +188,74 @@ def find_pl_page_digital(pdf_path):
     return None, None
 
 def extract_from_digital_pdf(pdf_path):
-    """
-    Extract using PyMuPDF text blocks.
-    Text blocks keep numbers intact (e.g., "113 648,89 $" stays as one block).
-    """
-    doc, page_num = find_pl_page_digital(pdf_path)
+    """Extract using text blocks - numbers stay intact"""
+    doc, page_num = find_pl_page(pdf_path)
     if doc is None:
         return None
     
     page = doc[page_num]
-    
-    # Get all text blocks with their positions
     blocks = page.get_text("blocks")
-    
-    # Sort blocks by vertical position (y), then horizontal (x)
     blocks.sort(key=lambda b: (round(b[1], 0), b[0]))
     
-    # Filter to table area
     h = page.rect.height
     table_top = h * TABLE_TOP
     table_bottom = h * TABLE_BOTTOM
     table_blocks = [b for b in blocks if table_top <= b[1] <= table_bottom]
     
-    # Group blocks by row (similar y position, rounded to nearest 5 points)
+    # Group by row
     rows = {}
     for block in table_blocks:
-        y_key = round(block[1] / 5) * 5  # Group by 5-point intervals
+        y_key = round(block[1] / 5) * 5
         if y_key not in rows:
             rows[y_key] = []
         rows[y_key].append(block)
     
-    # Sort rows by y position
     sorted_rows = sorted(rows.items())
-    
     data = {}
     
     for y_key, row_blocks in sorted_rows:
-        # Sort blocks in this row by x position (left to right)
         row_blocks.sort(key=lambda b: b[0])
-        
-        # First block is usually the account name
         if not row_blocks:
             continue
         
-        account_block = row_blocks[0]
-        account_text = account_block[4].strip()
+        # Get account name from first block(s)
+        account_text = row_blocks[0][4].strip()
         account_text = ' '.join(account_text.split())
         
-        # Match to standard account name
+        # Try combining first two blocks for long names
         standard_name = match_account(account_text)
-        if not standard_name:
-            # Try combining first two blocks (sometimes account names span blocks)
-            if len(row_blocks) >= 2:
-                account_text2 = row_blocks[1][4].strip()
-                account_text2 = ' '.join(account_text2.split())
-                combined = account_text + ' ' + account_text2
+        if not standard_name and len(row_blocks) >= 2:
+            second_text = row_blocks[1][4].strip()
+            if not any(c.isdigit() for c in second_text):  # Not a number
+                combined = account_text + ' ' + ' '.join(second_text.split())
                 standard_name = match_account(combined)
-            
-            if not standard_name:
-                continue
         
-        # Second block is usually "Mois Courant" (the amount we want)
-        # But skip if the second block is also text (like section headers)
+        if not standard_name:
+            continue
+        
+        # Find amount in subsequent blocks
         amount = None
-        
         for block in row_blocks[1:]:
             block_text = block[4].strip()
-            
-            # Skip if this looks like a section header or text
             if match_account(block_text):
                 continue
-            
-            # Try to extract a number
             amount = safe_float(block_text)
             if amount is not None:
                 break
         
-        if amount is not None:
-            # Only keep the first occurrence of each account (avoid duplicates)
-            if standard_name not in data:
-                data[standard_name] = amount
+        if amount is not None and standard_name not in data:
+            data[standard_name] = amount
     
     doc.close()
     return data
 
-# ============================================
-# IMAGE PDF EXTRACTION (January - OCR)
-# ============================================
-
-def find_pl_page_ocr(pdf_path):
-    """Find P&L page in image PDF using OCR"""
+def extract_from_image_pdf(pdf_path):
+    """OCR for January (image PDF)"""
     try:
         import pytesseract
         from PIL import Image
     except ImportError:
-        return None, None, None
+        return None
     
     doc = fitz.open(pdf_path)
     
@@ -286,7 +264,6 @@ def find_pl_page_ocr(pdf_path):
         pix = page.get_pixmap(dpi=300)
         img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
         
-        # Try French first, fallback to English
         try:
             text = pytesseract.image_to_string(img, lang='fra')
         except:
@@ -295,62 +272,54 @@ def find_pl_page_ocr(pdf_path):
             except:
                 text = pytesseract.image_to_string(img)
         
-        # Check for P&L markers
-        if "revenus" in text.lower() and ("mensuels" in text.lower() or "stationnement" in text.lower()):
-            return doc, i, text
+        if "revenus" in text.lower() or "stationnement" in text.lower():
+            data = {}
+            lines = text.split('\n')
+            
+            for line in lines:
+                line = line.strip()
+                if len(line) < 5:
+                    continue
+                
+                standard_name = match_account(line)
+                if not standard_name:
+                    continue
+                
+                # Find numbers in line
+                number_patterns = [
+                    r'\(?\s*(\d[\d\s]{0,15},\d{2})\s*\)?\s*\$?',
+                    r'\$?\s*(\d[\d\s]{0,15},\d{2})\s*\$?',
+                    r'(\d{1,3}(?:\s+\d{3})*,\d{2})',
+                ]
+                
+                for pattern in number_patterns:
+                    matches = re.findall(pattern, line)
+                    for match in matches:
+                        if isinstance(match, tuple):
+                            match = match[0]
+                        amount = safe_float(match)
+                        if amount is not None and abs(amount) > 0.01:
+                            if standard_name not in data:
+                                data[standard_name] = amount
+                            break
+                    if standard_name in data:
+                        break
+            
+            doc.close()
+            return data if data else None
     
     doc.close()
-    return None, None, None
-
-def extract_from_image_pdf(pdf_path):
-    """Extract from image-based PDF using OCR"""
-    doc, page_num, ocr_text = find_pl_page_ocr(pdf_path)
-    if doc is None:
-        return None
-    
-    data = {}
-    lines = ocr_text.split('\n')
-    
-    for line in lines:
-        line = line.strip()
-        if not line:
-            continue
-        
-        # Try to match an account name in this line
-        standard_name = match_account(line)
-        if not standard_name:
-            continue
-        
-        # Look for dollar amounts in the line
-        # Pattern: number with spaces, optional comma, optional $ sign
-        amount_patterns = [
-            r'(\d[\d\s]*,\d{2})\s*\$',  # "113 648,89 $"
-            r'\$\s*(\d[\d\s]*,\d{2})',   # "$ 113 648,89"
-            r'(\d[\d\s]*,\d{2})',        # "113 648,89"
-            r'\(\s*(\d[\d\s]*,\d{2})\s*\)\s*\$',  # "(1 206,86) $"
-        ]
-        
-        for pattern in amount_patterns:
-            matches = re.findall(pattern, line)
-            for match in matches:
-                amount = safe_float(match)
-                if amount is not None:
-                    if standard_name not in data:
-                        data[standard_name] = amount
-                    break
-            if standard_name in data:
-                break
-    
-    doc.close()
-    return data if data else None
+    return None
 
 # ============================================
-# TEMPLATE FILLING
+# TEMPLATE FILLING (YELLOW CELLS ONLY)
 # ============================================
 
 def fill_template(wb, all_data):
-    """Fill '2-Données historiques' sheet with extracted data"""
-    # Find the correct sheet
+    """
+    Fill ONLY yellow (user input) cells in '2-Données historiques'.
+    Formulas will auto-calculate totals.
+    """
     sheet_name = None
     for sn in wb.sheetnames:
         if 'données' in sn.lower() or 'historique' in sn.lower():
@@ -378,13 +347,11 @@ def fill_template(wb, all_data):
         for pdf_account, amount in pdf_data.items():
             template_row = PDF_TO_TEMPLATE.get(pdf_account)
             if template_row is None:
-                continue
+                continue  # Skip formula rows and validation-only accounts
             
-            # Write value to cell
             cell = ws.cell(row=template_row, column=col)
             cell.value = amount
             cell.number_format = '#,##0.00'
-            
             month_cells += 1
             total_cells += 1
             
@@ -395,11 +362,14 @@ def fill_template(wb, all_data):
         if month_cells > 0:
             updates.append(f"📊 {month_name}: {month_cells} cells filled")
     
-    updates.append(f"\n📊 TOTAL: {total_cells} cells filled in template")
+    updates.append(f"\n📊 TOTAL: {total_cells} cells filled (formulas auto-calculate)")
     return updates
 
 def validate_template(wb, all_data):
-    """Validate BÉNÉFICE NET (PDF) = REVENUS NETS (Template Row 86)"""
+    """
+    Validate BÉNÉFICE NET (PDF) = REVENUS NETS (Template Row 86 formula).
+    If mismatch, identify which accounts might be missing.
+    """
     sheet_name = None
     for sn in wb.sheetnames:
         if 'données' in sn.lower() or 'historique' in sn.lower():
@@ -416,22 +386,34 @@ def validate_template(wb, all_data):
         if col is None:
             continue
         
-        benefice_net = pdf_data.get('BÉNÉFICE NET')
-        template_val = ws.cell(row=86, column=col).value
+        benefice_net_pdf = pdf_data.get('BÉNÉFICE NET')
+        revenus_nets_template = ws.cell(row=86, column=col).value
         
-        if benefice_net is not None and template_val is not None:
-            diff = abs(benefice_net - template_val)
+        if benefice_net_pdf is not None and revenus_nets_template is not None:
+            diff = abs(benefice_net_pdf - revenus_nets_template)
             if diff > 0.01:
-                results.append(
-                    f"⚠️ {month_name}: BÉNÉFICE NET ${benefice_net:,.2f} ≠ "
-                    f"REVENUS NETS ${template_val:,.2f} (diff: ${diff:,.2f})"
-                )
+                results.append(f"⚠️ {month_name}: BÉNÉFICE NET ${benefice_net_pdf:,.2f} ≠ REVENUS NETS ${revenus_nets_template:,.2f} (diff: ${diff:,.2f})")
+                
+                # Check what might be missing
+                total_revenus_pdf = pdf_data.get('TOTAL REVENUS')
+                total_revenus_template = ws.cell(row=26, column=col).value
+                
+                if total_revenus_pdf and total_revenus_template:
+                    if abs(total_revenus_pdf - total_revenus_template) > 0.01:
+                        results.append(f"   🔍 TOTAL REVENUS mismatch: PDF=${total_revenus_pdf:,.2f} vs Template=${total_revenus_template:,.2f}")
+                        
+                        # Check individual revenue accounts
+                        for acc, row in [('Revenus mensuels', 13), ('Revenus Journaliers', 12), ('Revenus Lave-Auto', 14), ('Divers', 17), ('Gratuités - mensuels', 20)]:
+                            pdf_val = pdf_data.get(acc)
+                            template_val = ws.cell(row=row, column=col).value
+                            if pdf_val is not None:
+                                results.append(f"      {acc}: PDF=${pdf_val:,.2f} → Template Row {row}=${template_val}")
             else:
-                results.append(f"✅ {month_name}: BÉNÉFICE NET = REVENUS NETS = ${benefice_net:,.2f}")
-        elif benefice_net is None:
-            results.append(f"⚠️ {month_name}: BÉNÉFICE NET not extracted from PDF")
-        elif template_val is None:
-            results.append(f"⚠️ {month_name}: REVENUS NETS not found in template (Row 86)")
+                results.append(f"✅ {month_name}: BÉNÉFICE NET = REVENUS NETS = ${benefice_net_pdf:,.2f}")
+        elif benefice_net_pdf is None:
+            results.append(f"⚠️ {month_name}: BÉNÉFICE NET not in PDF data")
+        elif revenus_nets_template is None:
+            results.append(f"⚠️ {month_name}: REVENUS NETS formula returned empty")
     
     return results
 
@@ -445,8 +427,6 @@ def get_parking_codes_from_pnl(file_obj):
     if hasattr(file_obj, 'name'):
         matches = re.findall(r'(CMO\d+)', file_obj.name, re.IGNORECASE)
         codes.extend(matches)
-        
-        # Also try to read from PDF content
         file_obj.seek(0)
         if file_obj.name.lower().endswith('.pdf'):
             try:
@@ -462,7 +442,6 @@ def get_parking_codes_from_pnl(file_obj):
                 os.unlink(tmp_path)
             except:
                 pass
-    
     file_obj.seek(0)
     return list(set([c.upper() for c in codes]))
 
@@ -470,19 +449,11 @@ def fix_excel(excel_file, monthly_files_current=None, monthly_files_previous=Non
               budget_initial_file=None, fiche_stationnement_file=None,
               parking_code=None, word_data=None):
     """
-    MAIN FUNCTION - Extract P&L data from PDFs and fill template.
-    
-    Process:
-    1. Load Excel template
-    2. For each PDF monthly report:
-       a. Try digital extraction (text blocks)
-       b. If fails, try OCR (for January/image PDFs)
-    3. Fill "2-Données historiques" sheet with extracted data
+    MAIN FUNCTION
+    1. Extract P&L data from PDFs
+    2. Fill ONLY yellow cells in template
+    3. Formulas auto-calculate totals
     4. Validate BÉNÉFICE NET = REVENUS NETS
-    5. Return updated Excel file
-    
-    Returns:
-        (excel_bytes, updates_list)
     """
     updates = []
     all_data = {}
@@ -500,9 +471,8 @@ def fix_excel(excel_file, monthly_files_current=None, monthly_files_previous=Non
             wb = load_workbook(BytesIO(excel_file.read()))
         
         updates.append(f"✅ Template loaded: {parking_code or 'Unknown'}")
-        updates.append(f"   Sheets: {wb.sheetnames}")
         
-        # Collect all files
+        # Collect files
         all_files = []
         if monthly_files_current:
             all_files.extend(monthly_files_current)
@@ -523,59 +493,49 @@ def fix_excel(excel_file, monthly_files_current=None, monthly_files_previous=Non
             month = extract_month_from_filename(file_obj)
             file_obj.seek(0)
             
-            # Save to temp file for processing
             with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf') as tmp:
                 tmp.write(file_obj.read())
                 tmp_path = tmp.name
             
             try:
-                # Try digital extraction first
+                # Try digital first
                 data = extract_from_digital_pdf(tmp_path)
                 
-                # If digital fails or returns too few accounts, try OCR
+                # Fall back to OCR if needed
                 if data is None or len(data) < 3:
-                    updates.append(f"   🔍 {month}: Digital extraction insufficient, trying OCR...")
-                    ocr_data = extract_from_image_pdf(tmp_path)
-                    if ocr_data and len(ocr_data) > len(data or {}):
-                        data = ocr_data
+                    updates.append(f"   🔍 {month}: Trying OCR...")
+                    data = extract_from_image_pdf(tmp_path)
                 
                 if data and len(data) > 0:
                     all_data[month] = data
                     rev = data.get('TOTAL REVENUS', 'N/A')
                     net = data.get('BÉNÉFICE NET', 'N/A')
-                    updates.append(f"   ✅ {month}: {len(data)} accounts | Revenue: ${rev} | Net Income: ${net}")
-                    
-                    # Show what accounts were found
-                    for acc in ['Revenus mensuels', 'Revenus Journaliers', 'TOTAL REVENUS', 'BÉNÉFICE NET']:
-                        if acc in data:
-                            updates.append(f"      {acc}: ${data[acc]:,.2f}")
+                    updates.append(f"   ✅ {month}: {len(data)} accounts | PDF Revenue: ${rev} | PDF Net: ${net}")
                 else:
                     updates.append(f"   ❌ {month}: No data extracted")
             finally:
                 os.unlink(tmp_path)
         
-        # Fill template
+        # Fill template (yellow cells only)
         if all_data:
-            updates.append(f"\n📝 Filling template with {len(all_data)} months of data...")
+            updates.append(f"\n📝 Filling YELLOW cells with {len(all_data)} months of data...")
+            updates.append("   (Formula rows auto-calculate)")
             fill_updates = fill_template(wb, all_data)
             updates.extend(fill_updates)
             
             # Validate
-            updates.append(f"\n🔍 Validation:")
+            updates.append(f"\n🔍 Validating BÉNÉFICE NET = REVENUS NETS...")
             validations = validate_template(wb, all_data)
             updates.extend(validations)
         else:
             updates.append("\n⚠️ No data extracted from any file!")
         
-        # Save to bytes
+        # Save
         output = BytesIO()
         wb.save(output)
         output.seek(0)
         
-        updates.append("\n" + "=" * 60)
-        updates.append("✅ WORKFLOW COMPLETE")
-        updates.append("=" * 60)
-        
+        updates.append("\n✅ WORKFLOW COMPLETE")
         return output.getvalue(), updates
         
     except Exception as e:
@@ -583,32 +543,3 @@ def fix_excel(excel_file, monthly_files_current=None, monthly_files_previous=Non
         import traceback
         updates.append(traceback.format_exc())
         return None, updates
-
-
-# ============================================
-# STANDALONE TESTING
-# ============================================
-if __name__ == "__main__":
-    import sys
-    
-    if len(sys.argv) > 1:
-        pdf_path = sys.argv[1]
-        print(f"Testing extraction on: {pdf_path}")
-        
-        # Test digital extraction
-        data = extract_from_digital_pdf(pdf_path)
-        if data:
-            print(f"\nDigital extraction: {len(data)} accounts")
-            for k, v in data.items():
-                print(f"  {k}: ${v:,.2f}")
-        else:
-            print("Digital extraction failed, trying OCR...")
-            data = extract_from_image_pdf(pdf_path)
-            if data:
-                print(f"\nOCR extraction: {len(data)} accounts")
-                for k, v in data.items():
-                    print(f"  {k}: ${v:,.2f}")
-            else:
-                print("All extraction methods failed")
-    else:
-        print("Usage: python excel_fixer.py <pdf_file>")
