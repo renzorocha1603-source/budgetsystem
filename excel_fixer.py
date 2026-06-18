@@ -1,4 +1,4 @@
-# excel_fixer.py - CANADIAN DOLLAR FORMAT + OCR (FINAL FINAL)
+# excel_fixer.py - DYNAMIC GRID (WORKS FOR ALL MONTHS)
 import io
 import re
 import fitz
@@ -11,37 +11,12 @@ import os
 # GRID CONFIGURATION
 # ============================================================================
 
+# Mois Courant column x-range (consistent across all PDFs)
 MOIS_COURANT_X_MIN = 165
 MOIS_COURANT_X_MAX = 195
 
-ACCOUNT_ROWS = {
-    164: 13,   # Revenus mensuels
-    175: 12,   # Revenus Journaliers
-    185: 14,   # Revenus Lave-Auto
-    196: 17,   # Divers
-    238: 20,   # Gratuités - mensuels
-    302: 29,   # Salaires Stationnement
-    313: 32,   # Uniformes
-    323: 41,   # Fourn. de stationnement
-    334: 35,   # Nettoyage
-    345: 37,   # Equipement
-    355: 36,   # Général
-    366: 58,   # Taxes et permis
-    376: 57,   # Assurances Cautionnement
-    387: 56,   # Réclamations
-    398: 50,   # Télécommunication
-    408: 53,   # Frais de cartes de crédit
-    419: 49,   # Frais de bureau
-    482: 63,   # Honoraires de gestion
-}
-
-VALIDATION_ROWS = {
-    249: "_TOTAL_REVENUS_",
-    430: "_TOTAL_EXPENSES_",
-    514: "_BENEFICE_NET_",
-}
-
-OCR_SEARCH_TERMS = {
+# Account names to find (text search -> template row)
+ACCOUNT_NAMES = {
     "revenus mensuels": 13,
     "revenus journaliers": 12,
     "revenus horaires": 12,
@@ -52,11 +27,14 @@ OCR_SEARCH_TERMS = {
     "salaire stationnement": 29,
     "uniformes": 32,
     "nettoyage": 35,
+    "entretien réparation - nettoyage": 35,
+    "général": 36,
+    "general": 36,
     "entretien réparation - général": 36,
-    "entretien réparation - general": 36,
     "entretien stationnement": 36,
+    "equipement": 37,
+    "équipement": 37,
     "entretien réparation - equipement": 37,
-    "entretien réparation - équipement": 37,
     "fourn. de stationnement": 41,
     "fournitures stationnement": 41,
     "frais de bureau": 49,
@@ -66,10 +44,17 @@ OCR_SEARCH_TERMS = {
     "frais de cartes de credit": 53,
     "réclamations": 56,
     "reclamations": 56,
-    "assurances cautionnement": 57,
     "assurances": 57,
+    "assurances cautionnement": 57,
     "taxes et permis": 58,
     "honoraires de gestion": 63,
+}
+
+VALIDATION_NAMES = {
+    "total revenus": "_TOTAL_REVENUS_",
+    "total des frais d'exploitation": "_TOTAL_EXPENSES_",
+    "bénéfice net": "_BENEFICE_NET_",
+    "benefice net": "_BENEFICE_NET_",
 }
 
 # ============================================================================
@@ -117,22 +102,25 @@ MONTH_COLUMN = {
 }
 
 # ============================================================================
-# GRID EXTRACTION (digital PDFs)
+# DYNAMIC GRID EXTRACTION
 # ============================================================================
 
 def find_pl_page(doc):
     for page_num in range(len(doc)):
         text = doc[page_num].get_text()
-        if "revenus mensuels" in text.lower() and "bénéfice net" in text.lower():
+        if "revenus" in text.lower() and "bénéfice net" in text.lower():
             return page_num
     return None
 
-def extract_by_grid(pdf_path, debug_updates=None):
+def extract_by_dynamic_grid(pdf_path, debug_updates=None):
+    """Find accounts by text, extract Mois Courant by x-position."""
     doc = fitz.open(pdf_path)
     page_num = find_pl_page(doc)
     
     if page_num is None:
         doc.close()
+        if debug_updates is not None:
+            debug_updates.append("❌ P&L page not found")
         return {}
     
     page = doc[page_num]
@@ -140,11 +128,37 @@ def extract_by_grid(pdf_path, debug_updates=None):
     doc.close()
     
     if not words or len(words) < 50:
+        if debug_updates is not None:
+            debug_updates.append(f"⚠️ Only {len(words)} words - trying OCR")
         return {}
     
     if debug_updates is not None:
-        debug_updates.append(f"📐 Grid: Page {page_num+1}, {len(words)} words")
+        debug_updates.append(f"📐 Page {page_num+1}, {len(words)} words")
     
+    # Build map: account_name -> y_position
+    account_y = {}
+    for w in words:
+        x0, y0, x1, y1, text, block, line, word_no = w
+        text_lower = text.lower().strip()
+        
+        # Only look at first column (x < 200)
+        if x0 > 200:
+            continue
+        
+        for search_term in ACCOUNT_NAMES:
+            if search_term in text_lower and search_term not in account_y:
+                account_y[search_term] = int(y0)
+                break
+        
+        for search_term in VALIDATION_NAMES:
+            if search_term in text_lower and search_term not in account_y:
+                account_y[search_term] = int(y0)
+                break
+    
+    if debug_updates is not None:
+        debug_updates.append(f"🔍 Found {len(account_y)} account positions")
+    
+    # Group words by y-position
     rows = {}
     for w in words:
         x0, y0, x1, y1, text, block, line, word_no = w
@@ -157,7 +171,17 @@ def extract_by_grid(pdf_path, debug_updates=None):
     
     data = {}
     
-    for y_pos, template_row in ACCOUNT_ROWS.items():
+    # Extract template accounts
+    for search_term, template_row in ACCOUNT_NAMES.items():
+        if template_row in data:
+            continue
+        
+        y_pos = account_y.get(search_term)
+        if y_pos is None:
+            data[template_row] = 0.0
+            continue
+        
+        # Find closest y-key in rows
         closest_y = None
         for y_key in rows.keys():
             if abs(y_key - y_pos) <= 2:
@@ -166,8 +190,11 @@ def extract_by_grid(pdf_path, debug_updates=None):
         
         if closest_y is None:
             data[template_row] = 0.0
+            if debug_updates is not None:
+                debug_updates.append(f"  ❌ {search_term}: no row at y={y_pos}")
             continue
         
+        # Get Mois Courant value from x-range 165-195
         mois_courant_words = []
         for x_pos, texts in rows[closest_y].items():
             if MOIS_COURANT_X_MIN <= x_pos <= MOIS_COURANT_X_MAX:
@@ -182,15 +209,23 @@ def extract_by_grid(pdf_path, debug_updates=None):
                     amount = -abs(amount)
                 data[template_row] = amount
                 if debug_updates is not None:
-                    debug_updates.append(f"  ✅ y={y_pos}: ${amount:,.2f} -> Row {template_row}")
+                    debug_updates.append(f"  ✅ {search_term}: {amount:,.2f} $ -> Row {template_row}")
             else:
                 data[template_row] = 0.0
         else:
             data[template_row] = 0.0
             if debug_updates is not None:
-                debug_updates.append(f"  ⚠️ y={y_pos}: $0.00 -> Row {template_row}")
+                debug_updates.append(f"  ⚠️ {search_term}: $0.00 -> Row {template_row}")
     
-    for y_pos, validation_key in VALIDATION_ROWS.items():
+    # Extract validation accounts
+    for search_term, validation_key in VALIDATION_NAMES.items():
+        if validation_key in data:
+            continue
+        
+        y_pos = account_y.get(search_term)
+        if y_pos is None:
+            continue
+        
         closest_y = None
         for y_key in rows.keys():
             if abs(y_key - y_pos) <= 2:
@@ -211,12 +246,17 @@ def extract_by_grid(pdf_path, debug_updates=None):
             if amount is not None:
                 data[validation_key] = amount
                 if debug_updates is not None:
-                    debug_updates.append(f"  📊 {validation_key} = ${amount:,.2f}")
+                    debug_updates.append(f"  📊 {validation_key} = {amount:,.2f} $")
+    
+    if debug_updates is not None:
+        template_count = len([k for k in data if not str(k).startswith('_')])
+        validation_count = len([k for k in data if str(k).startswith('_')])
+        debug_updates.append(f"  📊 {template_count} template + {validation_count} validation")
     
     return data
 
 # ============================================================================
-# OCR EXTRACTION (January)
+# OCR EXTRACTION (January fallback)
 # ============================================================================
 
 def is_number_line(text):
@@ -257,7 +297,7 @@ def extract_by_ocr(pdf_path, debug_updates=None):
             clean_lines = [l.strip() for l in lines]
             data = {}
             
-            for search_term, template_row in OCR_SEARCH_TERMS.items():
+            for search_term, template_row in ACCOUNT_NAMES.items():
                 if template_row in data:
                     continue
                 
@@ -269,8 +309,6 @@ def extract_by_ocr(pdf_path, debug_updates=None):
                                 amount = parse_amount(next_line)
                                 if amount is not None:
                                     data[template_row] = amount
-                                    if debug_updates is not None:
-                                        debug_updates.append(f"  ✅ OCR {search_term}: ${amount:,.2f}")
                         break
                 
                 if template_row not in data:
@@ -289,12 +327,14 @@ def extract_by_ocr(pdf_path, debug_updates=None):
 # ============================================================================
 
 def extract_from_pdf(pdf_path, debug_updates=None):
-    data = extract_by_grid(pdf_path, debug_updates)
+    # Try dynamic grid first
+    data = extract_by_dynamic_grid(pdf_path, debug_updates)
     template_count = len([k for k in data if not str(k).startswith('_')])
     
     if template_count >= 10:
         return data
     
+    # Fall back to OCR
     if debug_updates is not None:
         debug_updates.append(f"🔍 Grid got {template_count}, trying OCR...")
     
