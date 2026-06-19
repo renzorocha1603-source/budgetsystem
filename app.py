@@ -166,6 +166,9 @@ def text_to_speech(text, lang="en"):
     """Convert Allison's text response to speech using Deepgram TTS (Aura-2)"""
     try:
         clean_text = clean_text_for_speech(text)
+        
+        if not clean_text or len(clean_text) < 2:
+            return None
 
         deepgram = DeepgramClient(DEEPGRAM_API_KEY)
 
@@ -178,17 +181,31 @@ def text_to_speech(text, lang="en"):
             "model": voice_model,
         }
 
+        # Save to a unique filename to avoid conflicts
+        audio_file = f"allison_audio_{datetime.now().timestamp()}.mp3"
+        
         response = deepgram.speak.v("1").save(
-            "allison_audio.mp3",
+            audio_file,
             {"text": clean_text},
             options
         )
 
-        with open("allison_audio.mp3", "rb") as f:
-            audio_bytes = f.read()
-
-        audio_b64 = base64.b64encode(audio_bytes).decode()
-        return audio_b64
+        # Check if file was created and has content
+        if os.path.exists(audio_file) and os.path.getsize(audio_file) > 0:
+            with open(audio_file, "rb") as f:
+                audio_bytes = f.read()
+            
+            # Clean up temp file
+            try:
+                os.remove(audio_file)
+            except:
+                pass
+            
+            audio_b64 = base64.b64encode(audio_bytes).decode()
+            return audio_b64
+        else:
+            return None
+            
     except Exception as e:
         return None
 
