@@ -1,4 +1,4 @@
-# excel_fixer.py - OVERWRITE CURRENT YEAR (DON'T MERGE)
+# excel_fixer.py - SKIP ZERO MONTHS FROM CURRENT YEAR
 import io
 import re
 import pandas as pd
@@ -351,6 +351,17 @@ def extract_monthly_data(file_obj, parking_code, debug_updates=None):
     return {}
 
 # ============================================================================
+# CHECK IF MONTH HAS REAL DATA
+# ============================================================================
+
+def month_has_data(month_data):
+    """Check if a month has any non-zero values (real data, not just zeros)."""
+    for k, v in month_data.items():
+        if not str(k).startswith('_') and v != 0:
+            return True
+    return False
+
+# ============================================================================
 # TEMPLATE FILLING
 # ============================================================================
 
@@ -415,7 +426,7 @@ Current template values (non-zero):
                     context += f"Row {k}: {v:,.2f}\n"
             prompt = f"""{context}
 Gap is {gap:,.2f}. What account is likely missing?
-Reply with: row number and account name (e.g., "Row 37 - Repair and Maintenance")"""
+Reply with: row number and account name"""
             try:
                 resp = requests.post(
                     MISTRAL_URL,
@@ -524,7 +535,7 @@ def fix_excel(excel_file, monthly_files_current=None, monthly_files_previous=Non
                     pass
         
         # ================================================================
-        # PROCESS CURRENT YEAR SECOND (COMPLETELY OVERWRITES Jan-Apr)
+        # PROCESS CURRENT YEAR - only overwrite months with real data
         # ================================================================
         if monthly_files_current:
             updates.append(f"\n📁 Current year: {len(monthly_files_current)} files...")
@@ -535,10 +546,13 @@ def fix_excel(excel_file, monthly_files_current=None, monthly_files_previous=Non
                     data = extract_monthly_data(file_obj, parking_code, debug)
                     if data:
                         for mn, md in data.items():
-                            all_data[mn] = md.copy()  # FULL OVERWRITE
-                            cnt = len([k for k in md if not str(k).startswith('_')])
-                            ben = md.get('_BENEFICE_NET_', 'N/A')
-                            updates.append(f"   ✅ {mn}: {cnt} accounts | P&L Net: {ben} $")
+                            if month_has_data(md):
+                                all_data[mn] = md.copy()
+                                cnt = len([k for k in md if not str(k).startswith('_')])
+                                ben = md.get('_BENEFICE_NET_', 'N/A')
+                                updates.append(f"   ✅ {mn}: {cnt} accounts | P&L Net: {ben} $")
+                            else:
+                                updates.append(f"   ⏭️ {mn}: Skipped (no data, keeping previous year)")
                     else:
                         updates.append(f"   ❌ No data extracted")
                 finally:
