@@ -1,4 +1,4 @@
-# excel_fixer.py - R&M TO ROW 37 (FINAL)
+# excel_fixer.py - PROCESS PREVIOUS YEAR FIRST (FINAL)
 import io
 import re
 import pandas as pd
@@ -501,49 +501,71 @@ def fix_excel(excel_file, monthly_files_current=None, monthly_files_previous=Non
             excel_file.seek(0)
             wb = load_workbook(io.BytesIO(excel_file.read()))
         updates.append(f"✅ Template: {parking_code or 'Unknown'}")
-        all_files = []
-        if monthly_files_current:
-            all_files.extend(monthly_files_current)
+        
+        # ================================================================
+        # PROCESS PREVIOUS YEAR FIRST (2025 fills all 12 months)
+        # ================================================================
         if monthly_files_previous:
-            all_files.extend(monthly_files_previous)
-        if not all_files:
+            updates.append(f"\n📁 Previous year: {len(monthly_files_previous)} files...")
+            for file_obj in monthly_files_previous:
+                file_obj.seek(0)
+                try:
+                    debug.append(f"--- PREVIOUS: {getattr(file_obj, 'name', 'unknown')} ---")
+                    data = extract_monthly_data(file_obj, parking_code, debug)
+                    if data:
+                        for mn, md in data.items():
+                            all_data[mn] = md
+                            cnt = len([k for k in md if not str(k).startswith('_')])
+                            ben = md.get('_BENEFICE_NET_', 'N/A')
+                            updates.append(f"   ✅ {mn}: {cnt} accounts | P&L Net: {ben} $")
+                    else:
+                        updates.append(f"   ❌ No data extracted")
+                finally:
+                    pass
+        
+        # ================================================================
+        # PROCESS CURRENT YEAR SECOND (2026 overwrites Jan-Apr)
+        # ================================================================
+        if monthly_files_current:
+            updates.append(f"\n📁 Current year: {len(monthly_files_current)} files...")
+            for file_obj in monthly_files_current:
+                file_obj.seek(0)
+                try:
+                    debug.append(f"--- CURRENT: {getattr(file_obj, 'name', 'unknown')} ---")
+                    data = extract_monthly_data(file_obj, parking_code, debug)
+                    if data:
+                        for mn, md in data.items():
+                            all_data[mn] = md
+                            cnt = len([k for k in md if not str(k).startswith('_')])
+                            ben = md.get('_BENEFICE_NET_', 'N/A')
+                            updates.append(f"   ✅ {mn}: {cnt} accounts | P&L Net: {ben} $")
+                    else:
+                        updates.append(f"   ❌ No data extracted")
+                finally:
+                    pass
+        
+        if not all_data:
             updates.append("⚠️ No files!")
             output = io.BytesIO()
             wb.save(output)
             output.seek(0)
             return output.getvalue(), updates
-        updates.append(f"\n📁 {len(all_files)} files...")
-        for file_obj in all_files:
-            file_obj.seek(0)
-            try:
-                debug.append(f"--- {getattr(file_obj, 'name', 'unknown')} ---")
-                data = extract_monthly_data(file_obj, parking_code, debug)
-                if data:
-                    for mn, md in data.items():
-                        all_data[mn] = md
-                        cnt = len([k for k in md if not str(k).startswith('_')])
-                        ben = md.get('_BENEFICE_NET_', 'N/A')
-                        updates.append(f"   ✅ {mn}: {cnt} accounts | P&L Net: {ben} $")
-                else:
-                    updates.append(f"   ❌ No data extracted")
-            finally:
-                pass
+        
         if debug:
             updates.append("\n🔍 Debug:")
             updates.extend(debug)
-        if all_data:
-            updates.append(f"\n📝 Filling {len(all_data)} months...")
-            updates.extend(fill_template(wb, all_data))
-            updates.append(f"\n🤖 Allison Analysis:")
-            suggestions = allison_analyze(all_data, debug)
-            if suggestions:
-                updates.extend(suggestions)
-            else:
-                updates.append("   ✅ No gaps detected")
-            updates.append(f"\n🔍 Validation:")
-            updates.extend(validate_results(wb, all_data))
+        
+        updates.append(f"\n📝 Filling {len(all_data)} months...")
+        updates.extend(fill_template(wb, all_data))
+        updates.append(f"\n🤖 Allison Analysis:")
+        suggestions = allison_analyze(all_data, debug)
+        if suggestions:
+            updates.extend(suggestions)
         else:
-            updates.append("\n⚠️ No data!")
+            updates.append("   ✅ No gaps detected")
+        updates.append(f"\n🔍 Validation:")
+        updates.extend(validate_results(wb, all_data))
+        
         output = io.BytesIO()
         wb.save(output)
         output.seek(0)
