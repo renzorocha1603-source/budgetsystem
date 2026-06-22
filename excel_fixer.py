@@ -1,11 +1,19 @@
-# excel_fixer.py - SEARCH BY NAME + CORRECT COLUMNS (FINAL)
+# excel_fixer.py - ALLISON SMART CORRECTION + FULL YEAR + SINGLE MONTH
 import io
 import re
 import pandas as pd
+import requests
 from openpyxl import load_workbook
 from openpyxl.utils import get_column_letter
 import tempfile
 import os
+
+# ============================================================================
+# MISTRAL CONFIGURATION
+# ============================================================================
+MISTRAL_API_KEY = "em5oqjSdA1Nus9iUpa1MNAJtQA4YfCtK"
+MISTRAL_URL = "https://api.mistral.ai/v1/chat/completions"
+MISTRAL_MODEL = "mistral-small-latest"
 
 # ============================================================================
 # ACCOUNT NAME SEARCH PATTERNS (P&L account name -> Template Row)
@@ -42,10 +50,11 @@ ACCOUNT_SEARCH = {
     "uniforms": 32,
     
     # MAINTENANCE
-    "r&m - cleaning": 35,
-    "nettoyage stationnement": 35,
+    "repair and maintenance": 36,
     "r&m - general": 36,
     "entretien stationnement": 36,
+    "r&m - cleaning": 35,
+    "nettoyage stationnement": 35,
     "r&m - equipment": 37,
     "entretien équipement": 37,
     "entretien equipement": 37,
@@ -148,12 +157,11 @@ VALIDATION_SEARCH = {
     "benefice net": "_BENEFICE_NET_",
 }
 
-# CORRECTED: January=Column B(2), February=C(3), March=D(4), April=E(5)
-PANDL_MONTH_COLUMNS = {
-    'January': 2,
-    'February': 3,
-    'March': 4,
-    'April': 5,
+# Full year month columns
+FULL_YEAR_MONTHS = {
+    'January': 2, 'February': 3, 'March': 4, 'April': 5,
+    'May': 6, 'June': 7, 'July': 8, 'August': 9,
+    'September': 10, 'October': 11, 'November': 12, 'December': 13,
 }
 
 # ============================================================================
@@ -175,11 +183,131 @@ MONTH_COLUMN = {
 }
 
 # ============================================================================
-# EXCEL P&L EXTRACTION - SEARCH BY NAME
+# DETECT P&L TYPE
 # ============================================================================
 
-def extract_from_pnl_excel(file_bytes, parking_code, debug_updates=None):
-    """Extract data by searching account names in Column A."""
+def detect_pnl_type(df):
+    """Detect if P&L is full-year or single month."""
+    if len(df.columns) >= 14:
+        data_cols = 0
+        for col_idx in range(2, 14):
+            if col_idx < len(df.columns):
+                for row_idx in range(min(100, len(df))):
+                    val = df.iloc[row_idx, col_idx - 1]
+                    try:
+                        if pd.notna(val) and float(val) != 0:
+                            data_cols += 1
+                            break
+                    except:
+                        pass
+        if data_cols >= 3:
+            return "full_year"
+    return "single_month"
+
+def detect_single_month_name(file_obj):
+    """Detect month from filename."""
+    if hasattr(file_obj, 'name'):
+        for fr, en in MONTH_MAP.items():
+            if fr in file_obj.name.lower():
+                return en
+    return None
+
+# ============================================================================
+# EXCEL P&L EXTRACTION
+# ============================================================================
+
+def extract_from_full_year_pnl(df, debug_updates=None):
+    """Extract from full-year P&L."""
+    data = {}
+    
+    for row_idx in range(len(df)):
+        col_a = str(df.iloc[row_idx, 0]).strip().lower()
+        if not col_a or col_a == 'nan':
+            continue
+        
+        for search_term, template_row in ACCOUNT_SEARCH.items():
+            if search_term in col_a:
+                for month_name, col_idx in FULL_YEAR_MONTHS.items():
+                    if col_idx < len(df.columns):
+                        val = df.iloc[row_idx, col_idx - 1]
+                        try:
+                            amount = float(val) if pd.notna(val) else 0.0
+                        except (ValueError, TypeError):
+                            amount = 0.0
+                        if month_name not in data:
+                            data[month_name] = {}
+                        if template_row not in data[month_name]:
+                            data[month_name][template_row] = amount
+                break
+        
+        for search_term, validation_key in VALIDATION_SEARCH.items():
+            if search_term in col_a:
+                for month_name, col_idx in FULL_YEAR_MONTHS.items():
+                    if col_idx < len(df.columns):
+                        val = df.iloc[row_idx, col_idx - 1]
+                        try:
+                            amount = float(val) if pd.notna(val) else 0.0
+                        except (ValueError, TypeError):
+                            amount = 0.0
+                        if month_name not in data:
+                            data[month_name] = {}
+                        if validation_key not in data[month_name]:
+                            data[month_name][validation_key] = amount
+                break
+    
+    return data
+
+def extract_from_single_month_pnl(df, month_name, debug_updates=None):
+    """Extract from single-month P&L."""
+    data = {month_name: {}}
+    
+    data_col = None
+    for col_idx in range(2, min(10, len(df.columns))):
+        for row_idx in range(min(100, len(df))):
+            val = df.iloc[row_idx, col_idx - 1]
+            try:
+                if pd.notna(val) and float(val) != 0:
+                    data_col = col_idx
+                    break
+            except:
+                pass
+        if data_col:
+            break
+    
+    if data_col is None:
+        data_col = 2
+    
+    for row_idx in range(len(df)):
+        col_a = str(df.iloc[row_idx, 0]).strip().lower()
+        if not col_a or col_a == 'nan':
+            continue
+        
+        for search_term, template_row in ACCOUNT_SEARCH.items():
+            if search_term in col_a:
+                val = df.iloc[row_idx, data_col - 1]
+                try:
+                    amount = float(val) if pd.notna(val) else 0.0
+                except (ValueError, TypeError):
+                    amount = 0.0
+                if template_row not in data[month_name]:
+                    data[month_name][template_row] = amount
+                break
+        
+        for search_term, validation_key in VALIDATION_SEARCH.items():
+            if search_term in col_a:
+                val = df.iloc[row_idx, data_col - 1]
+                try:
+                    amount = float(val) if pd.notna(val) else 0.0
+                except (ValueError, TypeError):
+                    amount = 0.0
+                if validation_key not in data[month_name]:
+                    data[month_name][validation_key] = amount
+                break
+    
+    return data
+
+def extract_from_pnl_excel(file_bytes, file_obj, parking_code, debug_updates=None):
+    """Extract from P&L Excel."""
     try:
         xl = pd.ExcelFile(io.BytesIO(file_bytes))
         
@@ -201,62 +329,20 @@ def extract_from_pnl_excel(file_bytes, parking_code, debug_updates=None):
         
         if debug_updates is not None:
             debug_updates.append(f"📐 P&L: {len(df)} rows x {len(df.columns)} cols")
-            debug_updates.append("🔍 Searching for accounts by name...")
         
-        data = {}
+        pnl_type = detect_pnl_type(df)
         
-        # Scan every row for matching account names
-        for row_idx in range(len(df)):
-            col_a = str(df.iloc[row_idx, 0]).strip().lower()
-            if not col_a or col_a == 'nan':
-                continue
-            
-            # Check template accounts
-            for search_term, template_row in ACCOUNT_SEARCH.items():
-                if search_term in col_a:
-                    # Found a match! Extract values for all months
-                    for month_name, col_idx in PANDL_MONTH_COLUMNS.items():
-                        if col_idx < len(df.columns):
-                            val = df.iloc[row_idx, col_idx - 1]
-                            try:
-                                amount = float(val) if pd.notna(val) else 0.0
-                            except (ValueError, TypeError):
-                                amount = 0.0
-                            
-                            if month_name not in data:
-                                data[month_name] = {}
-                            
-                            # Only store if not already found (first match wins)
-                            if template_row not in data[month_name]:
-                                data[month_name][template_row] = amount
-                                if debug_updates is not None and month_name == 'January' and amount != 0:
-                                    debug_updates.append(f"  ✅ Row {row_idx+1}: '{col_a[:50]}' → Template {template_row} = {amount}")
-                    break  # Found match, stop searching for this row
-            
-            # Check validation accounts
-            for search_term, validation_key in VALIDATION_SEARCH.items():
-                if search_term in col_a:
-                    for month_name, col_idx in PANDL_MONTH_COLUMNS.items():
-                        if col_idx < len(df.columns):
-                            val = df.iloc[row_idx, col_idx - 1]
-                            try:
-                                amount = float(val) if pd.notna(val) else 0.0
-                            except (ValueError, TypeError):
-                                amount = 0.0
-                            
-                            if month_name not in data:
-                                data[month_name] = {}
-                            
-                            if validation_key not in data[month_name]:
-                                data[month_name][validation_key] = amount
-                                if debug_updates is not None and month_name == 'January' and amount != 0:
-                                    debug_updates.append(f"  📊 Row {row_idx+1}: '{col_a[:50]}' → {validation_key} = {amount}")
-                    break
-        
-        if debug_updates is not None:
-            debug_updates.append(f"✅ Extracted {len(data)} months from P&L")
-        
-        return data
+        if pnl_type == "full_year":
+            if debug_updates is not None:
+                debug_updates.append("📅 Full-year P&L detected")
+            return extract_from_full_year_pnl(df, debug_updates)
+        else:
+            month_name = detect_single_month_name(file_obj)
+            if month_name is None:
+                month_name = 'January'
+            if debug_updates is not None:
+                debug_updates.append(f"📅 Single-month P&L: {month_name}")
+            return extract_from_single_month_pnl(df, month_name, debug_updates)
         
     except Exception as e:
         if debug_updates is not None:
@@ -275,7 +361,7 @@ def extract_monthly_data(file_obj, parking_code, debug_updates=None):
     if hasattr(file_obj, 'name') and file_obj.name.lower().endswith(('.xlsx', '.xls')):
         if debug_updates is not None:
             debug_updates.append("📊 Excel file detected")
-        return extract_from_pnl_excel(file_bytes, parking_code, debug_updates)
+        return extract_from_pnl_excel(file_bytes, file_obj, parking_code, debug_updates)
     
     if debug_updates is not None:
         debug_updates.append("❌ Not an Excel file")
@@ -293,7 +379,7 @@ def fill_template(wb, all_data):
             sheet_name = sn
             break
     if sheet_name is None:
-        return ["❌ Sheet '2-Données historiques' not found"]
+        return ["❌ Sheet not found"]
     
     ws = wb[sheet_name]
     updates = []
@@ -321,6 +407,81 @@ def fill_template(wb, all_data):
     
     updates.append(f"\n📊 TOTAL: {total} yellow cells (formulas auto-calculate)")
     return updates
+
+# ============================================================================
+# ALLISON SMART CORRECTION
+# ============================================================================
+
+def allison_auto_correct(wb, all_data, debug_updates=None):
+    """Ask Allison to analyze gaps and suggest corrections."""
+    sheet_name = None
+    for sn in wb.sheetnames:
+        if 'données' in sn.lower() or 'historique' in sn.lower():
+            sheet_name = sn
+            break
+    if sheet_name is None:
+        return []
+    
+    ws = wb[sheet_name]
+    corrections = []
+    
+    for month_en, month_data in all_data.items():
+        col = MONTH_COLUMN.get(month_en)
+        if col is None:
+            continue
+        
+        pnl_ben = month_data.get('_BENEFICE_NET_', 0)
+        pnl_rev = month_data.get('_TOTAL_REVENUS_', 0)
+        pnl_exp = month_data.get('_TOTAL_EXPENSES_', 0)
+        pnl_surplus = month_data.get('_OPERATION_SURPLUS_', 0)
+        
+        if pnl_ben == 0:
+            continue
+        
+        template_rev = sum(v for k, v in month_data.items() if k in [12, 13, 14, 15, 16, 17, 20, 22, 24])
+        template_exp = sum(v for k, v in month_data.items() if k in [29, 30, 31, 32, 35, 36, 37, 38, 39, 40, 41, 42, 46, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 67, 68, 69, 70, 71, 72, 73, 74, 76])
+        
+        gap = pnl_ben - (template_rev - template_exp)
+        
+        if abs(gap) > 0.01:
+            context = f"""P&L {month_en}: Net={pnl_ben:,.2f}, Revenue={pnl_rev:,.2f}, OpExp={pnl_exp:,.2f}, Surplus={pnl_surplus:,.2f}
+Template: Revenue={template_rev:,.2f}, Expenses={template_exp:,.2f}, Net={template_rev - template_exp:,.2f}
+GAP: {gap:,.2f}
+
+Current template values (non-zero):
+"""
+            for k, v in sorted(month_data.items()):
+                if not str(k).startswith('_') and v != 0:
+                    context += f"Row {k}: {v:,.2f}\n"
+            
+            prompt = f"""{context}
+Gap is {gap:,.2f}. Which SINGLE row should get this amount?
+Consider: Operation Surplus = Revenue - OpExp. The gap likely belongs to an expense account not captured (like Management Fees row 62/63, R&M row 36, or catch-all row 76).
+Reply with ONLY the row number. Nothing else."""
+            
+            try:
+                resp = requests.post(
+                    MISTRAL_URL,
+                    headers={"Authorization": f"Bearer {MISTRAL_API_KEY}", "Content-Type": "application/json"},
+                    json={"model": MISTRAL_MODEL, "messages": [{"role": "user", "content": prompt}], "temperature": 0.1},
+                    timeout=15
+                )
+                if resp.status_code == 200:
+                    response = resp.json()["choices"][0]["message"]["content"].strip()
+                    row_match = re.search(r'(\d+)', response)
+                    if row_match:
+                        suggested_row = int(row_match.group(1))
+                        corrections.append(f"  🤖 Allison: Row {suggested_row} for {month_en} (gap: {gap:,.2f} $)")
+                        
+                        current_val = month_data.get(suggested_row, 0)
+                        month_data[suggested_row] = current_val + gap
+                        ws.cell(row=suggested_row, column=col).value = current_val + gap
+                        ws.cell(row=suggested_row, column=col).number_format = '#,##0.00 $'
+                        corrections.append(f"     → Added {gap:,.2f} $ to Row {suggested_row}")
+            except:
+                pass
+    
+    return corrections
 
 # ============================================================================
 # VALIDATION
@@ -358,8 +519,6 @@ def validate_results(wb, all_data):
                 results.append(f"   ✅ NET INCOME = {ben:,.2f} $")
         elif ben is not None:
             results.append(f"   ⚠️ Net: {ben:,.2f} $")
-        else:
-            results.append(f"   ℹ️ No NET INCOME found in P&L")
     
     return results
 
@@ -390,7 +549,7 @@ def get_parking_codes_from_pnl(file_obj):
 def fix_excel(excel_file, monthly_files_current=None, monthly_files_previous=None,
               budget_initial_file=None, fiche_stationnement_file=None,
               parking_code=None, word_data=None):
-    """Main function - extract from P&L Excel and fill template."""
+    """Main function."""
     updates = []
     all_data = {}
     debug = []
@@ -447,6 +606,14 @@ def fix_excel(excel_file, monthly_files_current=None, monthly_files_previous=Non
         if all_data:
             updates.append(f"\n📝 Filling {len(all_data)} months...")
             updates.extend(fill_template(wb, all_data))
+            
+            updates.append(f"\n🤖 Allison Smart Correction:")
+            corrections = allison_auto_correct(wb, all_data, debug)
+            if corrections:
+                updates.extend(corrections)
+            else:
+                updates.append("   ✅ No gaps detected - all months balanced")
+            
             updates.append(f"\n🔍 Validation:")
             updates.extend(validate_results(wb, all_data))
         else:
