@@ -1,4 +1,4 @@
-# excel_fixer.py - PROCESS PREVIOUS YEAR FIRST (FINAL)
+# excel_fixer.py - MERGE DATA (DON'T OVERWRITE WITH ZEROS)
 import io
 import re
 import pandas as pd
@@ -351,6 +351,33 @@ def extract_monthly_data(file_obj, parking_code, debug_updates=None):
     return {}
 
 # ============================================================================
+# SMART MERGE - Don't overwrite with zeros
+# ============================================================================
+
+def merge_monthly_data(all_data, new_data):
+    """Merge new_data into all_data. Non-zero values overwrite, zeros don't."""
+    for mn, md in new_data.items():
+        if mn not in all_data:
+            all_data[mn] = md.copy()
+        else:
+            # Check if new data has any non-zero values
+            has_real_data = False
+            for k, v in md.items():
+                if not str(k).startswith('_') and v != 0:
+                    has_real_data = True
+                    break
+            
+            if has_real_data:
+                # Merge: only overwrite with non-zero values
+                for k, v in md.items():
+                    if v != 0:
+                        all_data[mn][k] = v
+                    elif k not in all_data[mn]:
+                        all_data[mn][k] = v
+            # If new data is all zeros, keep existing data
+    return all_data
+
+# ============================================================================
 # TEMPLATE FILLING
 # ============================================================================
 
@@ -395,11 +422,11 @@ def allison_analyze(all_data, debug_updates=None):
         if col is None:
             continue
         pnl_ben = month_data.get('_BENEFICE_NET_', 0)
+        if pnl_ben == 0:
+            continue
         pnl_rev = month_data.get('_TOTAL_REVENUS_', 0)
         pnl_exp = month_data.get('_TOTAL_EXPENSES_', 0)
         pnl_surplus = month_data.get('_OPERATION_SURPLUS_', 0)
-        if pnl_ben == 0:
-            continue
         template_rev = sum(v for k, v in month_data.items() if k in [12, 13, 14, 15, 16, 17, 20, 22, 24])
         template_exp = sum(v for k, v in month_data.items() if k in [29, 30, 31, 32, 35, 36, 37, 38, 39, 40, 41, 42, 46, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 67, 68, 69, 70, 71, 72, 73, 74, 76])
         gap = pnl_ben - (template_rev - template_exp)
@@ -503,7 +530,7 @@ def fix_excel(excel_file, monthly_files_current=None, monthly_files_previous=Non
         updates.append(f"✅ Template: {parking_code or 'Unknown'}")
         
         # ================================================================
-        # PROCESS PREVIOUS YEAR FIRST (2025 fills all 12 months)
+        # PROCESS PREVIOUS YEAR FIRST
         # ================================================================
         if monthly_files_previous:
             updates.append(f"\n📁 Previous year: {len(monthly_files_previous)} files...")
@@ -513,8 +540,8 @@ def fix_excel(excel_file, monthly_files_current=None, monthly_files_previous=Non
                     debug.append(f"--- PREVIOUS: {getattr(file_obj, 'name', 'unknown')} ---")
                     data = extract_monthly_data(file_obj, parking_code, debug)
                     if data:
+                        all_data = merge_monthly_data(all_data, data)
                         for mn, md in data.items():
-                            all_data[mn] = md
                             cnt = len([k for k in md if not str(k).startswith('_')])
                             ben = md.get('_BENEFICE_NET_', 'N/A')
                             updates.append(f"   ✅ {mn}: {cnt} accounts | P&L Net: {ben} $")
@@ -524,7 +551,7 @@ def fix_excel(excel_file, monthly_files_current=None, monthly_files_previous=Non
                     pass
         
         # ================================================================
-        # PROCESS CURRENT YEAR SECOND (2026 overwrites Jan-Apr)
+        # PROCESS CURRENT YEAR SECOND (only overwrites with non-zero)
         # ================================================================
         if monthly_files_current:
             updates.append(f"\n📁 Current year: {len(monthly_files_current)} files...")
@@ -534,8 +561,8 @@ def fix_excel(excel_file, monthly_files_current=None, monthly_files_previous=Non
                     debug.append(f"--- CURRENT: {getattr(file_obj, 'name', 'unknown')} ---")
                     data = extract_monthly_data(file_obj, parking_code, debug)
                     if data:
+                        all_data = merge_monthly_data(all_data, data)
                         for mn, md in data.items():
-                            all_data[mn] = md
                             cnt = len([k for k in md if not str(k).startswith('_')])
                             ben = md.get('_BENEFICE_NET_', 'N/A')
                             updates.append(f"   ✅ {mn}: {cnt} accounts | P&L Net: {ben} $")
