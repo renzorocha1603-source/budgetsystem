@@ -11,7 +11,6 @@ import csv
 import zipfile
 from xml.etree import ElementTree
 from audio_recorder_streamlit import audio_recorder
-from deepgram import Deepgram
 import base64
 from excel_fixer import fix_excel, get_parking_codes_from_pnl
 
@@ -109,41 +108,42 @@ def ask_mistral(history: list) -> str:
 
 
 # ============================================================================
-# VOICE: Speech-to-Text (transcription)
+# VOICE: Speech-to-Text (transcription) - REST API
 # ============================================================================
 def transcribe_with_deepgram(audio_bytes, lang="en"):
-    """Transcribe audio using Deepgram SDK"""
+    """Transcribe audio using Deepgram REST API directly"""
     if not DEEPGRAM_API_KEY:
         return None
 
     try:
-        deepgram = Deepgram(DEEPGRAM_API_KEY)
-
         if lang == "fr":
             speech_language = "fr"
         else:
             speech_language = "en"
 
-        options = {
-            "model": "nova-2",
-            "smart_format": True,
-            "language": speech_language,
+        url = f"https://api.deepgram.com/v1/listen?model=nova-2&smart_format=true&language={speech_language}"
+        
+        headers = {
+            "Authorization": f"Token {DEEPGRAM_API_KEY}",
+            "Content-Type": "audio/wav",
         }
 
-        response = deepgram.transcription.prerecorded(
-            {"buffer": audio_bytes},
-            options
-        )
-
-        transcript = response["results"]["channels"][0]["alternatives"][0]["transcript"]
-        return transcript
+        response = requests.post(url, headers=headers, data=audio_bytes)
+        
+        if response.status_code == 200:
+            result = response.json()
+            transcript = result["results"]["channels"][0]["alternatives"][0]["transcript"]
+            return transcript
+        else:
+            st.write(f"🔍 Deepgram API error: {response.status_code}")
+            return None
     except Exception as e:
         st.write(f"🔍 Voice recognition error: {str(e)[:100]}")
         return None
 
 
 # ============================================================================
-# VOICE: Text-to-Speech (Allison speaks back)
+# VOICE: Text-to-Speech (Allison speaks back) - REST API
 # ============================================================================
 def clean_text_for_speech(text):
     """Remove markdown and symbols for clean speech"""
@@ -160,42 +160,29 @@ def clean_text_for_speech(text):
 
 
 def text_to_speech(text, lang="en"):
-    """Convert Allison's text response to speech using Deepgram TTS (Aura-2)"""
+    """Convert text to speech using Deepgram REST API directly"""
     try:
         clean_text = clean_text_for_speech(text)
         
         if not clean_text or len(clean_text) < 2:
             return None
 
-        deepgram = Deepgram(DEEPGRAM_API_KEY)
-
         if lang == "fr":
             voice_model = "aura-2-agathe-fr"
         else:
             voice_model = "aura-2-asteria-en"
 
-        options = {
-            "model": voice_model,
+        url = f"https://api.deepgram.com/v1/speak?model={voice_model}"
+        
+        headers = {
+            "Authorization": f"Token {DEEPGRAM_API_KEY}",
+            "Content-Type": "application/json",
         }
 
-        audio_file = f"allison_audio_{datetime.now().timestamp()}.mp3"
+        response = requests.post(url, headers=headers, json={"text": clean_text})
         
-        response = deepgram.speak.v("1").save(
-            audio_file,
-            {"text": clean_text},
-            options
-        )
-
-        if os.path.exists(audio_file) and os.path.getsize(audio_file) > 0:
-            with open(audio_file, "rb") as f:
-                audio_bytes = f.read()
-            
-            try:
-                os.remove(audio_file)
-            except:
-                pass
-            
-            audio_b64 = base64.b64encode(audio_bytes).decode()
+        if response.status_code == 200:
+            audio_b64 = base64.b64encode(response.content).decode()
             return audio_b64
         else:
             return None
