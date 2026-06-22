@@ -1,4 +1,4 @@
-# excel_fixer.py - EXCEL P&L EXTRACTION (FINAL)
+# excel_fixer.py - WITH TARGETED DEBUG
 import io
 import re
 import pandas as pd
@@ -8,7 +8,7 @@ import tempfile
 import os
 
 # ============================================================================
-# CORRECTED P&L ROW MAPPING (from actual Excel structure)
+# P&L ROW MAPPING (verified from spatial mapping)
 # ============================================================================
 PANDL_TO_TEMPLATE = {
     # PARKING REVENUE
@@ -48,8 +48,6 @@ PANDL_TO_TEMPLATE = {
     65: 59,   # Professional services
     56: 60,   # Equipment rent
     67: 61,   # Ad. & Promotion
-    
-    # OTHER EXPENSES
     81: 62,   # Percent Management fee
     80: 63,   # Management Fees (Basic)
     84: 64,   # Incentives
@@ -120,6 +118,15 @@ def extract_from_pnl_excel(file_bytes, parking_code, debug_updates=None):
         
         if debug_updates is not None:
             debug_updates.append(f"📐 P&L: {len(df)} rows x {len(df.columns)} cols")
+            
+            # DETAILED DEBUG: Show exact values being read
+            debug_updates.append("🔍 DEBUG - Reading key P&L rows (Column C = January):")
+            for pnl_row in [17, 23, 24, 26, 28, 29, 31, 33, 34, 36, 38, 40, 42, 45, 46, 50, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 72, 75, 77, 80, 81, 84, 85, 92]:
+                if pnl_row <= len(df):
+                    col_a = str(df.iloc[pnl_row-1, 0])[:50] if len(df.columns) > 0 else 'N/A'
+                    col_c = df.iloc[pnl_row-1, 2] if len(df.columns) > 2 else 'N/A'
+                    template_row = PANDL_TO_TEMPLATE.get(pnl_row, PANDL_VALIDATION.get(pnl_row, '?'))
+                    debug_updates.append(f"  P&L Row {pnl_row} → Template {template_row}: A='{col_a}' | C={col_c}")
         
         data = {}
         
@@ -139,6 +146,11 @@ def extract_from_pnl_excel(file_bytes, parking_code, debug_updates=None):
                     if month_name not in data:
                         data[month_name] = {}
                     data[month_name][template_row] = amount
+                    
+                    # TARGETED DEBUG for key accounts
+                    if pnl_row in [17, 23, 24, 26, 38, 62, 64, 68] and month_name == 'January':
+                        if debug_updates is not None:
+                            debug_updates.append(f"  🎯 SET data['{month_name}']['{template_row}'] = {amount} (from P&L Row {pnl_row}, col {col_idx})")
         
         # Extract validation totals
         for pnl_row, validation_key in PANDL_VALIDATION.items():
@@ -159,6 +171,12 @@ def extract_from_pnl_excel(file_bytes, parking_code, debug_updates=None):
         
         if debug_updates is not None:
             debug_updates.append(f"✅ Extracted {len(data)} months from P&L")
+            
+            # DEBUG: Show final data structure
+            if 'January' in data:
+                debug_updates.append("🔍 DEBUG - Final January data (first 10 entries):")
+                for k, v in list(data['January'].items())[:10]:
+                    debug_updates.append(f"  data['January'][{k}] = {v}")
         
         return data
         
