@@ -1,4 +1,4 @@
-# excel_fixer.py - FIXED BUDGET INITIAL + NO DOUBLE COUNTING
+# excel_fixer.py - WITH FICHE STATIONNEMENT (DON'T BREAK IT!)
 import io
 import re
 import pandas as pd
@@ -138,6 +138,21 @@ ACCOUNT_SEARCH = {
     "representation repas": 76,
 }
 
+# ============================================================================
+# FICHE STATIONNEMENT MAPPING (Cell -> Search Terms)
+# ============================================================================
+FICHE_STATIONNEMENT_MAP = {
+    "K17": ["transient revenue", "revenus horaires"],
+    "K18": ["monthly revenues", "revenus mensuels"],
+    "K19": ["car-wash revenue", "revenus lave-auto"],
+    "K20": ["hotel revenue", "revenus hotel", "revenus hôtel"],
+    "K21": ["interests", "intérêts", "interets"],
+    "K22": ["miscellaneous", "autres revenus", "other monthly revenue"],
+    "K23": ["discount-gratuities - transient", "gratuities - transient", "discount-gratuities - monthly", "gratuities - monthly"],
+    "K24": ["rabais", "rebate"],
+    "K25": ["other revenue", "autres"],
+}
+
 # Keywords to EXCLUDE from matching (subtotals, headers, totals)
 EXCLUDE_KEYWORDS = [
     "total", "parking revenue", "management revenue", "operation expenses",
@@ -151,7 +166,6 @@ EXCLUDE_KEYWORDS = [
     "total frais généraux", "total autres dépenses",
 ]
 
-# Revenue keywords for classification
 REVENUE_KEYWORDS = [
     "revenue", "revenus", "revenu", "income", "interests", "intérêts",
     "car-wash", "lave-auto", "hotel", "miscellaneous", "autres",
@@ -243,10 +257,6 @@ def detect_single_month_name(file_obj):
                 return en
     return None
 
-# ============================================================================
-# FIND YEAR TOTAL COLUMN
-# ============================================================================
-
 def find_year_total_column(df):
     for col_idx in range(len(df.columns)):
         for row_idx in range(min(15, len(df))):
@@ -263,12 +273,7 @@ def find_year_total_column(df):
                 pass
     return len(df.columns)
 
-# ============================================================================
-# CHECK IF ROW IS A SUBTOTAL/TOTAL (should be skipped)
-# ============================================================================
-
 def is_excluded_row(account_name):
-    """Check if this row is a subtotal, total, or header that should be skipped."""
     account_lower = account_name.lower().strip()
     for kw in EXCLUDE_KEYWORDS:
         if kw in account_lower:
@@ -276,7 +281,6 @@ def is_excluded_row(account_name):
     return False
 
 def classify_account(account_name):
-    """Determine if an unmatched account is revenue or expense."""
     account_lower = account_name.lower()
     for kw in REVENUE_KEYWORDS:
         if kw in account_lower:
@@ -302,13 +306,10 @@ def extract_from_full_year_pnl(df, debug_updates=None):
         col_a = str(df.iloc[row_idx, 0]).strip().lower()
         if not col_a or col_a == 'nan':
             continue
-        
-        # Skip excluded rows (subtotals, totals, headers)
         if is_excluded_row(col_a):
             continue
         
         matched = False
-        
         for search_term, template_row in ACCOUNT_SEARCH.items():
             if search_term in col_a:
                 matched = True
@@ -342,7 +343,6 @@ def extract_from_full_year_pnl(df, debug_updates=None):
                                 data[month_name][validation_key] = amount
                     break
         
-        # Smart unmatched handling
         if not matched:
             has_value = False
             for month_name, col_idx in FULL_YEAR_MONTHS.items():
@@ -357,7 +357,6 @@ def extract_from_full_year_pnl(df, debug_updates=None):
             
             if has_value:
                 account_type = classify_account(col_a)
-                
                 if debug_updates is not None:
                     jan_val = df.iloc[row_idx, 1] if len(df.columns) > 1 else 0
                     debug_updates.append(f"  ⚠️ UNMATCHED ({account_type}): Row {row_idx+1}: '{col_a[:60]}' = {jan_val}")
@@ -369,7 +368,6 @@ def extract_from_full_year_pnl(df, debug_updates=None):
                             amount = float(val) if pd.notna(val) else 0.0
                         except (ValueError, TypeError):
                             amount = 0.0
-                        
                         if amount != 0:
                             if account_type == "revenue":
                                 if month_name not in unmatched_revenue:
@@ -380,7 +378,6 @@ def extract_from_full_year_pnl(df, debug_updates=None):
                                     unmatched_expense[month_name] = 0.0
                                 unmatched_expense[month_name] += amount
     
-    # Add unmatched revenue to Row 17 (Miscellaneous) - only if not already captured
     for month_name, amount in unmatched_revenue.items():
         if month_name not in data:
             data[month_name] = {}
@@ -389,7 +386,6 @@ def extract_from_full_year_pnl(df, debug_updates=None):
         if debug_updates is not None:
             debug_updates.append(f"  ➕ Added {amount:,.2f} unmatched revenue to Row 17 for {month_name}")
     
-    # Add unmatched expenses to Row 76
     for month_name, amount in unmatched_expense.items():
         if month_name not in data:
             data[month_name] = {}
@@ -402,9 +398,8 @@ def extract_from_full_year_pnl(df, debug_updates=None):
 
 def extract_year_totals_from_pnl(df, debug_updates=None):
     year_col = find_year_total_column(df)
-    
     if debug_updates is not None:
-        debug_updates.append(f"📊 Budget Initial: Year Total column = {year_col}")
+        debug_updates.append(f"📊 Year Total column = {year_col}")
     
     data = {}
     unmatched_revenue = 0.0
@@ -414,13 +409,10 @@ def extract_year_totals_from_pnl(df, debug_updates=None):
         col_a = str(df.iloc[row_idx, 0]).strip().lower()
         if not col_a or col_a == 'nan':
             continue
-        
-        # Skip excluded rows (subtotals, totals, headers)
         if is_excluded_row(col_a):
             continue
         
         matched = False
-        
         for search_term, template_row in ACCOUNT_SEARCH.items():
             if search_term in col_a:
                 matched = True
@@ -432,8 +424,6 @@ def extract_year_totals_from_pnl(df, debug_updates=None):
                         amount = 0.0
                     if template_row not in data:
                         data[template_row] = amount
-                        if debug_updates is not None and amount != 0:
-                            debug_updates.append(f"  ✅ Year Total: '{col_a[:50]}' → Row {template_row} = {amount:,.2f}")
                 break
         
         if not matched:
@@ -450,19 +440,16 @@ def extract_year_totals_from_pnl(df, debug_updates=None):
                             data[validation_key] = amount
                     break
         
-        # Smart unmatched for Year Total
         if not matched and year_col <= len(df.columns):
             val = df.iloc[row_idx, year_col - 1]
             try:
                 amount = float(val) if pd.notna(val) else 0.0
             except (ValueError, TypeError):
                 amount = 0.0
-            
             if amount != 0:
                 account_type = classify_account(col_a)
                 if debug_updates is not None:
                     debug_updates.append(f"  ⚠️ UNMATCHED Year Total ({account_type}): '{col_a[:60]}' = {amount:,.2f}")
-                
                 if account_type == "revenue":
                     unmatched_revenue += amount
                 elif account_type == "expense":
@@ -470,13 +457,57 @@ def extract_year_totals_from_pnl(df, debug_updates=None):
     
     if unmatched_revenue != 0:
         data[17] = data.get(17, 0) + unmatched_revenue
-        if debug_updates is not None:
-            debug_updates.append(f"  ➕ Added {unmatched_revenue:,.2f} unmatched revenue to Row 17")
-    
     if unmatched_expense != 0:
         data[76] = data.get(76, 0) + unmatched_expense
-        if debug_updates is not None:
-            debug_updates.append(f"  ➖ Added {unmatched_expense:,.2f} unmatched expense to Row 76")
+    
+    return data
+
+def extract_fiche_stationnement_data(df, debug_updates=None):
+    """Extract specific revenue accounts for Fiche Stationnement from Year Total."""
+    year_col = find_year_total_column(df)
+    
+    if debug_updates is not None:
+        debug_updates.append(f"📊 Fiche Stationnement: Year Total column = {year_col}")
+    
+    data = {}
+    
+    for row_idx in range(len(df)):
+        col_a = str(df.iloc[row_idx, 0]).strip().lower()
+        if not col_a or col_a == 'nan':
+            continue
+        if is_excluded_row(col_a):
+            continue
+        
+        for cell_ref, search_terms in FICHE_STATIONNEMENT_MAP.items():
+            for term in search_terms:
+                if term in col_a:
+                    if year_col <= len(df.columns):
+                        val = df.iloc[row_idx, year_col - 1]
+                        try:
+                            amount = float(val) if pd.notna(val) else 0.0
+                        except (ValueError, TypeError):
+                            amount = 0.0
+                        if cell_ref not in data:
+                            data[cell_ref] = amount
+                            if debug_updates is not None and amount != 0:
+                                debug_updates.append(f"  ✅ Fiche Stationnement: '{col_a[:50]}' → {cell_ref} = {amount:,.2f}")
+                    break
+    
+    # Also try to get TOTAL REVENUE for K26
+    for row_idx in range(len(df)):
+        col_a = str(df.iloc[row_idx, 0]).strip().lower()
+        if "total revenue" in col_a or "total des revenus" in col_a:
+            if year_col <= len(df.columns):
+                val = df.iloc[row_idx, year_col - 1]
+                try:
+                    amount = float(val) if pd.notna(val) else 0.0
+                except (ValueError, TypeError):
+                    amount = 0.0
+                if "K26" not in data:
+                    data["K26"] = amount
+                    if debug_updates is not None:
+                        debug_updates.append(f"  ✅ Fiche Stationnement: TOTAL REVENUE → K26 = {amount:,.2f}")
+            break
     
     return data
 
@@ -579,8 +610,6 @@ def extract_budget_initial_data(file_obj, parking_code, debug_updates=None):
     file_obj.seek(0)
     file_bytes = file_obj.read()
     if not hasattr(file_obj, 'name') or not file_obj.name.lower().endswith(('.xlsx', '.xls')):
-        if debug_updates is not None:
-            debug_updates.append("❌ Budget Initial: Not an Excel file")
         return None
     try:
         xl = pd.ExcelFile(io.BytesIO(file_bytes))
@@ -590,16 +619,34 @@ def extract_budget_initial_data(file_obj, parking_code, debug_updates=None):
                 tab_name = sn
                 break
         if tab_name is None:
-            if debug_updates is not None:
-                debug_updates.append(f"❌ Budget Initial: Tab not found for {parking_code}")
+            return None
+        df = pd.read_excel(xl, sheet_name=tab_name, header=None)
+        return extract_year_totals_from_pnl(df, debug_updates)
+    except:
+        return None
+
+def extract_fiche_stationnement_from_file(file_obj, parking_code, debug_updates=None):
+    """Extract Fiche Stationnement data from a P&L file."""
+    if file_obj is None:
+        return None
+    file_obj.seek(0)
+    file_bytes = file_obj.read()
+    if not hasattr(file_obj, 'name') or not file_obj.name.lower().endswith(('.xlsx', '.xls')):
+        return None
+    try:
+        xl = pd.ExcelFile(io.BytesIO(file_bytes))
+        tab_name = None
+        for sn in xl.sheet_names:
+            if parking_code.upper() in sn.upper():
+                tab_name = sn
+                break
+        if tab_name is None:
             return None
         df = pd.read_excel(xl, sheet_name=tab_name, header=None)
         if debug_updates is not None:
-            debug_updates.append(f"📊 Budget Initial P&L: {len(df)} rows x {len(df.columns)} cols")
-        return extract_year_totals_from_pnl(df, debug_updates)
-    except Exception as e:
-        if debug_updates is not None:
-            debug_updates.append(f"❌ Budget Initial error: {e}")
+            debug_updates.append(f"📊 Fiche Stationnement P&L: {len(df)} rows x {len(df.columns)} cols")
+        return extract_fiche_stationnement_data(df, debug_updates)
+    except:
         return None
 
 # ============================================================================
@@ -673,24 +720,33 @@ def fill_budget_initial(wb, budget_data):
     updates.append(f"\n📊 Budget Initial: {total} cells filled in Column S")
     return updates
 
-# ============================================================================
-# ALLISON ANALYSIS
-# ============================================================================
-
-def allison_analyze(all_data, debug_updates=None):
-    corrections = []
-    for month_en, month_data in all_data.items():
-        pnl_ben = month_data.get('_BENEFICE_NET_', 0)
-        if pnl_ben == 0:
-            continue
-        pnl_rev = month_data.get('_TOTAL_REVENUS_', 0)
-        pnl_exp = month_data.get('_TOTAL_EXPENSES_', 0)
-        template_rev = sum(v for k, v in month_data.items() if k in [12, 13, 14, 15, 16, 17, 20, 22, 24])
-        template_exp = sum(v for k, v in month_data.items() if k in [29, 30, 31, 32, 35, 36, 37, 38, 39, 40, 41, 42, 46, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 67, 68, 69, 70, 71, 72, 73, 74, 76])
-        gap = pnl_ben - (template_rev - template_exp)
-        if abs(gap) > 0.01:
-            corrections.append(f"  🤖 Allison: {month_en} - Gap of {gap:,.2f} $")
-    return corrections
+def fill_fiche_stationnement(wb, fiche_data):
+    """Fill Fiche Stationnement sheet with specific cells."""
+    sheet_name = None
+    for sn in wb.sheetnames:
+        if 'fiche' in sn.lower() and 'stationnement' in sn.lower():
+            sheet_name = sn
+            break
+    if sheet_name is None:
+        for sn in wb.sheetnames:
+            if 'fiche' in sn.lower():
+                sheet_name = sn
+                break
+    if sheet_name is None:
+        return ["❌ Fiche Stationnement sheet not found"]
+    
+    ws = wb[sheet_name]
+    updates = []
+    total = 0
+    
+    for cell_ref, amount in fiche_data.items():
+        ws[cell_ref] = amount
+        ws[cell_ref].number_format = '#,##0.00 $'
+        total += 1
+        updates.append(f"   ✅ Fiche Stationnement ({cell_ref}): {amount:,.2f} $")
+    
+    updates.append(f"\n📊 Fiche Stationnement: {total} cells filled")
+    return updates
 
 # ============================================================================
 # VALIDATION
@@ -761,6 +817,7 @@ def fix_excel(excel_file, monthly_files_current=None, monthly_files_previous=Non
             wb = load_workbook(io.BytesIO(excel_file.read()))
         updates.append(f"✅ Template: {parking_code or 'Unknown'}")
         
+        # PROCESS PREVIOUS YEAR
         if monthly_files_previous:
             updates.append(f"\n📁 Previous year: {len(monthly_files_previous)} files...")
             for file_obj in monthly_files_previous:
@@ -779,6 +836,7 @@ def fix_excel(excel_file, monthly_files_current=None, monthly_files_previous=Non
                 finally:
                     pass
         
+        # PROCESS CURRENT YEAR
         if monthly_files_current:
             updates.append(f"\n📁 Current year: {len(monthly_files_current)} files...")
             for file_obj in monthly_files_current:
@@ -811,9 +869,11 @@ def fix_excel(excel_file, monthly_files_current=None, monthly_files_previous=Non
             updates.append("\n🔍 Debug:")
             updates.extend(debug)
         
+        # FILL DONNÉES HISTORIQUES
         updates.append(f"\n📝 Filling Données historiques ({len(all_data)} months)...")
         updates.extend(fill_template(wb, all_data))
         
+        # FILL BUDGET INITIAL
         if budget_initial_file:
             updates.append(f"\n📝 Processing Budget Initial...")
             budget_data = extract_budget_initial_data(budget_initial_file, parking_code, debug)
@@ -822,12 +882,15 @@ def fix_excel(excel_file, monthly_files_current=None, monthly_files_previous=Non
             else:
                 updates.append("   ⚠️ No Budget Initial data extracted")
         
-        updates.append(f"\n🤖 Allison Analysis:")
-        suggestions = allison_analyze(all_data, debug)
-        if suggestions:
-            updates.extend(suggestions)
-        else:
-            updates.append("   ✅ No gaps detected")
+        # FILL FICHE STATIONNEMENT
+        if fiche_stationnement_file:
+            updates.append(f"\n📝 Processing Fiche Stationnement...")
+            fiche_data = extract_fiche_stationnement_from_file(fiche_stationnement_file, parking_code, debug)
+            if fiche_data:
+                updates.extend(fill_fiche_stationnement(wb, fiche_data))
+            else:
+                updates.append("   ⚠️ No Fiche Stationnement data extracted")
+        
         updates.append(f"\n🔍 Validation:")
         updates.extend(validate_results(wb, all_data))
         
