@@ -1,4 +1,4 @@
-# excel_fixer.py - ALLISON SMART CORRECTION + FULL YEAR + SINGLE MONTH
+# excel_fixer.py - FINAL WORKING VERSION
 import io
 import re
 import pandas as pd
@@ -16,7 +16,7 @@ MISTRAL_URL = "https://api.mistral.ai/v1/chat/completions"
 MISTRAL_MODEL = "mistral-small-latest"
 
 # ============================================================================
-# ACCOUNT NAME SEARCH PATTERNS (P&L account name -> Template Row)
+# ACCOUNT NAME SEARCH PATTERNS
 # ============================================================================
 ACCOUNT_SEARCH = {
     # REVENUES
@@ -38,7 +38,6 @@ ACCOUNT_SEARCH = {
     "gratuities - transient": 20,
     "discount-gratuities - monthly": 22,
     "gratuities - monthly": 22,
-    
     # LABOUR
     "parking wages": 29,
     "salaire stationnement": 29,
@@ -48,7 +47,6 @@ ACCOUNT_SEARCH = {
     "formation & recrutement": 31,
     "uniformes": 32,
     "uniforms": 32,
-    
     # MAINTENANCE
     "repair and maintenance": 36,
     "r&m - general": 36,
@@ -69,11 +67,9 @@ ACCOUNT_SEARCH = {
     "fournitures stationnement": 41,
     "misc. re-billing": 42,
     "refacturations diverses": 42,
-    
     # PUBLIC SERVICES
     "public services": 46,
     "services publics": 46,
-    
     # OVERHEAD
     "office expenses": 49,
     "fournitures de bureau": 49,
@@ -115,7 +111,6 @@ ACCOUNT_SEARCH = {
     "honoraires de gestion de base": 63,
     "incentives": 64,
     "incitatif annuel": 64,
-    
     # OTHER EXPENSES
     "depreciation": 67,
     "amortissement": 67,
@@ -142,7 +137,6 @@ ACCOUNT_SEARCH = {
     "representation repas": 76,
 }
 
-# Validation accounts
 VALIDATION_SEARCH = {
     "total revenue": "_TOTAL_REVENUS_",
     "total revenus": "_TOTAL_REVENUS_",
@@ -157,16 +151,11 @@ VALIDATION_SEARCH = {
     "benefice net": "_BENEFICE_NET_",
 }
 
-# Full year month columns
 FULL_YEAR_MONTHS = {
     'January': 2, 'February': 3, 'March': 4, 'April': 5,
     'May': 6, 'June': 7, 'July': 8, 'August': 9,
     'September': 10, 'October': 11, 'November': 12, 'December': 13,
 }
-
-# ============================================================================
-# MONTH DETECTION
-# ============================================================================
 
 MONTH_MAP = {
     'janvier': 'January', 'février': 'February', 'fevrier': 'February',
@@ -187,7 +176,6 @@ MONTH_COLUMN = {
 # ============================================================================
 
 def detect_pnl_type(df):
-    """Detect if P&L is full-year or single month."""
     if len(df.columns) >= 14:
         data_cols = 0
         for col_idx in range(2, 14):
@@ -205,7 +193,6 @@ def detect_pnl_type(df):
     return "single_month"
 
 def detect_single_month_name(file_obj):
-    """Detect month from filename."""
     if hasattr(file_obj, 'name'):
         for fr, en in MONTH_MAP.items():
             if fr in file_obj.name.lower():
@@ -217,14 +204,11 @@ def detect_single_month_name(file_obj):
 # ============================================================================
 
 def extract_from_full_year_pnl(df, debug_updates=None):
-    """Extract from full-year P&L."""
     data = {}
-    
     for row_idx in range(len(df)):
         col_a = str(df.iloc[row_idx, 0]).strip().lower()
         if not col_a or col_a == 'nan':
             continue
-        
         for search_term, template_row in ACCOUNT_SEARCH.items():
             if search_term in col_a:
                 for month_name, col_idx in FULL_YEAR_MONTHS.items():
@@ -239,7 +223,6 @@ def extract_from_full_year_pnl(df, debug_updates=None):
                         if template_row not in data[month_name]:
                             data[month_name][template_row] = amount
                 break
-        
         for search_term, validation_key in VALIDATION_SEARCH.items():
             if search_term in col_a:
                 for month_name, col_idx in FULL_YEAR_MONTHS.items():
@@ -254,13 +237,10 @@ def extract_from_full_year_pnl(df, debug_updates=None):
                         if validation_key not in data[month_name]:
                             data[month_name][validation_key] = amount
                 break
-    
     return data
 
 def extract_from_single_month_pnl(df, month_name, debug_updates=None):
-    """Extract from single-month P&L."""
     data = {month_name: {}}
-    
     data_col = None
     for col_idx in range(2, min(10, len(df.columns))):
         for row_idx in range(min(100, len(df))):
@@ -273,15 +253,12 @@ def extract_from_single_month_pnl(df, month_name, debug_updates=None):
                 pass
         if data_col:
             break
-    
     if data_col is None:
         data_col = 2
-    
     for row_idx in range(len(df)):
         col_a = str(df.iloc[row_idx, 0]).strip().lower()
         if not col_a or col_a == 'nan':
             continue
-        
         for search_term, template_row in ACCOUNT_SEARCH.items():
             if search_term in col_a:
                 val = df.iloc[row_idx, data_col - 1]
@@ -292,7 +269,6 @@ def extract_from_single_month_pnl(df, month_name, debug_updates=None):
                 if template_row not in data[month_name]:
                     data[month_name][template_row] = amount
                 break
-        
         for search_term, validation_key in VALIDATION_SEARCH.items():
             if search_term in col_a:
                 val = df.iloc[row_idx, data_col - 1]
@@ -303,35 +279,26 @@ def extract_from_single_month_pnl(df, month_name, debug_updates=None):
                 if validation_key not in data[month_name]:
                     data[month_name][validation_key] = amount
                 break
-    
     return data
 
 def extract_from_pnl_excel(file_bytes, file_obj, parking_code, debug_updates=None):
-    """Extract from P&L Excel."""
     try:
         xl = pd.ExcelFile(io.BytesIO(file_bytes))
-        
         tab_name = None
         for sn in xl.sheet_names:
             if parking_code.upper() in sn.upper():
                 tab_name = sn
                 break
-        
         if tab_name is None:
             if debug_updates is not None:
                 debug_updates.append(f"❌ Tab not found for {parking_code}")
             return {}
-        
         if debug_updates is not None:
             debug_updates.append(f"📊 Found tab: {tab_name}")
-        
         df = pd.read_excel(xl, sheet_name=tab_name, header=None)
-        
         if debug_updates is not None:
             debug_updates.append(f"📐 P&L: {len(df)} rows x {len(df.columns)} cols")
-        
         pnl_type = detect_pnl_type(df)
-        
         if pnl_type == "full_year":
             if debug_updates is not None:
                 debug_updates.append("📅 Full-year P&L detected")
@@ -343,7 +310,6 @@ def extract_from_pnl_excel(file_bytes, file_obj, parking_code, debug_updates=Non
             if debug_updates is not None:
                 debug_updates.append(f"📅 Single-month P&L: {month_name}")
             return extract_from_single_month_pnl(df, month_name, debug_updates)
-        
     except Exception as e:
         if debug_updates is not None:
             debug_updates.append(f"❌ P&L error: {e}")
@@ -354,15 +320,12 @@ def extract_from_pnl_excel(file_bytes, file_obj, parking_code, debug_updates=Non
 # ============================================================================
 
 def extract_monthly_data(file_obj, parking_code, debug_updates=None):
-    """Extract data from Excel P&L file."""
     file_obj.seek(0)
     file_bytes = file_obj.read()
-    
     if hasattr(file_obj, 'name') and file_obj.name.lower().endswith(('.xlsx', '.xls')):
         if debug_updates is not None:
             debug_updates.append("📊 Excel file detected")
         return extract_from_pnl_excel(file_bytes, file_obj, parking_code, debug_updates)
-    
     if debug_updates is not None:
         debug_updates.append("❌ Not an Excel file")
     return {}
@@ -372,7 +335,6 @@ def extract_monthly_data(file_obj, parking_code, debug_updates=None):
 # ============================================================================
 
 def fill_template(wb, all_data):
-    """Write extracted data to YELLOW cells only."""
     sheet_name = None
     for sn in wb.sheetnames:
         if 'données' in sn.lower() or 'historique' in sn.lower():
@@ -380,19 +342,15 @@ def fill_template(wb, all_data):
             break
     if sheet_name is None:
         return ["❌ Sheet not found"]
-    
     ws = wb[sheet_name]
     updates = []
     total = 0
-    
     for month_en, month_data in all_data.items():
         col = MONTH_COLUMN.get(month_en)
         if col is None:
             continue
-        
         col_letter = get_column_letter(col)
         month_cells = 0
-        
         for key, amount in month_data.items():
             if str(key).startswith('_'):
                 continue
@@ -401,10 +359,8 @@ def fill_template(wb, all_data):
             month_cells += 1
             total += 1
             updates.append(f"   ✅ {month_en} ({col_letter}{key}): {amount:,.2f} $")
-        
         if month_cells > 0:
             updates.append(f"📊 {month_en}: {month_cells} cells")
-    
     updates.append(f"\n📊 TOTAL: {total} yellow cells (formulas auto-calculate)")
     return updates
 
@@ -413,7 +369,6 @@ def fill_template(wb, all_data):
 # ============================================================================
 
 def allison_auto_correct(wb, all_data, debug_updates=None):
-    """Ask Allison to analyze gaps and suggest corrections."""
     sheet_name = None
     for sn in wb.sheetnames:
         if 'données' in sn.lower() or 'historique' in sn.lower():
@@ -421,28 +376,21 @@ def allison_auto_correct(wb, all_data, debug_updates=None):
             break
     if sheet_name is None:
         return []
-    
     ws = wb[sheet_name]
     corrections = []
-    
     for month_en, month_data in all_data.items():
         col = MONTH_COLUMN.get(month_en)
         if col is None:
             continue
-        
         pnl_ben = month_data.get('_BENEFICE_NET_', 0)
         pnl_rev = month_data.get('_TOTAL_REVENUS_', 0)
         pnl_exp = month_data.get('_TOTAL_EXPENSES_', 0)
         pnl_surplus = month_data.get('_OPERATION_SURPLUS_', 0)
-        
         if pnl_ben == 0:
             continue
-        
         template_rev = sum(v for k, v in month_data.items() if k in [12, 13, 14, 15, 16, 17, 20, 22, 24])
         template_exp = sum(v for k, v in month_data.items() if k in [29, 30, 31, 32, 35, 36, 37, 38, 39, 40, 41, 42, 46, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 67, 68, 69, 70, 71, 72, 73, 74, 76])
-        
         gap = pnl_ben - (template_rev - template_exp)
-        
         if abs(gap) > 0.01:
             context = f"""P&L {month_en}: Net={pnl_ben:,.2f}, Revenue={pnl_rev:,.2f}, OpExp={pnl_exp:,.2f}, Surplus={pnl_surplus:,.2f}
 Template: Revenue={template_rev:,.2f}, Expenses={template_exp:,.2f}, Net={template_rev - template_exp:,.2f}
@@ -450,15 +398,13 @@ GAP: {gap:,.2f}
 
 Current template values (non-zero):
 """
-            for k, v in sorted(month_data.items()):
+            for k, v in month_data.items():
                 if not str(k).startswith('_') and v != 0:
                     context += f"Row {k}: {v:,.2f}\n"
-            
             prompt = f"""{context}
 Gap is {gap:,.2f}. Which SINGLE row should get this amount?
 Consider: Operation Surplus = Revenue - OpExp. The gap likely belongs to an expense account not captured (like Management Fees row 62/63, R&M row 36, or catch-all row 76).
 Reply with ONLY the row number. Nothing else."""
-            
             try:
                 resp = requests.post(
                     MISTRAL_URL,
@@ -472,7 +418,6 @@ Reply with ONLY the row number. Nothing else."""
                     if row_match:
                         suggested_row = int(row_match.group(1))
                         corrections.append(f"  🤖 Allison: Row {suggested_row} for {month_en} (gap: {gap:,.2f} $)")
-                        
                         current_val = month_data.get(suggested_row, 0)
                         month_data[suggested_row] = current_val + gap
                         ws.cell(row=suggested_row, column=col).value = current_val + gap
@@ -480,7 +425,6 @@ Reply with ONLY the row number. Nothing else."""
                         corrections.append(f"     → Added {gap:,.2f} $ to Row {suggested_row}")
             except:
                 pass
-    
     return corrections
 
 # ============================================================================
@@ -488,7 +432,6 @@ Reply with ONLY the row number. Nothing else."""
 # ============================================================================
 
 def validate_results(wb, all_data):
-    """Check if NET INCOME is consistent."""
     sheet_name = None
     for sn in wb.sheetnames:
         if 'données' in sn.lower() or 'historique' in sn.lower():
@@ -496,20 +439,15 @@ def validate_results(wb, all_data):
             break
     if sheet_name is None:
         return ["⚠️ Cannot validate"]
-    
     results = []
-    
     for month_en, month_data in all_data.items():
         col = MONTH_COLUMN.get(month_en)
         if col is None:
             continue
-        
         ben = month_data.get('_BENEFICE_NET_')
         rev = month_data.get('_TOTAL_REVENUS_')
         exp = month_data.get('_TOTAL_EXPENSES_')
-        
         results.append(f"\n📊 {month_en}:")
-        
         if ben is not None and rev is not None and exp is not None:
             expected = rev - exp
             diff = abs(ben - expected)
@@ -519,7 +457,6 @@ def validate_results(wb, all_data):
                 results.append(f"   ✅ NET INCOME = {ben:,.2f} $")
         elif ben is not None:
             results.append(f"   ⚠️ Net: {ben:,.2f} $")
-    
     return results
 
 # ============================================================================
@@ -527,7 +464,6 @@ def validate_results(wb, all_data):
 # ============================================================================
 
 def get_parking_codes_from_pnl(file_obj):
-    """Extract all parking codes from P&L Excel tabs."""
     codes = []
     if hasattr(file_obj, 'name'):
         file_obj.seek(0)
@@ -549,45 +485,36 @@ def get_parking_codes_from_pnl(file_obj):
 def fix_excel(excel_file, monthly_files_current=None, monthly_files_previous=None,
               budget_initial_file=None, fiche_stationnement_file=None,
               parking_code=None, word_data=None):
-    """Main function."""
     updates = []
     all_data = {}
     debug = []
-    
     try:
         updates.append("=" * 60)
         updates.append("🏗️ BUDGET SYSTEM - WORKFLOW")
         updates.append("=" * 60)
-        
         if isinstance(excel_file, bytes):
             wb = load_workbook(io.BytesIO(excel_file))
         else:
             excel_file.seek(0)
             wb = load_workbook(io.BytesIO(excel_file.read()))
-        
         updates.append(f"✅ Template: {parking_code or 'Unknown'}")
-        
         all_files = []
         if monthly_files_current:
             all_files.extend(monthly_files_current)
         if monthly_files_previous:
             all_files.extend(monthly_files_previous)
-        
         if not all_files:
             updates.append("⚠️ No files!")
             output = io.BytesIO()
             wb.save(output)
             output.seek(0)
             return output.getvalue(), updates
-        
         updates.append(f"\n📁 {len(all_files)} files...")
-        
         for file_obj in all_files:
             file_obj.seek(0)
             try:
                 debug.append(f"--- {getattr(file_obj, 'name', 'unknown')} ---")
                 data = extract_monthly_data(file_obj, parking_code, debug)
-                
                 if data:
                     for mn, md in data.items():
                         all_data[mn] = md
@@ -598,33 +525,27 @@ def fix_excel(excel_file, monthly_files_current=None, monthly_files_previous=Non
                     updates.append(f"   ❌ No data extracted")
             finally:
                 pass
-        
         if debug:
             updates.append("\n🔍 Debug:")
             updates.extend(debug)
-        
         if all_data:
             updates.append(f"\n📝 Filling {len(all_data)} months...")
             updates.extend(fill_template(wb, all_data))
-            
             updates.append(f"\n🤖 Allison Smart Correction:")
             corrections = allison_auto_correct(wb, all_data, debug)
             if corrections:
                 updates.extend(corrections)
             else:
-                updates.append("   ✅ No gaps detected - all months balanced")
-            
+                updates.append("   ✅ No gaps detected")
             updates.append(f"\n🔍 Validation:")
             updates.extend(validate_results(wb, all_data))
         else:
             updates.append("\n⚠️ No data!")
-        
         output = io.BytesIO()
         wb.save(output)
         output.seek(0)
         updates.append("\n✅ DONE")
         return output.getvalue(), updates
-        
     except Exception as e:
         updates.append(f"\n❌ {e}")
         import traceback
