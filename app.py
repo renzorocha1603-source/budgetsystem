@@ -142,6 +142,7 @@ def transcribe_with_deepgram(audio_bytes, lang="en"):
         transcript = response["results"]["channels"][0]["alternatives"][0]["transcript"]
         return transcript
     except Exception as e:
+        st.write(f"🔍 Voice recognition error: {str(e)[:100]}")
         return None
 
 
@@ -181,7 +182,6 @@ def text_to_speech(text, lang="en"):
             "model": voice_model,
         }
 
-        # Save to a unique filename to avoid conflicts
         audio_file = f"allison_audio_{datetime.now().timestamp()}.mp3"
         
         response = deepgram.speak.v("1").save(
@@ -190,12 +190,10 @@ def text_to_speech(text, lang="en"):
             options
         )
 
-        # Check if file was created and has content
         if os.path.exists(audio_file) and os.path.getsize(audio_file) > 0:
             with open(audio_file, "rb") as f:
                 audio_bytes = f.read()
             
-            # Clean up temp file
             try:
                 os.remove(audio_file)
             except:
@@ -548,6 +546,7 @@ _D = dict(
     parking_codes=[],
     selected_parking_code=None,
     extracted_rev={},
+    debug_voice="",  # DEBUG: voice status
 )
 
 for k, v in _D.items():
@@ -1252,13 +1251,21 @@ def page_dashboard():
         audio_bytes = audio_recorder(text=T("speak_now"), recording_color="#DC2626", neutral_color="#E67E22", icon_name="microphone", icon_size="1x", key="mic_recorder", pause_threshold=120.0, sample_rate=16000, energy_threshold=0.001)
 
     if audio_bytes:
+        st.session_state.debug_voice = f"🎤 Audio recorded: {len(audio_bytes)} bytes"
         transcript = transcribe_with_deepgram(audio_bytes, st.session_state.lang)
         if transcript and transcript.strip() and transcript != st.session_state.last_processed_text:
+            st.session_state.debug_voice = f"✅ Transcript: {transcript[:100]}"
             st.session_state.last_processed_text = transcript
             st.session_state.messages.append({"role": "user", "content": transcript})
             st.session_state.thinking = True
             st.session_state.thinking_from_voice = True
             st.rerun()
+        else:
+            st.session_state.debug_voice = f"⚠️ Transcript empty or duplicate: '{transcript}'"
+
+    # Show voice debug
+    if st.session_state.debug_voice:
+        st.markdown(f'<div style="font-size:0.55rem;color:{TK()["highlight"]};margin-top:0.25rem;">{st.session_state.debug_voice}</div>', unsafe_allow_html=True)
 
     # ── FILE UPLOAD + WORKFLOW SECTION ──
     col_files, col_wf = st.columns([1, 1])
