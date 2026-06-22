@@ -1,4 +1,4 @@
-# excel_fixer.py - SEARCH BY ACCOUNT NAME (NO HARDCODED ROWS)
+# excel_fixer.py - SEARCH BY NAME + CORRECT COLUMNS (FINAL)
 import io
 import re
 import pandas as pd
@@ -148,11 +148,12 @@ VALIDATION_SEARCH = {
     "benefice net": "_BENEFICE_NET_",
 }
 
+# CORRECTED: January=Column B(2), February=C(3), March=D(4), April=E(5)
 PANDL_MONTH_COLUMNS = {
-    'January': 3,
-    'February': 4,
-    'March': 5,
-    'April': 6,
+    'January': 2,
+    'February': 3,
+    'March': 4,
+    'April': 5,
 }
 
 # ============================================================================
@@ -228,7 +229,7 @@ def extract_from_pnl_excel(file_bytes, parking_code, debug_updates=None):
                             # Only store if not already found (first match wins)
                             if template_row not in data[month_name]:
                                 data[month_name][template_row] = amount
-                                if debug_updates is not None and month_name == 'January':
+                                if debug_updates is not None and month_name == 'January' and amount != 0:
                                     debug_updates.append(f"  ✅ Row {row_idx+1}: '{col_a[:50]}' → Template {template_row} = {amount}")
                     break  # Found match, stop searching for this row
             
@@ -248,7 +249,7 @@ def extract_from_pnl_excel(file_bytes, parking_code, debug_updates=None):
                             
                             if validation_key not in data[month_name]:
                                 data[month_name][validation_key] = amount
-                                if debug_updates is not None and month_name == 'January':
+                                if debug_updates is not None and month_name == 'January' and amount != 0:
                                     debug_updates.append(f"  📊 Row {row_idx+1}: '{col_a[:50]}' → {validation_key} = {amount}")
                     break
         
@@ -357,6 +358,8 @@ def validate_results(wb, all_data):
                 results.append(f"   ✅ NET INCOME = {ben:,.2f} $")
         elif ben is not None:
             results.append(f"   ⚠️ Net: {ben:,.2f} $")
+        else:
+            results.append(f"   ℹ️ No NET INCOME found in P&L")
     
     return results
 
