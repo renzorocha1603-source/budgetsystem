@@ -1,4 +1,4 @@
-# excel_fixer.py - BUDGET INITIAL COLUMN S
+# excel_fixer.py - OTHER MONTHLY REVENUE + SMART UNMATCHED
 import io
 import re
 import pandas as pd
@@ -24,6 +24,7 @@ ACCOUNT_SEARCH = {
     "revenus horaires": 12,
     "monthly revenues": 13,
     "revenus mensuels": 13,
+    "other monthly revenue": 17,
     "car-wash revenue": 14,
     "revenus lave-auto": 14,
     "hotel revenue": 15,
@@ -137,6 +138,37 @@ ACCOUNT_SEARCH = {
     "representation repas": 76,
 }
 
+# Revenue accounts (positive values)
+REVENUE_KEYWORDS = [
+    "revenue", "revenus", "revenu", "income", "interests", "intérêts",
+    "car-wash", "lave-auto", "hotel", "miscellaneous", "autres",
+    "monthly", "mensuels", "transient", "horaires", "journaliers",
+    "violation", "shuttle", "navettes", "valet", "subvention"
+]
+
+# Expense accounts (negative or cost)
+EXPENSE_KEYWORDS = [
+    "wages", "salaires", "salaire", "uniforms", "uniformes",
+    "training", "formation", "recrutement", "supplies", "fournitures",
+    "cleaning", "nettoyage", "equipment", "équipement", "equipement",
+    "maintenance", "entretien", "repair", "réparation", "reparation",
+    "signs", "signalisation", "lines", "lignage", "snow", "neige",
+    "déneigement", "deneigement", "security", "sécurité", "securite",
+    "rent", "loyer", "tax", "taxes", "permis", "license",
+    "insurance", "assurances", "cautionnement", "claims", "réclamations",
+    "telecommunication", "télécommunication", "professional", "comptabilité",
+    "computer", "informatiques", "advertising", "publicité", "promotion",
+    "credit card", "cartes de crédit", "bank", "banque", "frais",
+    "cash", "transport", "office", "bureau", "travel", "déplacement",
+    "management fee", "honoraires", "gestion", "incentives", "incitatif",
+    "depreciation", "amortissement", "financial", "intérêts sur emprunts",
+    "co-ownership", "copropriété", "copropriete", "shuttle", "navettes",
+    "dues", "cotisations", "meal", "repas", "représentation",
+    "bad debts", "mauvaises créances", "penalties", "allocation",
+    "plate search", "collection fees", "software", "parking improvement",
+    "new project", "indigo maintenance", "vinci", "ideal",
+]
+
 VALIDATION_SEARCH = {
     "total revenue": "_TOTAL_REVENUS_",
     "total revenus": "_TOTAL_REVENUS_",
@@ -204,7 +236,6 @@ def detect_single_month_name(file_obj):
 # ============================================================================
 
 def find_year_total_column(df):
-    """Find the Year Total column."""
     for col_idx in range(len(df.columns)):
         for row_idx in range(min(15, len(df))):
             cell_val = str(df.iloc[row_idx, col_idx]).lower()
@@ -223,11 +254,32 @@ def find_year_total_column(df):
     return len(df.columns)
 
 # ============================================================================
+# SMART UNMATCHED - Determine if revenue or expense
+# ============================================================================
+
+def classify_account(account_name):
+    """Determine if an unmatched account is revenue or expense."""
+    account_lower = account_name.lower()
+    
+    for kw in REVENUE_KEYWORDS:
+        if kw in account_lower:
+            return "revenue"
+    
+    for kw in EXPENSE_KEYWORDS:
+        if kw in account_lower:
+            return "expense"
+    
+    # Default: check if account is in expense sections of P&L
+    return "unknown"
+
+# ============================================================================
 # EXCEL P&L EXTRACTION
 # ============================================================================
 
 def extract_from_full_year_pnl(df, debug_updates=None):
     data = {}
+    unmatched_revenue = {}
+    unmatched_expense = {}
     
     if debug_updates is not None:
         debug_updates.append("🔍 DEBUG - Rows with values but not matched:")
@@ -272,32 +324,85 @@ def extract_from_full_year_pnl(df, debug_updates=None):
                                 data[month_name][validation_key] = amount
                     break
         
-        if not matched and debug_updates is not None:
-            jan_val = df.iloc[row_idx, 1] if len(df.columns) > 1 else 0
-            try:
-                if pd.notna(jan_val) and float(jan_val) != 0:
-                    debug_updates.append(f"  ⚠️ UNMATCHED Row {row_idx+1}: '{col_a[:60]}' = {jan_val}")
-            except:
-                pass
+        # Smart unmatched handling
+        if not matched:
+            # Check if this row has any values
+            has_value = False
+            for month_name, col_idx in FULL_YEAR_MONTHS.items():
+                if col_idx < len(df.columns):
+                    val = df.iloc[row_idx, col_idx - 1]
+                    try:
+                        if pd.notna(val) and float(val) != 0:
+                            has_value = True
+                            break
+                    except:
+                        pass
+            
+            if has_value:
+                account_type = classify_account(col_a)
+                
+                if debug_updates is not None:
+                    jan_val = df.iloc[row_idx, 1] if len(df.columns) > 1 else 0
+                    debug_updates.append(f"  ⚠️ UNMATCHED ({account_type}): Row {row_idx+1}: '{col_a[:60]}' = {jan_val}")
+                
+                for month_name, col_idx in FULL_YEAR_MONTHS.items():
+                    if col_idx < len(df.columns):
+                        val = df.iloc[row_idx, col_idx - 1]
+                        try:
+                            amount = float(val) if pd.notna(val) else 0.0
+                        except (ValueError, TypeError):
+                            amount = 0.0
+                        
+                        if amount != 0:
+                            if account_type == "revenue":
+                                if month_name not in unmatched_revenue:
+                                    unmatched_revenue[month_name] = 0.0
+                                unmatched_revenue[month_name] += amount
+                            elif account_type == "expense":
+                                if month_name not in unmatched_expense:
+                                    unmatched_expense[month_name] = 0.0
+                                unmatched_expense[month_name] += amount
+    
+    # Add unmatched revenue to Row 17 (Miscellaneous)
+    for month_name, amount in unmatched_revenue.items():
+        if month_name not in data:
+            data[month_name] = {}
+        current = data[month_name].get(17, 0)
+        data[month_name][17] = current + amount
+        if debug_updates is not None:
+            debug_updates.append(f"  ➕ Added {amount:,.2f} unmatched revenue to Row 17 for {month_name}")
+    
+    # Add unmatched expenses to Row 76 (Meal & Entertainment)
+    for month_name, amount in unmatched_expense.items():
+        if month_name not in data:
+            data[month_name] = {}
+        current = data[month_name].get(76, 0)
+        data[month_name][76] = current + amount
+        if debug_updates is not None:
+            debug_updates.append(f"  ➖ Added {amount:,.2f} unmatched expense to Row 76 for {month_name}")
     
     return data
 
 def extract_year_totals_from_pnl(df, debug_updates=None):
-    """Extract Year Total values from the last column."""
     year_col = find_year_total_column(df)
     
     if debug_updates is not None:
         debug_updates.append(f"📊 Budget Initial: Year Total column = {year_col}")
     
     data = {}
+    unmatched_revenue = 0.0
+    unmatched_expense = 0.0
     
     for row_idx in range(len(df)):
         col_a = str(df.iloc[row_idx, 0]).strip().lower()
         if not col_a or col_a == 'nan':
             continue
         
+        matched = False
+        
         for search_term, template_row in ACCOUNT_SEARCH.items():
             if search_term in col_a:
+                matched = True
                 if year_col <= len(df.columns):
                     val = df.iloc[row_idx, year_col - 1]
                     try:
@@ -306,21 +411,50 @@ def extract_year_totals_from_pnl(df, debug_updates=None):
                         amount = 0.0
                     if template_row not in data:
                         data[template_row] = amount
-                        if debug_updates is not None and amount != 0:
-                            debug_updates.append(f"  ✅ Year Total: '{col_a[:50]}' → Row {template_row} = {amount:,.2f}")
                 break
         
-        for search_term, validation_key in VALIDATION_SEARCH.items():
-            if search_term in col_a:
-                if year_col <= len(df.columns):
-                    val = df.iloc[row_idx, year_col - 1]
-                    try:
-                        amount = float(val) if pd.notna(val) else 0.0
-                    except (ValueError, TypeError):
-                        amount = 0.0
-                    if validation_key not in data:
-                        data[validation_key] = amount
-                break
+        if not matched:
+            for search_term, validation_key in VALIDATION_SEARCH.items():
+                if search_term in col_a:
+                    matched = True
+                    if year_col <= len(df.columns):
+                        val = df.iloc[row_idx, year_col - 1]
+                        try:
+                            amount = float(val) if pd.notna(val) else 0.0
+                        except (ValueError, TypeError):
+                            amount = 0.0
+                        if validation_key not in data:
+                            data[validation_key] = amount
+                    break
+        
+        # Smart unmatched for Year Total
+        if not matched and year_col <= len(df.columns):
+            val = df.iloc[row_idx, year_col - 1]
+            try:
+                amount = float(val) if pd.notna(val) else 0.0
+            except (ValueError, TypeError):
+                amount = 0.0
+            
+            if amount != 0:
+                account_type = classify_account(col_a)
+                if debug_updates is not None:
+                    debug_updates.append(f"  ⚠️ UNMATCHED Year Total ({account_type}): '{col_a[:60]}' = {amount:,.2f}")
+                
+                if account_type == "revenue":
+                    unmatched_revenue += amount
+                elif account_type == "expense":
+                    unmatched_expense += amount
+    
+    # Add unmatched to catch-all rows
+    if unmatched_revenue != 0:
+        data[17] = data.get(17, 0) + unmatched_revenue
+        if debug_updates is not None:
+            debug_updates.append(f"  ➕ Added {unmatched_revenue:,.2f} unmatched revenue to Row 17")
+    
+    if unmatched_expense != 0:
+        data[76] = data.get(76, 0) + unmatched_expense
+        if debug_updates is not None:
+            debug_updates.append(f"  ➖ Added {unmatched_expense:,.2f} unmatched expense to Row 76")
     
     return data
 
@@ -416,18 +550,14 @@ def extract_monthly_data(file_obj, parking_code, debug_updates=None):
     return {}
 
 def extract_budget_initial_data(file_obj, parking_code, debug_updates=None):
-    """Extract Year Total data for Budget Initial sheet."""
     if file_obj is None:
         return None
-    
     file_obj.seek(0)
     file_bytes = file_obj.read()
-    
     if not hasattr(file_obj, 'name') or not file_obj.name.lower().endswith(('.xlsx', '.xls')):
         if debug_updates is not None:
             debug_updates.append("❌ Budget Initial: Not an Excel file")
         return None
-    
     try:
         xl = pd.ExcelFile(io.BytesIO(file_bytes))
         tab_name = None
@@ -435,19 +565,14 @@ def extract_budget_initial_data(file_obj, parking_code, debug_updates=None):
             if parking_code.upper() in sn.upper():
                 tab_name = sn
                 break
-        
         if tab_name is None:
             if debug_updates is not None:
                 debug_updates.append(f"❌ Budget Initial: Tab not found for {parking_code}")
             return None
-        
         df = pd.read_excel(xl, sheet_name=tab_name, header=None)
-        
         if debug_updates is not None:
             debug_updates.append(f"📊 Budget Initial P&L: {len(df)} rows x {len(df.columns)} cols")
-        
         return extract_year_totals_from_pnl(df, debug_updates)
-        
     except Exception as e:
         if debug_updates is not None:
             debug_updates.append(f"❌ Budget Initial error: {e}")
@@ -498,7 +623,6 @@ def fill_template(wb, all_data):
     return updates
 
 def fill_budget_initial(wb, budget_data):
-    """Fill Budget Initial sheet Column S with Year Total data."""
     sheet_name = None
     for sn in wb.sheetnames:
         if 'budget' in sn.lower() and 'initial' in sn.lower():
@@ -509,17 +633,12 @@ def fill_budget_initial(wb, budget_data):
             if 'budget' in sn.lower():
                 sheet_name = sn
                 break
-    
     if sheet_name is None:
         return ["❌ Budget Initial sheet not found"]
-    
     ws = wb[sheet_name]
     updates = []
     total = 0
-    
-    # Column S = 19
     col_s = 19
-    
     for template_row, amount in budget_data.items():
         if str(template_row).startswith('_'):
             continue
@@ -527,7 +646,6 @@ def fill_budget_initial(wb, budget_data):
         ws.cell(row=template_row, column=col_s).number_format = '#,##0.00 $'
         total += 1
         updates.append(f"   ✅ Budget Initial (S{template_row}): {amount:,.2f} $")
-    
     updates.append(f"\n📊 Budget Initial: {total} cells filled in Column S")
     return updates
 
@@ -543,30 +661,11 @@ def allison_analyze(all_data, debug_updates=None):
             continue
         pnl_rev = month_data.get('_TOTAL_REVENUS_', 0)
         pnl_exp = month_data.get('_TOTAL_EXPENSES_', 0)
-        pnl_surplus = month_data.get('_OPERATION_SURPLUS_', 0)
         template_rev = sum(v for k, v in month_data.items() if k in [12, 13, 14, 15, 16, 17, 20, 22, 24])
         template_exp = sum(v for k, v in month_data.items() if k in [29, 30, 31, 32, 35, 36, 37, 38, 39, 40, 41, 42, 46, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 67, 68, 69, 70, 71, 72, 73, 74, 76])
         gap = pnl_ben - (template_rev - template_exp)
         if abs(gap) > 0.01:
-            context = f"""P&L {month_en}: Net={pnl_ben:,.2f}, Revenue={pnl_rev:,.2f}, OpExp={pnl_exp:,.2f}, Surplus={pnl_surplus:,.2f}
-Template: Revenue={template_rev:,.2f}, Expenses={template_exp:,.2f}, Net={template_rev - template_exp:,.2f}
-GAP: {gap:,.2f}
-"""
-            prompt = f"""{context}
-Gap is {gap:,.2f}. What account is likely missing?
-Reply with: row number and account name"""
-            try:
-                resp = requests.post(
-                    MISTRAL_URL,
-                    headers={"Authorization": f"Bearer {MISTRAL_API_KEY}", "Content-Type": "application/json"},
-                    json={"model": MISTRAL_MODEL, "messages": [{"role": "user", "content": prompt}], "temperature": 0.1},
-                    timeout=15
-                )
-                if resp.status_code == 200:
-                    response = resp.json()["choices"][0]["message"]["content"].strip()
-                    corrections.append(f"  🤖 Allison: {month_en} - {response} (gap: {gap:,.2f} $)")
-            except:
-                pass
+            corrections.append(f"  🤖 Allison: {month_en} - Gap of {gap:,.2f} $ (P&L Net: {pnl_ben:,.2f}, Template Net: {template_rev - template_exp:,.2f})")
     return corrections
 
 # ============================================================================
@@ -638,7 +737,6 @@ def fix_excel(excel_file, monthly_files_current=None, monthly_files_previous=Non
             wb = load_workbook(io.BytesIO(excel_file.read()))
         updates.append(f"✅ Template: {parking_code or 'Unknown'}")
         
-        # PROCESS PREVIOUS YEAR FIRST
         if monthly_files_previous:
             updates.append(f"\n📁 Previous year: {len(monthly_files_previous)} files...")
             for file_obj in monthly_files_previous:
@@ -657,7 +755,6 @@ def fix_excel(excel_file, monthly_files_current=None, monthly_files_previous=Non
                 finally:
                     pass
         
-        # PROCESS CURRENT YEAR - only overwrite months with real data
         if monthly_files_current:
             updates.append(f"\n📁 Current year: {len(monthly_files_current)} files...")
             for file_obj in monthly_files_current:
@@ -690,11 +787,9 @@ def fix_excel(excel_file, monthly_files_current=None, monthly_files_previous=Non
             updates.append("\n🔍 Debug:")
             updates.extend(debug)
         
-        # FILL DONNÉES HISTORIQUES
         updates.append(f"\n📝 Filling Données historiques ({len(all_data)} months)...")
         updates.extend(fill_template(wb, all_data))
         
-        # FILL BUDGET INITIAL (Column S)
         if budget_initial_file:
             updates.append(f"\n📝 Processing Budget Initial...")
             budget_data = extract_budget_initial_data(budget_initial_file, parking_code, debug)
