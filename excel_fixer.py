@@ -1,25 +1,17 @@
-# excel_fixer.py - WITH READ DEBUG
+# excel_fixer.py - EXCEL P&L EXTRACTION (FINAL)
 import io
 import re
 import pandas as pd
-import json
-import requests
 from openpyxl import load_workbook
 from openpyxl.utils import get_column_letter
 import tempfile
 import os
 
 # ============================================================================
-# MISTRAL CONFIGURATION
-# ============================================================================
-MISTRAL_API_KEY = "em5oqjSdA1Nus9iUpa1MNAJtQA4YfCtK"
-MISTRAL_URL = "https://api.mistral.ai/v1/chat/completions"
-MISTRAL_MODEL = "mistral-small-latest"
-
-# ============================================================================
-# CORRECTED P&L MAPPING
+# CORRECTED P&L ROW MAPPING (from actual Excel structure)
 # ============================================================================
 PANDL_TO_TEMPLATE = {
+    # PARKING REVENUE
     23: 12,   # Transient Revenue
     17: 13,   # Monthly Revenues
     26: 14,   # Car-Wash Revenue
@@ -28,6 +20,8 @@ PANDL_TO_TEMPLATE = {
     28: 17,   # Miscellaneous
     33: 20,   # Discount-Gratuities - Transient
     34: 22,   # Discount-Gratuities - Monthly
+    
+    # OPERATING EXPENSES
     38: 29,   # Parking wages
     40: 30,   # Other wages
     41: 31,   # Training & Recr.
@@ -54,6 +48,8 @@ PANDL_TO_TEMPLATE = {
     65: 59,   # Professional services
     56: 60,   # Equipment rent
     67: 61,   # Ad. & Promotion
+    
+    # OTHER EXPENSES
     81: 62,   # Percent Management fee
     80: 63,   # Management Fees (Basic)
     84: 64,   # Incentives
@@ -102,6 +98,7 @@ MONTH_COLUMN = {
 # ============================================================================
 
 def extract_from_pnl_excel(file_bytes, parking_code, debug_updates=None):
+    """Extract data from P&L Excel file for a specific parking code."""
     try:
         xl = pd.ExcelFile(io.BytesIO(file_bytes))
         
@@ -123,15 +120,6 @@ def extract_from_pnl_excel(file_bytes, parking_code, debug_updates=None):
         
         if debug_updates is not None:
             debug_updates.append(f"📐 P&L: {len(df)} rows x {len(df.columns)} cols")
-            
-            # DEBUG: Show what we're actually reading
-            debug_updates.append("🔍 READ DEBUG - What values are we getting:")
-            for pnl_row in [17, 23, 24, 26, 28, 31, 33, 34, 36, 38, 40, 42, 45, 46, 50, 51, 53, 62, 64, 68, 75, 77, 92]:
-                if pnl_row <= len(df):
-                    col_a = str(df.iloc[pnl_row-1, 0])[:50] if len(df.columns) > 0 else 'N/A'
-                    col_c = df.iloc[pnl_row-1, 2] if len(df.columns) > 2 else 'N/A'
-                    col_d = df.iloc[pnl_row-1, 3] if len(df.columns) > 3 else 'N/A'
-                    debug_updates.append(f"  P&L Row {pnl_row}: A='{col_a}' | Jan={col_c} | Feb={col_d}")
         
         data = {}
         
@@ -171,13 +159,6 @@ def extract_from_pnl_excel(file_bytes, parking_code, debug_updates=None):
         
         if debug_updates is not None:
             debug_updates.append(f"✅ Extracted {len(data)} months from P&L")
-            
-            # DEBUG: Show final data
-            for month_name in ['January', 'February']:
-                if month_name in data:
-                    debug_updates.append(f"  Final {month_name} data (first 10):")
-                    for k, v in list(data[month_name].items())[:10]:
-                        debug_updates.append(f"    Row {k}: {v}")
         
         return data
         
@@ -187,43 +168,11 @@ def extract_from_pnl_excel(file_bytes, parking_code, debug_updates=None):
         return {}
 
 # ============================================================================
-# ALLISON VALIDATION
-# ============================================================================
-
-def validate_with_allison(all_data, debug_updates=None):
-    if debug_updates is not None:
-        debug_updates.append("🤖 Allison validating...")
-    
-    summary = ""
-    for month_name, month_data in all_data.items():
-        ben = month_data.get('_BENEFICE_NET_', 'N/A')
-        rev = month_data.get('_TOTAL_REVENUS_', 'N/A')
-        exp = month_data.get('_TOTAL_EXPENSES_', 'N/A')
-        summary += f"\n{month_name}: Net={ben}, Rev={rev}, Exp={exp}\n"
-    
-    prompt = f"""Validate this P&L extraction quickly:
-{summary}
-Check: Does NET INCOME = TOTAL REVENUS - TOTAL EXPENSES?
-Reply "VALID" or list issues briefly."""
-    
-    try:
-        resp = requests.post(
-            MISTRAL_URL,
-            headers={"Authorization": f"Bearer {MISTRAL_API_KEY}", "Content-Type": "application/json"},
-            json={"model": MISTRAL_MODEL, "messages": [{"role": "user", "content": prompt}], "temperature": 0.1},
-            timeout=30
-        )
-        if resp.status_code == 200:
-            return resp.json()["choices"][0]["message"]["content"]
-    except:
-        pass
-    return None
-
-# ============================================================================
 # MAIN EXTRACTION
 # ============================================================================
 
 def extract_monthly_data(file_obj, parking_code, debug_updates=None):
+    """Extract data from Excel P&L file."""
     file_obj.seek(0)
     file_bytes = file_obj.read()
     
@@ -232,6 +181,8 @@ def extract_monthly_data(file_obj, parking_code, debug_updates=None):
             debug_updates.append("📊 Excel file detected")
         return extract_from_pnl_excel(file_bytes, parking_code, debug_updates)
     
+    if debug_updates is not None:
+        debug_updates.append("❌ Not an Excel file")
     return {}
 
 # ============================================================================
@@ -239,13 +190,14 @@ def extract_monthly_data(file_obj, parking_code, debug_updates=None):
 # ============================================================================
 
 def fill_template(wb, all_data):
+    """Write extracted data to YELLOW cells only."""
     sheet_name = None
     for sn in wb.sheetnames:
         if 'données' in sn.lower() or 'historique' in sn.lower():
             sheet_name = sn
             break
     if sheet_name is None:
-        return ["❌ Sheet not found"]
+        return ["❌ Sheet '2-Données historiques' not found"]
     
     ws = wb[sheet_name]
     updates = []
@@ -279,6 +231,7 @@ def fill_template(wb, all_data):
 # ============================================================================
 
 def validate_results(wb, all_data):
+    """Check if NET INCOME is consistent."""
     sheet_name = None
     for sn in wb.sheetnames:
         if 'données' in sn.lower() or 'historique' in sn.lower():
@@ -304,7 +257,7 @@ def validate_results(wb, all_data):
             expected = rev - exp
             diff = abs(ben - expected)
             if diff > 0.01:
-                results.append(f"   ⚠️ P&L Net: {ben:,.2f} $ | Expected: {expected:,.2f} $")
+                results.append(f"   ⚠️ P&L Net: {ben:,.2f} $ | Expected: {expected:,.2f} $ (diff: {diff:,.2f} $)")
             else:
                 results.append(f"   ✅ NET INCOME = {ben:,.2f} $")
         elif ben is not None:
@@ -317,6 +270,7 @@ def validate_results(wb, all_data):
 # ============================================================================
 
 def get_parking_codes_from_pnl(file_obj):
+    """Extract all parking codes from P&L Excel tabs."""
     codes = []
     if hasattr(file_obj, 'name'):
         file_obj.seek(0)
@@ -329,12 +283,16 @@ def get_parking_codes_from_pnl(file_obj):
                         codes.append(match.group(1).upper())
             except:
                 pass
+        else:
+            matches = re.findall(r'(CMO\d+)', file_obj.name, re.IGNORECASE)
+            codes.extend(matches)
     file_obj.seek(0)
     return list(set([c.upper() for c in codes]))
 
 def fix_excel(excel_file, monthly_files_current=None, monthly_files_previous=None,
               budget_initial_file=None, fiche_stationnement_file=None,
               parking_code=None, word_data=None):
+    """Main function - extract from P&L Excel and fill template."""
     updates = []
     all_data = {}
     debug = []
@@ -378,9 +336,9 @@ def fix_excel(excel_file, monthly_files_current=None, monthly_files_previous=Non
                         all_data[mn] = md
                         cnt = len([k for k in md if not str(k).startswith('_')])
                         ben = md.get('_BENEFICE_NET_', 'N/A')
-                        updates.append(f"   ✅ {mn}: {cnt} accounts | Net: {ben} $")
+                        updates.append(f"   ✅ {mn}: {cnt} accounts | P&L Net: {ben} $")
                 else:
-                    updates.append(f"   ❌ No data")
+                    updates.append(f"   ❌ No data extracted")
             finally:
                 pass
         
@@ -391,10 +349,6 @@ def fix_excel(excel_file, monthly_files_current=None, monthly_files_previous=Non
         if all_data:
             updates.append(f"\n📝 Filling {len(all_data)} months...")
             updates.extend(fill_template(wb, all_data))
-            updates.append(f"\n🤖 Allison:")
-            ar = validate_with_allison(all_data, debug)
-            if ar:
-                updates.append(f"   {ar[:300]}")
             updates.append(f"\n🔍 Validation:")
             updates.extend(validate_results(wb, all_data))
         else:
