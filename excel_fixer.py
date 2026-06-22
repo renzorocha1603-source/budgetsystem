@@ -1,4 +1,4 @@
-# excel_fixer.py - WITH FICHE STATIONNEMENT (DON'T BREAK IT!)
+# excel_fixer.py - FICHE STATIONNEMENT FIX (MONTHLY GRATUITIES FIRST)
 import io
 import re
 import pandas as pd
@@ -139,7 +139,7 @@ ACCOUNT_SEARCH = {
 }
 
 # ============================================================================
-# FICHE STATIONNEMENT MAPPING (Cell -> Search Terms)
+# FICHE STATIONNEMENT MAPPING (Cell -> Search Terms) - Monthly before Transient!
 # ============================================================================
 FICHE_STATIONNEMENT_MAP = {
     "K17": ["transient revenue", "revenus horaires"],
@@ -147,13 +147,13 @@ FICHE_STATIONNEMENT_MAP = {
     "K19": ["car-wash revenue", "revenus lave-auto"],
     "K20": ["hotel revenue", "revenus hotel", "revenus hôtel"],
     "K21": ["interests", "intérêts", "interets"],
-    "K22": ["miscellaneous", "autres revenus", "other monthly revenue"],
-    "K23": ["discount-gratuities - transient", "gratuities - transient", "discount-gratuities - monthly", "gratuities - monthly"],
+    "K22": ["other monthly revenue", "miscellaneous", "autres revenus"],
+    "K23": ["discount-gratuities - monthly", "gratuities - monthly", "discount-gratuities - transient", "gratuities - transient"],
     "K24": ["rabais", "rebate"],
     "K25": ["other revenue", "autres"],
 }
 
-# Keywords to EXCLUDE from matching (subtotals, headers, totals)
+# Keywords to EXCLUDE from matching
 EXCLUDE_KEYWORDS = [
     "total", "parking revenue", "management revenue", "operation expenses",
     "operating expenses", "operation surplus", "other expenses",
@@ -479,6 +479,8 @@ def extract_fiche_stationnement_data(df, debug_updates=None):
             continue
         
         for cell_ref, search_terms in FICHE_STATIONNEMENT_MAP.items():
+            if cell_ref in data:
+                continue  # Already found this cell
             for term in search_terms:
                 if term in col_a:
                     if year_col <= len(df.columns):
@@ -487,13 +489,12 @@ def extract_fiche_stationnement_data(df, debug_updates=None):
                             amount = float(val) if pd.notna(val) else 0.0
                         except (ValueError, TypeError):
                             amount = 0.0
-                        if cell_ref not in data:
-                            data[cell_ref] = amount
-                            if debug_updates is not None and amount != 0:
-                                debug_updates.append(f"  ✅ Fiche Stationnement: '{col_a[:50]}' → {cell_ref} = {amount:,.2f}")
+                        data[cell_ref] = amount
+                        if debug_updates is not None and amount != 0:
+                            debug_updates.append(f"  ✅ Fiche Stationnement: '{col_a[:50]}' → {cell_ref} = {amount:,.2f}")
                     break
     
-    # Also try to get TOTAL REVENUE for K26
+    # Get TOTAL REVENUE for K26
     for row_idx in range(len(df)):
         col_a = str(df.iloc[row_idx, 0]).strip().lower()
         if "total revenue" in col_a or "total des revenus" in col_a:
@@ -626,7 +627,6 @@ def extract_budget_initial_data(file_obj, parking_code, debug_updates=None):
         return None
 
 def extract_fiche_stationnement_from_file(file_obj, parking_code, debug_updates=None):
-    """Extract Fiche Stationnement data from a P&L file."""
     if file_obj is None:
         return None
     file_obj.seek(0)
@@ -721,7 +721,6 @@ def fill_budget_initial(wb, budget_data):
     return updates
 
 def fill_fiche_stationnement(wb, fiche_data):
-    """Fill Fiche Stationnement sheet with specific cells."""
     sheet_name = None
     for sn in wb.sheetnames:
         if 'fiche' in sn.lower() and 'stationnement' in sn.lower():
