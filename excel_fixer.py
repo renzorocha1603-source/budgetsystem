@@ -1,4 +1,4 @@
-# excel_fixer.py - MERGE DATA (DON'T OVERWRITE WITH ZEROS)
+# excel_fixer.py - OVERWRITE CURRENT YEAR (DON'T MERGE)
 import io
 import re
 import pandas as pd
@@ -351,33 +351,6 @@ def extract_monthly_data(file_obj, parking_code, debug_updates=None):
     return {}
 
 # ============================================================================
-# SMART MERGE - Don't overwrite with zeros
-# ============================================================================
-
-def merge_monthly_data(all_data, new_data):
-    """Merge new_data into all_data. Non-zero values overwrite, zeros don't."""
-    for mn, md in new_data.items():
-        if mn not in all_data:
-            all_data[mn] = md.copy()
-        else:
-            # Check if new data has any non-zero values
-            has_real_data = False
-            for k, v in md.items():
-                if not str(k).startswith('_') and v != 0:
-                    has_real_data = True
-                    break
-            
-            if has_real_data:
-                # Merge: only overwrite with non-zero values
-                for k, v in md.items():
-                    if v != 0:
-                        all_data[mn][k] = v
-                    elif k not in all_data[mn]:
-                        all_data[mn][k] = v
-            # If new data is all zeros, keep existing data
-    return all_data
-
-# ============================================================================
 # TEMPLATE FILLING
 # ============================================================================
 
@@ -530,7 +503,7 @@ def fix_excel(excel_file, monthly_files_current=None, monthly_files_previous=Non
         updates.append(f"✅ Template: {parking_code or 'Unknown'}")
         
         # ================================================================
-        # PROCESS PREVIOUS YEAR FIRST
+        # PROCESS PREVIOUS YEAR FIRST (fills all 12 months)
         # ================================================================
         if monthly_files_previous:
             updates.append(f"\n📁 Previous year: {len(monthly_files_previous)} files...")
@@ -540,8 +513,8 @@ def fix_excel(excel_file, monthly_files_current=None, monthly_files_previous=Non
                     debug.append(f"--- PREVIOUS: {getattr(file_obj, 'name', 'unknown')} ---")
                     data = extract_monthly_data(file_obj, parking_code, debug)
                     if data:
-                        all_data = merge_monthly_data(all_data, data)
                         for mn, md in data.items():
+                            all_data[mn] = md.copy()
                             cnt = len([k for k in md if not str(k).startswith('_')])
                             ben = md.get('_BENEFICE_NET_', 'N/A')
                             updates.append(f"   ✅ {mn}: {cnt} accounts | P&L Net: {ben} $")
@@ -551,7 +524,7 @@ def fix_excel(excel_file, monthly_files_current=None, monthly_files_previous=Non
                     pass
         
         # ================================================================
-        # PROCESS CURRENT YEAR SECOND (only overwrites with non-zero)
+        # PROCESS CURRENT YEAR SECOND (COMPLETELY OVERWRITES Jan-Apr)
         # ================================================================
         if monthly_files_current:
             updates.append(f"\n📁 Current year: {len(monthly_files_current)} files...")
@@ -561,8 +534,8 @@ def fix_excel(excel_file, monthly_files_current=None, monthly_files_previous=Non
                     debug.append(f"--- CURRENT: {getattr(file_obj, 'name', 'unknown')} ---")
                     data = extract_monthly_data(file_obj, parking_code, debug)
                     if data:
-                        all_data = merge_monthly_data(all_data, data)
                         for mn, md in data.items():
+                            all_data[mn] = md.copy()  # FULL OVERWRITE
                             cnt = len([k for k in md if not str(k).startswith('_')])
                             ben = md.get('_BENEFICE_NET_', 'N/A')
                             updates.append(f"   ✅ {mn}: {cnt} accounts | P&L Net: {ben} $")
