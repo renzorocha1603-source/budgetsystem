@@ -1,4 +1,4 @@
-# excel_fixer.py - FICHE STATIONNEMENT FIX (MONTHLY GRATUITIES FIRST)
+# excel_fixer.py - FICHE STATIONNEMENT K23 FIX (MONTHLY GRATUITIES FIRST)
 import io
 import re
 import pandas as pd
@@ -139,7 +139,7 @@ ACCOUNT_SEARCH = {
 }
 
 # ============================================================================
-# FICHE STATIONNEMENT MAPPING (Cell -> Search Terms) - Monthly before Transient!
+# FICHE STATIONNEMENT MAPPING
 # ============================================================================
 FICHE_STATIONNEMENT_MAP = {
     "K17": ["transient revenue", "revenus horaires"],
@@ -148,12 +148,12 @@ FICHE_STATIONNEMENT_MAP = {
     "K20": ["hotel revenue", "revenus hotel", "revenus hôtel"],
     "K21": ["interests", "intérêts", "interets"],
     "K22": ["other monthly revenue", "miscellaneous", "autres revenus"],
-    "K23": ["discount-gratuities - monthly", "gratuities - monthly", "discount-gratuities - transient", "gratuities - transient"],
+    "K23": ["discount-gratuities - monthly", "gratuités - mensuels", "discount-gratuities - transient", "gratuities - transient"],
     "K24": ["rabais", "rebate"],
     "K25": ["other revenue", "autres"],
 }
 
-# Keywords to EXCLUDE from matching
+# Keywords to EXCLUDE
 EXCLUDE_KEYWORDS = [
     "total", "parking revenue", "management revenue", "operation expenses",
     "operating expenses", "operation surplus", "other expenses",
@@ -463,7 +463,7 @@ def extract_year_totals_from_pnl(df, debug_updates=None):
     return data
 
 def extract_fiche_stationnement_data(df, debug_updates=None):
-    """Extract specific revenue accounts for Fiche Stationnement from Year Total."""
+    """Extract Fiche Stationnement data - monthly gratuities first!"""
     year_col = find_year_total_column(df)
     
     if debug_updates is not None:
@@ -471,6 +471,28 @@ def extract_fiche_stationnement_data(df, debug_updates=None):
     
     data = {}
     
+    # FIRST PASS: Handle K23 specifically - search for MONTHLY gratuities before transient
+    for row_idx in range(len(df)):
+        col_a = str(df.iloc[row_idx, 0]).strip().lower()
+        if not col_a or col_a == 'nan':
+            continue
+        if is_excluded_row(col_a):
+            continue
+        
+        # Check for monthly gratuities specifically
+        if "discount-gratuities - monthly" in col_a or "gratuités - mensuels" in col_a:
+            if year_col <= len(df.columns):
+                val = df.iloc[row_idx, year_col - 1]
+                try:
+                    amount = float(val) if pd.notna(val) else 0.0
+                except (ValueError, TypeError):
+                    amount = 0.0
+                data["K23"] = amount
+                if debug_updates is not None:
+                    debug_updates.append(f"  ✅ Fiche Stationnement K23 (Monthly): '{col_a[:50]}' = {amount:,.2f}")
+                break
+    
+    # SECOND PASS: Handle all other cells
     for row_idx in range(len(df)):
         col_a = str(df.iloc[row_idx, 0]).strip().lower()
         if not col_a or col_a == 'nan':
@@ -480,7 +502,9 @@ def extract_fiche_stationnement_data(df, debug_updates=None):
         
         for cell_ref, search_terms in FICHE_STATIONNEMENT_MAP.items():
             if cell_ref in data:
-                continue  # Already found this cell
+                continue
+            if cell_ref == "K23":
+                continue  # Already handled in first pass
             for term in search_terms:
                 if term in col_a:
                     if year_col <= len(df.columns):
@@ -816,7 +840,6 @@ def fix_excel(excel_file, monthly_files_current=None, monthly_files_previous=Non
             wb = load_workbook(io.BytesIO(excel_file.read()))
         updates.append(f"✅ Template: {parking_code or 'Unknown'}")
         
-        # PROCESS PREVIOUS YEAR
         if monthly_files_previous:
             updates.append(f"\n📁 Previous year: {len(monthly_files_previous)} files...")
             for file_obj in monthly_files_previous:
@@ -835,7 +858,6 @@ def fix_excel(excel_file, monthly_files_current=None, monthly_files_previous=Non
                 finally:
                     pass
         
-        # PROCESS CURRENT YEAR
         if monthly_files_current:
             updates.append(f"\n📁 Current year: {len(monthly_files_current)} files...")
             for file_obj in monthly_files_current:
@@ -868,11 +890,9 @@ def fix_excel(excel_file, monthly_files_current=None, monthly_files_previous=Non
             updates.append("\n🔍 Debug:")
             updates.extend(debug)
         
-        # FILL DONNÉES HISTORIQUES
         updates.append(f"\n📝 Filling Données historiques ({len(all_data)} months)...")
         updates.extend(fill_template(wb, all_data))
         
-        # FILL BUDGET INITIAL
         if budget_initial_file:
             updates.append(f"\n📝 Processing Budget Initial...")
             budget_data = extract_budget_initial_data(budget_initial_file, parking_code, debug)
@@ -881,7 +901,6 @@ def fix_excel(excel_file, monthly_files_current=None, monthly_files_previous=Non
             else:
                 updates.append("   ⚠️ No Budget Initial data extracted")
         
-        # FILL FICHE STATIONNEMENT
         if fiche_stationnement_file:
             updates.append(f"\n📝 Processing Fiche Stationnement...")
             fiche_data = extract_fiche_stationnement_from_file(fiche_stationnement_file, parking_code, debug)
