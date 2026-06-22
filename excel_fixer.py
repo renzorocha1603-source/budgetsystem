@@ -1,4 +1,4 @@
-# excel_fixer.py - OTHER MONTHLY REVENUE + SMART UNMATCHED
+# excel_fixer.py - FIXED BUDGET INITIAL + NO DOUBLE COUNTING
 import io
 import re
 import pandas as pd
@@ -138,7 +138,20 @@ ACCOUNT_SEARCH = {
     "representation repas": 76,
 }
 
-# Revenue accounts (positive values)
+# Keywords to EXCLUDE from matching (subtotals, headers, totals)
+EXCLUDE_KEYWORDS = [
+    "total", "parking revenue", "management revenue", "operation expenses",
+    "operating expenses", "operation surplus", "other expenses",
+    "total revenue", "total operation", "net income", "total other",
+    "total frais", "total dépenses", "total depenses", "total des frais",
+    "total des revenus", "bénéfice net", "benefice net",
+    "revenus de stationnement", "dépenses", "depenses",
+    "autres frais", "total autres", "total entretien",
+    "total frais de personnel", "total services publics",
+    "total frais généraux", "total autres dépenses",
+]
+
+# Revenue keywords for classification
 REVENUE_KEYWORDS = [
     "revenue", "revenus", "revenu", "income", "interests", "intérêts",
     "car-wash", "lave-auto", "hotel", "miscellaneous", "autres",
@@ -146,7 +159,6 @@ REVENUE_KEYWORDS = [
     "violation", "shuttle", "navettes", "valet", "subvention"
 ]
 
-# Expense accounts (negative or cost)
 EXPENSE_KEYWORDS = [
     "wages", "salaires", "salaire", "uniforms", "uniformes",
     "training", "formation", "recrutement", "supplies", "fournitures",
@@ -241,7 +253,6 @@ def find_year_total_column(df):
             cell_val = str(df.iloc[row_idx, col_idx]).lower()
             if 'year total' in cell_val or 'année' in cell_val:
                 return col_idx + 1
-    
     for col_idx in range(len(df.columns) - 1, 1, -1):
         for row_idx in range(min(100, len(df))):
             val = df.iloc[row_idx, col_idx]
@@ -250,26 +261,29 @@ def find_year_total_column(df):
                     return col_idx + 1
             except:
                 pass
-    
     return len(df.columns)
 
 # ============================================================================
-# SMART UNMATCHED - Determine if revenue or expense
+# CHECK IF ROW IS A SUBTOTAL/TOTAL (should be skipped)
 # ============================================================================
+
+def is_excluded_row(account_name):
+    """Check if this row is a subtotal, total, or header that should be skipped."""
+    account_lower = account_name.lower().strip()
+    for kw in EXCLUDE_KEYWORDS:
+        if kw in account_lower:
+            return True
+    return False
 
 def classify_account(account_name):
     """Determine if an unmatched account is revenue or expense."""
     account_lower = account_name.lower()
-    
     for kw in REVENUE_KEYWORDS:
         if kw in account_lower:
             return "revenue"
-    
     for kw in EXPENSE_KEYWORDS:
         if kw in account_lower:
             return "expense"
-    
-    # Default: check if account is in expense sections of P&L
     return "unknown"
 
 # ============================================================================
@@ -282,11 +296,15 @@ def extract_from_full_year_pnl(df, debug_updates=None):
     unmatched_expense = {}
     
     if debug_updates is not None:
-        debug_updates.append("🔍 DEBUG - Rows with values but not matched:")
+        debug_updates.append("🔍 DEBUG - Unmatched rows:")
     
     for row_idx in range(len(df)):
         col_a = str(df.iloc[row_idx, 0]).strip().lower()
         if not col_a or col_a == 'nan':
+            continue
+        
+        # Skip excluded rows (subtotals, totals, headers)
+        if is_excluded_row(col_a):
             continue
         
         matched = False
@@ -326,7 +344,6 @@ def extract_from_full_year_pnl(df, debug_updates=None):
         
         # Smart unmatched handling
         if not matched:
-            # Check if this row has any values
             has_value = False
             for month_name, col_idx in FULL_YEAR_MONTHS.items():
                 if col_idx < len(df.columns):
@@ -363,7 +380,7 @@ def extract_from_full_year_pnl(df, debug_updates=None):
                                     unmatched_expense[month_name] = 0.0
                                 unmatched_expense[month_name] += amount
     
-    # Add unmatched revenue to Row 17 (Miscellaneous)
+    # Add unmatched revenue to Row 17 (Miscellaneous) - only if not already captured
     for month_name, amount in unmatched_revenue.items():
         if month_name not in data:
             data[month_name] = {}
@@ -372,7 +389,7 @@ def extract_from_full_year_pnl(df, debug_updates=None):
         if debug_updates is not None:
             debug_updates.append(f"  ➕ Added {amount:,.2f} unmatched revenue to Row 17 for {month_name}")
     
-    # Add unmatched expenses to Row 76 (Meal & Entertainment)
+    # Add unmatched expenses to Row 76
     for month_name, amount in unmatched_expense.items():
         if month_name not in data:
             data[month_name] = {}
@@ -398,6 +415,10 @@ def extract_year_totals_from_pnl(df, debug_updates=None):
         if not col_a or col_a == 'nan':
             continue
         
+        # Skip excluded rows (subtotals, totals, headers)
+        if is_excluded_row(col_a):
+            continue
+        
         matched = False
         
         for search_term, template_row in ACCOUNT_SEARCH.items():
@@ -411,6 +432,8 @@ def extract_year_totals_from_pnl(df, debug_updates=None):
                         amount = 0.0
                     if template_row not in data:
                         data[template_row] = amount
+                        if debug_updates is not None and amount != 0:
+                            debug_updates.append(f"  ✅ Year Total: '{col_a[:50]}' → Row {template_row} = {amount:,.2f}")
                 break
         
         if not matched:
@@ -445,7 +468,6 @@ def extract_year_totals_from_pnl(df, debug_updates=None):
                 elif account_type == "expense":
                     unmatched_expense += amount
     
-    # Add unmatched to catch-all rows
     if unmatched_revenue != 0:
         data[17] = data.get(17, 0) + unmatched_revenue
         if debug_updates is not None:
@@ -477,6 +499,8 @@ def extract_from_single_month_pnl(df, month_name, debug_updates=None):
     for row_idx in range(len(df)):
         col_a = str(df.iloc[row_idx, 0]).strip().lower()
         if not col_a or col_a == 'nan':
+            continue
+        if is_excluded_row(col_a):
             continue
         for search_term, template_row in ACCOUNT_SEARCH.items():
             if search_term in col_a:
@@ -665,7 +689,7 @@ def allison_analyze(all_data, debug_updates=None):
         template_exp = sum(v for k, v in month_data.items() if k in [29, 30, 31, 32, 35, 36, 37, 38, 39, 40, 41, 42, 46, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 67, 68, 69, 70, 71, 72, 73, 74, 76])
         gap = pnl_ben - (template_rev - template_exp)
         if abs(gap) > 0.01:
-            corrections.append(f"  🤖 Allison: {month_en} - Gap of {gap:,.2f} $ (P&L Net: {pnl_ben:,.2f}, Template Net: {template_rev - template_exp:,.2f})")
+            corrections.append(f"  🤖 Allison: {month_en} - Gap of {gap:,.2f} $")
     return corrections
 
 # ============================================================================
