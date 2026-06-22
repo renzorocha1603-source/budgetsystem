@@ -1,4 +1,4 @@
-# excel_fixer.py - ALLISON SUGGESTS BUT DOESN'T AUTO-APPLY + R&M FIX
+# excel_fixer.py - R&M TO ROW 37 (FINAL)
 import io
 import re
 import pandas as pd
@@ -47,13 +47,13 @@ ACCOUNT_SEARCH = {
     "formation & recrutement": 31,
     "uniformes": 32,
     "uniforms": 32,
-    # MAINTENANCE - order matters! More specific first
-    "repair and maintenance": 36,
-    "r&m - cleaning": 35,
-    "nettoyage stationnement": 35,
+    # MAINTENANCE
+    "repair and maintenance": 37,
     "r&m - equipment": 37,
     "entretien équipement": 37,
     "entretien equipement": 37,
+    "r&m - cleaning": 35,
+    "nettoyage stationnement": 35,
     "r&m - general": 36,
     "entretien stationnement": 36,
     "r&m - signs": 38,
@@ -206,7 +206,6 @@ def detect_single_month_name(file_obj):
 def extract_from_full_year_pnl(df, debug_updates=None):
     data = {}
     
-    # DEBUG: Show all unmatched rows that have numbers
     if debug_updates is not None:
         debug_updates.append("🔍 DEBUG - Rows with values but not matched:")
     
@@ -217,7 +216,6 @@ def extract_from_full_year_pnl(df, debug_updates=None):
         
         matched = False
         
-        # Check template accounts
         for search_term, template_row in ACCOUNT_SEARCH.items():
             if search_term in col_a:
                 matched = True
@@ -234,7 +232,6 @@ def extract_from_full_year_pnl(df, debug_updates=None):
                             data[month_name][template_row] = amount
                 break
         
-        # Check validation accounts
         if not matched:
             for search_term, validation_key in VALIDATION_SEARCH.items():
                 if search_term in col_a:
@@ -252,7 +249,6 @@ def extract_from_full_year_pnl(df, debug_updates=None):
                                 data[month_name][validation_key] = amount
                     break
         
-        # Debug: show unmatched rows that have values
         if not matched and debug_updates is not None:
             jan_val = df.iloc[row_idx, 1] if len(df.columns) > 1 else 0
             try:
@@ -389,31 +385,24 @@ def fill_template(wb, all_data):
     return updates
 
 # ============================================================================
-# ALLISON ANALYSIS (suggests but doesn't auto-apply)
+# ALLISON ANALYSIS
 # ============================================================================
 
 def allison_analyze(all_data, debug_updates=None):
-    """Ask Allison to analyze gaps but DON'T auto-apply corrections."""
     corrections = []
-    
     for month_en, month_data in all_data.items():
         col = MONTH_COLUMN.get(month_en)
         if col is None:
             continue
-        
         pnl_ben = month_data.get('_BENEFICE_NET_', 0)
         pnl_rev = month_data.get('_TOTAL_REVENUS_', 0)
         pnl_exp = month_data.get('_TOTAL_EXPENSES_', 0)
         pnl_surplus = month_data.get('_OPERATION_SURPLUS_', 0)
-        
         if pnl_ben == 0:
             continue
-        
         template_rev = sum(v for k, v in month_data.items() if k in [12, 13, 14, 15, 16, 17, 20, 22, 24])
         template_exp = sum(v for k, v in month_data.items() if k in [29, 30, 31, 32, 35, 36, 37, 38, 39, 40, 41, 42, 46, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 67, 68, 69, 70, 71, 72, 73, 74, 76])
-        
         gap = pnl_ben - (template_rev - template_exp)
-        
         if abs(gap) > 0.01:
             context = f"""P&L {month_en}: Net={pnl_ben:,.2f}, Revenue={pnl_rev:,.2f}, OpExp={pnl_exp:,.2f}, Surplus={pnl_surplus:,.2f}
 Template: Revenue={template_rev:,.2f}, Expenses={template_exp:,.2f}, Net={template_rev - template_exp:,.2f}
@@ -424,11 +413,9 @@ Current template values (non-zero):
             for k, v in month_data.items():
                 if not str(k).startswith('_') and v != 0:
                     context += f"Row {k}: {v:,.2f}\n"
-            
             prompt = f"""{context}
 Gap is {gap:,.2f}. What account is likely missing?
-Reply with: row number and account name (e.g., "Row 36 - Repair and Maintenance")"""
-            
+Reply with: row number and account name (e.g., "Row 37 - Repair and Maintenance")"""
             try:
                 resp = requests.post(
                     MISTRAL_URL,
@@ -441,7 +428,6 @@ Reply with: row number and account name (e.g., "Row 36 - Repair and Maintenance"
                     corrections.append(f"  🤖 Allison: {month_en} - {response} (gap: {gap:,.2f} $)")
             except:
                 pass
-    
     return corrections
 
 # ============================================================================
@@ -548,11 +534,10 @@ def fix_excel(excel_file, monthly_files_current=None, monthly_files_previous=Non
         if all_data:
             updates.append(f"\n📝 Filling {len(all_data)} months...")
             updates.extend(fill_template(wb, all_data))
-            updates.append(f"\n🤖 Allison Analysis (suggestions only):")
+            updates.append(f"\n🤖 Allison Analysis:")
             suggestions = allison_analyze(all_data, debug)
             if suggestions:
                 updates.extend(suggestions)
-                updates.append("   ℹ️ Review suggestions above and manually adjust if needed")
             else:
                 updates.append("   ✅ No gaps detected")
             updates.append(f"\n🔍 Validation:")
