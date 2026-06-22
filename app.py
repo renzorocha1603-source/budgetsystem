@@ -11,7 +11,7 @@ import csv
 import zipfile
 from xml.etree import ElementTree
 from audio_recorder_streamlit import audio_recorder
-from deepgram import DeepgramClient
+from deepgram import Deepgram
 import base64
 from excel_fixer import fix_excel, get_parking_codes_from_pnl
 
@@ -112,16 +112,12 @@ def ask_mistral(history: list) -> str:
 # VOICE: Speech-to-Text (transcription)
 # ============================================================================
 def transcribe_with_deepgram(audio_bytes, lang="en"):
-    """Transcribe audio using Deepgram SDK v7"""
+    """Transcribe audio using Deepgram SDK"""
     if not DEEPGRAM_API_KEY:
         return None
 
     try:
-        deepgram = DeepgramClient(DEEPGRAM_API_KEY)
-
-        payload = {
-            "buffer": audio_bytes,
-        }
+        deepgram = Deepgram(DEEPGRAM_API_KEY)
 
         if lang == "fr":
             speech_language = "fr"
@@ -134,8 +130,8 @@ def transcribe_with_deepgram(audio_bytes, lang="en"):
             "language": speech_language,
         }
 
-        response = deepgram.listen.prerecorded.v("1").transcribe_file(
-            payload,
+        response = deepgram.transcription.prerecorded(
+            {"buffer": audio_bytes},
             options
         )
 
@@ -171,7 +167,7 @@ def text_to_speech(text, lang="en"):
         if not clean_text or len(clean_text) < 2:
             return None
 
-        deepgram = DeepgramClient(DEEPGRAM_API_KEY)
+        deepgram = Deepgram(DEEPGRAM_API_KEY)
 
         if lang == "fr":
             voice_model = "aura-2-agathe-fr"
@@ -546,7 +542,7 @@ _D = dict(
     parking_codes=[],
     selected_parking_code=None,
     extracted_rev={},
-    debug_voice="",  # DEBUG: voice status
+    debug_voice="",
 )
 
 for k, v in _D.items():
