@@ -1,4 +1,4 @@
-# excel_fixer.py - WITH TARGETED DEBUG
+# excel_fixer.py - SEARCH BY ACCOUNT NAME (NO HARDCODED ROWS)
 import io
 import re
 import pandas as pd
@@ -8,62 +8,144 @@ import tempfile
 import os
 
 # ============================================================================
-# P&L ROW MAPPING (verified from spatial mapping)
+# ACCOUNT NAME SEARCH PATTERNS (P&L account name -> Template Row)
 # ============================================================================
-PANDL_TO_TEMPLATE = {
-    # PARKING REVENUE
-    23: 12,   # Transient Revenue
-    17: 13,   # Monthly Revenues
-    26: 14,   # Car-Wash Revenue
-    24: 15,   # Hotel Revenue
-    31: 16,   # Interests
-    28: 17,   # Miscellaneous
-    33: 20,   # Discount-Gratuities - Transient
-    34: 22,   # Discount-Gratuities - Monthly
+ACCOUNT_SEARCH = {
+    # REVENUES
+    "transient revenue": 12,
+    "revenus horaires": 12,
+    "monthly revenues": 13,
+    "revenus mensuels": 13,
+    "car-wash revenue": 14,
+    "revenus lave-auto": 14,
+    "hotel revenue": 15,
+    "revenus hotel": 15,
+    "revenus hôtel": 15,
+    "interests": 16,
+    "intérêts": 16,
+    "interets": 16,
+    "miscellaneous": 17,
+    "autres revenus": 17,
+    "discount-gratuities - transient": 20,
+    "gratuities - transient": 20,
+    "discount-gratuities - monthly": 22,
+    "gratuities - monthly": 22,
     
-    # OPERATING EXPENSES
-    38: 29,   # Parking wages
-    40: 30,   # Other wages
-    41: 31,   # Training & Recr.
-    42: 32,   # Uniforms
-    45: 35,   # R&M - Cleaning
-    50: 36,   # R&M - General
-    46: 37,   # R&M - Equipment
-    47: 38,   # R&M - Signs
-    48: 39,   # R&M - Lines
-    54: 40,   # Snow Removal
-    43: 41,   # Parking supplies
-    44: 42,   # Misc. Re-Billing
-    60: 46,   # Public services
-    72: 49,   # Office expenses
-    64: 50,   # Telecommunication
-    55: 51,   # Rent
-    59: 52,   # Vehicle expenses
-    68: 53,   # Credit Card fees
-    70: 54,   # Bank fees
-    69: 55,   # Cash transportation fees
-    63: 56,   # Claims
-    62: 57,   # Insurance & Guarantee
-    61: 58,   # Tax & license
-    65: 59,   # Professional services
-    56: 60,   # Equipment rent
-    67: 61,   # Ad. & Promotion
-    81: 62,   # Percent Management fee
-    80: 63,   # Management Fees (Basic)
-    84: 64,   # Incentives
-    85: 67,   # Depreciation
-    53: 69,   # Security
-    57: 70,   # Co-ownership expenses
-    58: 71,   # Shuttle expenses
-    66: 72,   # Computer services
+    # LABOUR
+    "parking wages": 29,
+    "salaire stationnement": 29,
+    "other wages": 30,
+    "salaire superviseur": 30,
+    "training & recr.": 31,
+    "formation & recrutement": 31,
+    "uniformes": 32,
+    "uniforms": 32,
+    
+    # MAINTENANCE
+    "r&m - cleaning": 35,
+    "nettoyage stationnement": 35,
+    "r&m - general": 36,
+    "entretien stationnement": 36,
+    "r&m - equipment": 37,
+    "entretien équipement": 37,
+    "entretien equipement": 37,
+    "r&m - signs": 38,
+    "signalisation": 38,
+    "r&m - lines": 39,
+    "lignage": 39,
+    "snow removal": 40,
+    "déneigement": 40,
+    "deneigement": 40,
+    "parking supplies": 41,
+    "fournitures stationnement": 41,
+    "misc. re-billing": 42,
+    "refacturations diverses": 42,
+    
+    # PUBLIC SERVICES
+    "public services": 46,
+    "services publics": 46,
+    
+    # OVERHEAD
+    "office expenses": 49,
+    "fournitures de bureau": 49,
+    "telecommunication": 50,
+    "télécommunication": 50,
+    "télécommunications": 50,
+    "rent": 51,
+    "loyer": 51,
+    "travel expenses": 52,
+    "frais de déplacement": 52,
+    "frais de deplacement": 52,
+    "credit card fees": 53,
+    "frais de cartes de crédit": 53,
+    "frais de cartes de credit": 53,
+    "bank fees": 54,
+    "intérêts et frais de banque": 54,
+    "interets et frais de banque": 54,
+    "cash transportation fees": 55,
+    "transport de fonds": 55,
+    "claims": 56,
+    "réclamations": 56,
+    "reclamations": 56,
+    "insurance & guarantee": 57,
+    "assurances et cautionnement": 57,
+    "tax & license": 58,
+    "taxes et permis": 58,
+    "professional services": 59,
+    "comptabilité": 59,
+    "comptabilite": 59,
+    "equipment rent": 60,
+    "location d'équipement": 60,
+    "location d'equipement": 60,
+    "ad. & promotion": 61,
+    "publicité et promotion": 61,
+    "publicite et promotion": 61,
+    "percent management fee": 62,
+    "honoraires de gestion en %": 62,
+    "management fees (basic)": 63,
+    "honoraires de gestion de base": 63,
+    "incentives": 64,
+    "incitatif annuel": 64,
+    
+    # OTHER EXPENSES
+    "depreciation": 67,
+    "amortissement": 67,
+    "financial fees": 68,
+    "intérêts sur emprunts": 68,
+    "interets sur emprunts": 68,
+    "security": 69,
+    "sécurité": 69,
+    "securite": 69,
+    "co-ownership expenses": 70,
+    "frais de copropriété": 70,
+    "frais de copropriete": 70,
+    "shuttle expenses": 71,
+    "frais de navettes": 71,
+    "computer services": 72,
+    "services informatiques": 72,
+    "bad debts": 73,
+    "mauvaises créances": 73,
+    "mauvaises creances": 73,
+    "dues & subscription": 74,
+    "cotisations": 74,
+    "meal & entertainment": 76,
+    "représentation repas": 76,
+    "representation repas": 76,
 }
 
-PANDL_VALIDATION = {
-    29: "_PARKING_REVENUE_",
-    36: "_TOTAL_REVENUS_",
-    75: "_TOTAL_EXPENSES_",
-    77: "_OPERATION_SURPLUS_",
-    92: "_BENEFICE_NET_",
+# Validation accounts
+VALIDATION_SEARCH = {
+    "total revenue": "_TOTAL_REVENUS_",
+    "total revenus": "_TOTAL_REVENUS_",
+    "total des revenus": "_TOTAL_REVENUS_",
+    "total operation expenses": "_TOTAL_EXPENSES_",
+    "total operating expenses": "_TOTAL_EXPENSES_",
+    "total des frais d'exploitation": "_TOTAL_EXPENSES_",
+    "operation surplus": "_OPERATION_SURPLUS_",
+    "operating surplus": "_OPERATION_SURPLUS_",
+    "net income": "_BENEFICE_NET_",
+    "bénéfice net": "_BENEFICE_NET_",
+    "benefice net": "_BENEFICE_NET_",
 }
 
 PANDL_MONTH_COLUMNS = {
@@ -92,11 +174,11 @@ MONTH_COLUMN = {
 }
 
 # ============================================================================
-# EXCEL P&L EXTRACTION
+# EXCEL P&L EXTRACTION - SEARCH BY NAME
 # ============================================================================
 
 def extract_from_pnl_excel(file_bytes, parking_code, debug_updates=None):
-    """Extract data from P&L Excel file for a specific parking code."""
+    """Extract data by searching account names in Column A."""
     try:
         xl = pd.ExcelFile(io.BytesIO(file_bytes))
         
@@ -118,65 +200,60 @@ def extract_from_pnl_excel(file_bytes, parking_code, debug_updates=None):
         
         if debug_updates is not None:
             debug_updates.append(f"📐 P&L: {len(df)} rows x {len(df.columns)} cols")
-            
-            # DETAILED DEBUG: Show exact values being read
-            debug_updates.append("🔍 DEBUG - Reading key P&L rows (Column C = January):")
-            for pnl_row in [17, 23, 24, 26, 28, 29, 31, 33, 34, 36, 38, 40, 42, 45, 46, 50, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 72, 75, 77, 80, 81, 84, 85, 92]:
-                if pnl_row <= len(df):
-                    col_a = str(df.iloc[pnl_row-1, 0])[:50] if len(df.columns) > 0 else 'N/A'
-                    col_c = df.iloc[pnl_row-1, 2] if len(df.columns) > 2 else 'N/A'
-                    template_row = PANDL_TO_TEMPLATE.get(pnl_row, PANDL_VALIDATION.get(pnl_row, '?'))
-                    debug_updates.append(f"  P&L Row {pnl_row} → Template {template_row}: A='{col_a}' | C={col_c}")
+            debug_updates.append("🔍 Searching for accounts by name...")
         
         data = {}
         
-        # Extract template accounts
-        for pnl_row, template_row in PANDL_TO_TEMPLATE.items():
-            if pnl_row > len(df):
+        # Scan every row for matching account names
+        for row_idx in range(len(df)):
+            col_a = str(df.iloc[row_idx, 0]).strip().lower()
+            if not col_a or col_a == 'nan':
                 continue
             
-            for month_name, col_idx in PANDL_MONTH_COLUMNS.items():
-                if col_idx < len(df.columns):
-                    val = df.iloc[pnl_row - 1, col_idx - 1]
-                    try:
-                        amount = float(val) if pd.notna(val) else 0.0
-                    except (ValueError, TypeError):
-                        amount = 0.0
-                    
-                    if month_name not in data:
-                        data[month_name] = {}
-                    data[month_name][template_row] = amount
-                    
-                    # TARGETED DEBUG for key accounts
-                    if pnl_row in [17, 23, 24, 26, 38, 62, 64, 68] and month_name == 'January':
-                        if debug_updates is not None:
-                            debug_updates.append(f"  🎯 SET data['{month_name}']['{template_row}'] = {amount} (from P&L Row {pnl_row}, col {col_idx})")
-        
-        # Extract validation totals
-        for pnl_row, validation_key in PANDL_VALIDATION.items():
-            if pnl_row > len(df):
-                continue
+            # Check template accounts
+            for search_term, template_row in ACCOUNT_SEARCH.items():
+                if search_term in col_a:
+                    # Found a match! Extract values for all months
+                    for month_name, col_idx in PANDL_MONTH_COLUMNS.items():
+                        if col_idx < len(df.columns):
+                            val = df.iloc[row_idx, col_idx - 1]
+                            try:
+                                amount = float(val) if pd.notna(val) else 0.0
+                            except (ValueError, TypeError):
+                                amount = 0.0
+                            
+                            if month_name not in data:
+                                data[month_name] = {}
+                            
+                            # Only store if not already found (first match wins)
+                            if template_row not in data[month_name]:
+                                data[month_name][template_row] = amount
+                                if debug_updates is not None and month_name == 'January':
+                                    debug_updates.append(f"  ✅ Row {row_idx+1}: '{col_a[:50]}' → Template {template_row} = {amount}")
+                    break  # Found match, stop searching for this row
             
-            for month_name, col_idx in PANDL_MONTH_COLUMNS.items():
-                if col_idx < len(df.columns):
-                    val = df.iloc[pnl_row - 1, col_idx - 1]
-                    try:
-                        amount = float(val) if pd.notna(val) else 0.0
-                    except (ValueError, TypeError):
-                        amount = 0.0
-                    
-                    if month_name not in data:
-                        data[month_name] = {}
-                    data[month_name][validation_key] = amount
+            # Check validation accounts
+            for search_term, validation_key in VALIDATION_SEARCH.items():
+                if search_term in col_a:
+                    for month_name, col_idx in PANDL_MONTH_COLUMNS.items():
+                        if col_idx < len(df.columns):
+                            val = df.iloc[row_idx, col_idx - 1]
+                            try:
+                                amount = float(val) if pd.notna(val) else 0.0
+                            except (ValueError, TypeError):
+                                amount = 0.0
+                            
+                            if month_name not in data:
+                                data[month_name] = {}
+                            
+                            if validation_key not in data[month_name]:
+                                data[month_name][validation_key] = amount
+                                if debug_updates is not None and month_name == 'January':
+                                    debug_updates.append(f"  📊 Row {row_idx+1}: '{col_a[:50]}' → {validation_key} = {amount}")
+                    break
         
         if debug_updates is not None:
             debug_updates.append(f"✅ Extracted {len(data)} months from P&L")
-            
-            # DEBUG: Show final data structure
-            if 'January' in data:
-                debug_updates.append("🔍 DEBUG - Final January data (first 10 entries):")
-                for k, v in list(data['January'].items())[:10]:
-                    debug_updates.append(f"  data['January'][{k}] = {v}")
         
         return data
         
