@@ -1,4 +1,4 @@
-# excel_fixer.py - WITH BUDGET INITIAL (COLUMN Q)
+# excel_fixer.py - BUDGET INITIAL COLUMN S
 import io
 import re
 import pandas as pd
@@ -204,25 +204,23 @@ def detect_single_month_name(file_obj):
 # ============================================================================
 
 def find_year_total_column(df):
-    """Find the Year Total column (usually last column with numeric data)."""
-    # Check row 9 for "Year Total" header
+    """Find the Year Total column."""
     for col_idx in range(len(df.columns)):
         for row_idx in range(min(15, len(df))):
             cell_val = str(df.iloc[row_idx, col_idx]).lower()
             if 'year total' in cell_val or 'année' in cell_val:
-                return col_idx + 1  # 1-based
+                return col_idx + 1
     
-    # Fallback: find last column with numeric data
     for col_idx in range(len(df.columns) - 1, 1, -1):
         for row_idx in range(min(100, len(df))):
             val = df.iloc[row_idx, col_idx]
             try:
                 if pd.notna(val) and float(val) != 0:
-                    return col_idx + 1  # 1-based
+                    return col_idx + 1
             except:
                 pass
     
-    return len(df.columns)  # Last column as fallback
+    return len(df.columns)
 
 # ============================================================================
 # EXCEL P&L EXTRACTION
@@ -289,7 +287,7 @@ def extract_year_totals_from_pnl(df, debug_updates=None):
     year_col = find_year_total_column(df)
     
     if debug_updates is not None:
-        debug_updates.append(f"📊 Year Total column: {year_col}")
+        debug_updates.append(f"📊 Budget Initial: Year Total column = {year_col}")
     
     data = {}
     
@@ -300,7 +298,7 @@ def extract_year_totals_from_pnl(df, debug_updates=None):
         
         for search_term, template_row in ACCOUNT_SEARCH.items():
             if search_term in col_a:
-                if year_col < len(df.columns):
+                if year_col <= len(df.columns):
                     val = df.iloc[row_idx, year_col - 1]
                     try:
                         amount = float(val) if pd.notna(val) else 0.0
@@ -314,7 +312,7 @@ def extract_year_totals_from_pnl(df, debug_updates=None):
         
         for search_term, validation_key in VALIDATION_SEARCH.items():
             if search_term in col_a:
-                if year_col < len(df.columns):
+                if year_col <= len(df.columns):
                     val = df.iloc[row_idx, year_col - 1]
                     try:
                         amount = float(val) if pd.notna(val) else 0.0
@@ -500,14 +498,13 @@ def fill_template(wb, all_data):
     return updates
 
 def fill_budget_initial(wb, budget_data):
-    """Fill Budget Initial sheet Column Q with Year Total data."""
+    """Fill Budget Initial sheet Column S with Year Total data."""
     sheet_name = None
     for sn in wb.sheetnames:
         if 'budget' in sn.lower() and 'initial' in sn.lower():
             sheet_name = sn
             break
     if sheet_name is None:
-        # Try to find any sheet with "Budget" in name
         for sn in wb.sheetnames:
             if 'budget' in sn.lower():
                 sheet_name = sn
@@ -520,18 +517,18 @@ def fill_budget_initial(wb, budget_data):
     updates = []
     total = 0
     
-    # Column Q = 17
-    col_q = 17
+    # Column S = 19
+    col_s = 19
     
     for template_row, amount in budget_data.items():
         if str(template_row).startswith('_'):
             continue
-        ws.cell(row=template_row, column=col_q).value = amount
-        ws.cell(row=template_row, column=col_q).number_format = '#,##0.00 $'
+        ws.cell(row=template_row, column=col_s).value = amount
+        ws.cell(row=template_row, column=col_s).number_format = '#,##0.00 $'
         total += 1
-        updates.append(f"   ✅ Budget Initial (Q{template_row}): {amount:,.2f} $")
+        updates.append(f"   ✅ Budget Initial (S{template_row}): {amount:,.2f} $")
     
-    updates.append(f"\n📊 Budget Initial: {total} cells filled in Column Q")
+    updates.append(f"\n📊 Budget Initial: {total} cells filled in Column S")
     return updates
 
 # ============================================================================
@@ -554,12 +551,7 @@ def allison_analyze(all_data, debug_updates=None):
             context = f"""P&L {month_en}: Net={pnl_ben:,.2f}, Revenue={pnl_rev:,.2f}, OpExp={pnl_exp:,.2f}, Surplus={pnl_surplus:,.2f}
 Template: Revenue={template_rev:,.2f}, Expenses={template_exp:,.2f}, Net={template_rev - template_exp:,.2f}
 GAP: {gap:,.2f}
-
-Current template values (non-zero):
 """
-            for k, v in month_data.items():
-                if not str(k).startswith('_') and v != 0:
-                    context += f"Row {k}: {v:,.2f}\n"
             prompt = f"""{context}
 Gap is {gap:,.2f}. What account is likely missing?
 Reply with: row number and account name"""
@@ -646,9 +638,7 @@ def fix_excel(excel_file, monthly_files_current=None, monthly_files_previous=Non
             wb = load_workbook(io.BytesIO(excel_file.read()))
         updates.append(f"✅ Template: {parking_code or 'Unknown'}")
         
-        # ================================================================
         # PROCESS PREVIOUS YEAR FIRST
-        # ================================================================
         if monthly_files_previous:
             updates.append(f"\n📁 Previous year: {len(monthly_files_previous)} files...")
             for file_obj in monthly_files_previous:
@@ -667,9 +657,7 @@ def fix_excel(excel_file, monthly_files_current=None, monthly_files_previous=Non
                 finally:
                     pass
         
-        # ================================================================
         # PROCESS CURRENT YEAR - only overwrite months with real data
-        # ================================================================
         if monthly_files_current:
             updates.append(f"\n📁 Current year: {len(monthly_files_current)} files...")
             for file_obj in monthly_files_current:
@@ -702,15 +690,11 @@ def fix_excel(excel_file, monthly_files_current=None, monthly_files_previous=Non
             updates.append("\n🔍 Debug:")
             updates.extend(debug)
         
-        # ================================================================
         # FILL DONNÉES HISTORIQUES
-        # ================================================================
         updates.append(f"\n📝 Filling Données historiques ({len(all_data)} months)...")
         updates.extend(fill_template(wb, all_data))
         
-        # ================================================================
-        # FILL BUDGET INITIAL
-        # ================================================================
+        # FILL BUDGET INITIAL (Column S)
         if budget_initial_file:
             updates.append(f"\n📝 Processing Budget Initial...")
             budget_data = extract_budget_initial_data(budget_initial_file, parking_code, debug)
