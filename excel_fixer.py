@@ -1,4 +1,4 @@
-# excel_fixer.py - SKIP ZERO MONTHS FROM CURRENT YEAR
+# excel_fixer.py - WITH BUDGET INITIAL (COLUMN Q)
 import io
 import re
 import pandas as pd
@@ -200,6 +200,31 @@ def detect_single_month_name(file_obj):
     return None
 
 # ============================================================================
+# FIND YEAR TOTAL COLUMN
+# ============================================================================
+
+def find_year_total_column(df):
+    """Find the Year Total column (usually last column with numeric data)."""
+    # Check row 9 for "Year Total" header
+    for col_idx in range(len(df.columns)):
+        for row_idx in range(min(15, len(df))):
+            cell_val = str(df.iloc[row_idx, col_idx]).lower()
+            if 'year total' in cell_val or 'année' in cell_val:
+                return col_idx + 1  # 1-based
+    
+    # Fallback: find last column with numeric data
+    for col_idx in range(len(df.columns) - 1, 1, -1):
+        for row_idx in range(min(100, len(df))):
+            val = df.iloc[row_idx, col_idx]
+            try:
+                if pd.notna(val) and float(val) != 0:
+                    return col_idx + 1  # 1-based
+            except:
+                pass
+    
+    return len(df.columns)  # Last column as fallback
+
+# ============================================================================
 # EXCEL P&L EXTRACTION
 # ============================================================================
 
@@ -256,6 +281,48 @@ def extract_from_full_year_pnl(df, debug_updates=None):
                     debug_updates.append(f"  ⚠️ UNMATCHED Row {row_idx+1}: '{col_a[:60]}' = {jan_val}")
             except:
                 pass
+    
+    return data
+
+def extract_year_totals_from_pnl(df, debug_updates=None):
+    """Extract Year Total values from the last column."""
+    year_col = find_year_total_column(df)
+    
+    if debug_updates is not None:
+        debug_updates.append(f"📊 Year Total column: {year_col}")
+    
+    data = {}
+    
+    for row_idx in range(len(df)):
+        col_a = str(df.iloc[row_idx, 0]).strip().lower()
+        if not col_a or col_a == 'nan':
+            continue
+        
+        for search_term, template_row in ACCOUNT_SEARCH.items():
+            if search_term in col_a:
+                if year_col < len(df.columns):
+                    val = df.iloc[row_idx, year_col - 1]
+                    try:
+                        amount = float(val) if pd.notna(val) else 0.0
+                    except (ValueError, TypeError):
+                        amount = 0.0
+                    if template_row not in data:
+                        data[template_row] = amount
+                        if debug_updates is not None and amount != 0:
+                            debug_updates.append(f"  ✅ Year Total: '{col_a[:50]}' → Row {template_row} = {amount:,.2f}")
+                break
+        
+        for search_term, validation_key in VALIDATION_SEARCH.items():
+            if search_term in col_a:
+                if year_col < len(df.columns):
+                    val = df.iloc[row_idx, year_col - 1]
+                    try:
+                        amount = float(val) if pd.notna(val) else 0.0
+                    except (ValueError, TypeError):
+                        amount = 0.0
+                    if validation_key not in data:
+                        data[validation_key] = amount
+                break
     
     return data
 
@@ -350,12 +417,49 @@ def extract_monthly_data(file_obj, parking_code, debug_updates=None):
         debug_updates.append("❌ Not an Excel file")
     return {}
 
+def extract_budget_initial_data(file_obj, parking_code, debug_updates=None):
+    """Extract Year Total data for Budget Initial sheet."""
+    if file_obj is None:
+        return None
+    
+    file_obj.seek(0)
+    file_bytes = file_obj.read()
+    
+    if not hasattr(file_obj, 'name') or not file_obj.name.lower().endswith(('.xlsx', '.xls')):
+        if debug_updates is not None:
+            debug_updates.append("❌ Budget Initial: Not an Excel file")
+        return None
+    
+    try:
+        xl = pd.ExcelFile(io.BytesIO(file_bytes))
+        tab_name = None
+        for sn in xl.sheet_names:
+            if parking_code.upper() in sn.upper():
+                tab_name = sn
+                break
+        
+        if tab_name is None:
+            if debug_updates is not None:
+                debug_updates.append(f"❌ Budget Initial: Tab not found for {parking_code}")
+            return None
+        
+        df = pd.read_excel(xl, sheet_name=tab_name, header=None)
+        
+        if debug_updates is not None:
+            debug_updates.append(f"📊 Budget Initial P&L: {len(df)} rows x {len(df.columns)} cols")
+        
+        return extract_year_totals_from_pnl(df, debug_updates)
+        
+    except Exception as e:
+        if debug_updates is not None:
+            debug_updates.append(f"❌ Budget Initial error: {e}")
+        return None
+
 # ============================================================================
 # CHECK IF MONTH HAS REAL DATA
 # ============================================================================
 
 def month_has_data(month_data):
-    """Check if a month has any non-zero values (real data, not just zeros)."""
     for k, v in month_data.items():
         if not str(k).startswith('_') and v != 0:
             return True
@@ -395,6 +499,41 @@ def fill_template(wb, all_data):
     updates.append(f"\n📊 TOTAL: {total} yellow cells (formulas auto-calculate)")
     return updates
 
+def fill_budget_initial(wb, budget_data):
+    """Fill Budget Initial sheet Column Q with Year Total data."""
+    sheet_name = None
+    for sn in wb.sheetnames:
+        if 'budget' in sn.lower() and 'initial' in sn.lower():
+            sheet_name = sn
+            break
+    if sheet_name is None:
+        # Try to find any sheet with "Budget" in name
+        for sn in wb.sheetnames:
+            if 'budget' in sn.lower():
+                sheet_name = sn
+                break
+    
+    if sheet_name is None:
+        return ["❌ Budget Initial sheet not found"]
+    
+    ws = wb[sheet_name]
+    updates = []
+    total = 0
+    
+    # Column Q = 17
+    col_q = 17
+    
+    for template_row, amount in budget_data.items():
+        if str(template_row).startswith('_'):
+            continue
+        ws.cell(row=template_row, column=col_q).value = amount
+        ws.cell(row=template_row, column=col_q).number_format = '#,##0.00 $'
+        total += 1
+        updates.append(f"   ✅ Budget Initial (Q{template_row}): {amount:,.2f} $")
+    
+    updates.append(f"\n📊 Budget Initial: {total} cells filled in Column Q")
+    return updates
+
 # ============================================================================
 # ALLISON ANALYSIS
 # ============================================================================
@@ -402,9 +541,6 @@ def fill_template(wb, all_data):
 def allison_analyze(all_data, debug_updates=None):
     corrections = []
     for month_en, month_data in all_data.items():
-        col = MONTH_COLUMN.get(month_en)
-        if col is None:
-            continue
         pnl_ben = month_data.get('_BENEFICE_NET_', 0)
         if pnl_ben == 0:
             continue
@@ -455,9 +591,6 @@ def validate_results(wb, all_data):
         return ["⚠️ Cannot validate"]
     results = []
     for month_en, month_data in all_data.items():
-        col = MONTH_COLUMN.get(month_en)
-        if col is None:
-            continue
         ben = month_data.get('_BENEFICE_NET_')
         rev = month_data.get('_TOTAL_REVENUS_')
         exp = month_data.get('_TOTAL_EXPENSES_')
@@ -514,7 +647,7 @@ def fix_excel(excel_file, monthly_files_current=None, monthly_files_previous=Non
         updates.append(f"✅ Template: {parking_code or 'Unknown'}")
         
         # ================================================================
-        # PROCESS PREVIOUS YEAR FIRST (fills all 12 months)
+        # PROCESS PREVIOUS YEAR FIRST
         # ================================================================
         if monthly_files_previous:
             updates.append(f"\n📁 Previous year: {len(monthly_files_previous)} files...")
@@ -559,7 +692,7 @@ def fix_excel(excel_file, monthly_files_current=None, monthly_files_previous=Non
                     pass
         
         if not all_data:
-            updates.append("⚠️ No files!")
+            updates.append("⚠️ No monthly data!")
             output = io.BytesIO()
             wb.save(output)
             output.seek(0)
@@ -569,8 +702,23 @@ def fix_excel(excel_file, monthly_files_current=None, monthly_files_previous=Non
             updates.append("\n🔍 Debug:")
             updates.extend(debug)
         
-        updates.append(f"\n📝 Filling {len(all_data)} months...")
+        # ================================================================
+        # FILL DONNÉES HISTORIQUES
+        # ================================================================
+        updates.append(f"\n📝 Filling Données historiques ({len(all_data)} months)...")
         updates.extend(fill_template(wb, all_data))
+        
+        # ================================================================
+        # FILL BUDGET INITIAL
+        # ================================================================
+        if budget_initial_file:
+            updates.append(f"\n📝 Processing Budget Initial...")
+            budget_data = extract_budget_initial_data(budget_initial_file, parking_code, debug)
+            if budget_data:
+                updates.extend(fill_budget_initial(wb, budget_data))
+            else:
+                updates.append("   ⚠️ No Budget Initial data extracted")
+        
         updates.append(f"\n🤖 Allison Analysis:")
         suggestions = allison_analyze(all_data, debug)
         if suggestions:
